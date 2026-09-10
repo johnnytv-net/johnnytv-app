@@ -1,0 +1,91 @@
+name: Build JohnnyTV
+
+# Runs whenever anything in the app changes, and from the Actions tab on demand.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The repository starts life as one zip, because uploading a hundred loose
+      # files through a web page is not a thing anyone should have to do. The
+      # first run unpacks it into a normal source tree and commits that, so every
+      # run after this one is an ordinary build. [skip ci] stops the commit from
+      # starting a second build on top of this one.
+      - name: Unpack the source bundle, first run only
+        run: |
+          if [ -f source.zip ]; then
+            unzip -q -o source.zip -d .
+            rm -f source.zip
+            git config user.name "JohnnyTV build"
+            git config user.email "build@johnnytv.invalid"
+            git add -A
+            git commit -m "Unpack app source [skip ci]"
+            git push
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Written out from the repository secret, used by app/build.gradle.kts, and
+      # gone when the runner is thrown away. Never committed.
+      - name: Restore the signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::KEYSTORE_B64 is not set. Add it under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > johnnytv.jks
+          echo "Signing key restored ($(stat -c%s johnnytv.jks) bytes)"
+
+      - name: Build the app
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Check it came out signed
+        run: |
+          APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          echo "APK=$APK" >> $GITHUB_ENV
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$APK" | head -20
+
+      - name: Name it and read its version
+        run: |
+          VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
+          CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' app/build.gradle.kts)
+          cp "$APK" JohnnyTV.apk
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "CODE=$CODE" >> $GITHUB_ENV
+          echo "Built JohnnyTV $VERSION ($CODE)"
+
+      # Published under a version tag, but the address customers download from is
+      # the /releases/latest/download/ one, which never changes from one version
+      # to the next - so config.json never has to be edited again either.
+      - name: Publish it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete "v$VERSION" --yes --cleanup-tag || true
+          gh release create "v$VERSION" \
+            --title "JohnnyTV $VERSION" \
+            --notes "Version $VERSION, build $CODE." \
+            JohnnyTV.apk
+
+      - name: Where it went
+        run: |
+          echo "### JohnnyTV $VERSION (build $CODE) is published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Download link (this address never changes):" >> $GITHUB_STEP_SUMMARY
+          echo "https://github.com/${{ github.repository }}/releases/latest/download/JohnnyTV.apk" >> $GITHUB_STEP_SUMMARY
