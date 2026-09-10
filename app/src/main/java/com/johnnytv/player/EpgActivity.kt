@@ -115,12 +115,15 @@ class EpgActivity : AppCompatActivity() {
         // No change animations: the two lists are scrolled together by pixel
         // deltas, and a cross-fade on one of them shows up as a wobble.
         channelColumn.itemAnimator = null
-        
-        channelColumn.setHasFixedSize(true)
 
         gridRows.layoutManager = LinearLayoutManager(this)
         gridRows.adapter = rowAdapter
-        gridRows.setHasFixedSize(true)
+
+        // Both lists used to declare setHasFixedSize(true). It was wrong on the
+        // grid - its width is wrap_content, so it genuinely does resize when a
+        // category with longer programmes loads - and the release build refuses
+        // to ship while it is there. The saving was a layout pass on a screen
+        // that is rebuilt once per category change, so nothing is lost.
 
         syncVerticalScrolling()
         syncHorizontalScrolling()
