@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The short brand-blue bar down the left of a message card.
+
+    It does the job a bold first word would do in print: catches the eye from
+    across a room and says which of the things on this screen is new. Rounded
+    ends so it reads as a deliberate mark rather than a rendering seam.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/brand_primary" />
+    <corners android:radius="3dp" />
+</shape>
