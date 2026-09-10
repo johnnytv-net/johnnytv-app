@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brand loading indicator: a half circle turning, the JohnnyTV mark held still
+     behind it. Used by the player, the series screen and the guide. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:background="@null">
+
+    <com.johnnytv.player.SpinnerView
+        android:layout_width="104dp"
+        android:layout_height="104dp"
+        android:layout_gravity="center"
+        android:contentDescription="@string/loading" />
+</FrameLayout>

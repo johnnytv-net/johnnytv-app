@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      WHITE LABEL: the whole app is themed from these five colours.
+      bg_base is true black so it switches an OLED panel fully off - that is what
+      makes edges look crisp rather than washed. bg_surface is the faint lift that
+      keeps cards and rows visible against it; do not set the two the same.
+    -->
+    <color name="brand_primary">#FF2E7DF7</color>
+    <color name="brand_primary_dark">#FF1B4FA8</color>
+    <color name="brand_accent">#FF32D6A0</color>
+    <color name="bg_base">#FF000000</color>
+    <color name="bg_surface">#FF111519</color>
+
+    <color name="text_primary">#FFF2F5F8</color>
+    <color name="text_secondary">#FFA6B2BF</color>
+    <!-- TV guide. Blocks sit just above the background so the grid reads as rows
+         without any lines being drawn; the focused block flips to near-white with
+         dark text, the way a set-top box guide does. -->
+    <color name="epg_block">#FF171B22</color>
+    <color name="epg_block_on_air">#FF243040</color>
+    <color name="epg_block_focused">#FFEEF3F9</color>
+    <color name="epg_on_dark">#FF0A0D11</color>
+    <color name="epg_now">#FF6FB3FF</color>
+
+    <!-- Loading indicator: a light blue arc turning on a near-black track. -->
+    <color name="spinner_track">#FF1A1F27</color>
+    <color name="spinner_arc">#FF4C93FF</color>
+
+    <color name="focus_fill">#FF2E7DF7</color>
+    <color name="selected_fill">#552E7DF7</color>
+</resources>

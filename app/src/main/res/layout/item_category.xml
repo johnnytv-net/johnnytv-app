@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_list_item"
+    android:clickable="true"
+    android:focusable="true"
+    android:orientation="vertical"
+    android:paddingStart="14dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="11dp"
+    android:paddingBottom="11dp">
+
+    <TextView
+        android:id="@+id/categoryName"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:breakStrategy="simple"
+        android:ellipsize="end"
+        android:hyphenationFrequency="none"
+        android:maxLines="2"
+        android:textColor="@color/text_primary"
+        android:textSize="15sp" />
+
+    <TextView
+        android:id="@+id/categoryCount"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="@color/text_secondary"
+        android:textSize="12sp"
+        android:visibility="gone" />
+</LinearLayout>

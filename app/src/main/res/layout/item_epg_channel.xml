@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    One channel down the left of the guide: number, logo, name.
+    The row turns brand blue when the panel above is describing it.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="@dimen/epg_row_height"
+    android:background="@drawable/bg_epg_row"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="4dp"
+    android:paddingEnd="10dp">
+
+    <TextView
+        android:id="@+id/channelNumber"
+        android:layout_width="36dp"
+        android:layout_height="wrap_content"
+        android:duplicateParentState="true"
+        android:ellipsize="none"
+        android:fontFamily="sans-serif-medium"
+        android:gravity="end"
+        android:maxLines="1"
+        android:textColor="@color/epg_number_text"
+        android:textSize="15sp" />
+
+    <ImageView
+        android:id="@+id/channelLogo"
+        android:layout_width="48dp"
+        android:layout_height="40dp"
+        android:layout_marginStart="10dp"
+        android:background="@drawable/bg_logo_tile"
+        android:contentDescription="@string/live_tv"
+        android:padding="3dp"
+        android:scaleType="centerInside"
+        android:src="@drawable/tile_placeholder" />
+
+    <TextView
+        android:id="@+id/channelName"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_weight="1"
+        android:duplicateParentState="true"
+        android:ellipsize="end"
+        android:fontFamily="sans-serif-medium"
+        android:letterSpacing="0.02"
+        android:maxLines="2"
+        android:textColor="@color/epg_channel_text"
+        android:textSize="13sp" />
+</LinearLayout>

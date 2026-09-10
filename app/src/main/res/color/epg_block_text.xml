@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The focused block is near-white, so its title has to flip to dark. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/epg_on_dark" android:state_focused="true" />
+    <item android:color="@color/epg_on_dark" android:state_pressed="true" />
+    <item android:color="@color/text_primary" />
+</selector>

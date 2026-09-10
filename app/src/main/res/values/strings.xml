@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- WHITE LABEL: this is the name shown on the launcher -->
+    <string name="app_name">JohnnyTV</string>
+
+    <!-- sign in -->
+    <string name="server_hint">Server address</string>
+    <string name="username_hint">Username</string>
+    <string name="password_hint">Password</string>
+    <string name="search_everything">Search</string>
+    <string name="search_everything_hint">Search channels, films and series</string>
+    <string name="watch_hint">Press again to watch</string>
+    <string name="watch_hint_focus">Press OK to watch</string>
+    <string name="search_prompt">Type to search across Live TV, Movies and Series</string>
+    <string name="show_password">Show password</string>
+    <string name="hide_password">Hide password</string>
+    <string name="sign_in">Sign in</string>
+    <string name="welcome_back">Welcome back</string>
+    <string name="sign_in_hint">Enter the username and password you were given.</string>
+    <string name="brand_tagline">Live TV · Movies · Series</string>
+    <string name="trouble_signing_in">Trouble signing in? Contact your provider.</string>
+    <string name="label_username">Username</string>
+    <string name="label_password">Password</string>
+    <string name="signing_in">Signing in…</string>
+    <string name="connecting">Connecting…</string>
+    <string name="fill_all_fields">Please enter your username and password</string>
+    <string name="no_server">Service unavailable right now. Please try again shortly.</string>
+    <string name="support_mode">Support mode: server address unlocked</string>
+
+    <!-- updates -->
+    <string name="update_title">Update available</string>
+    <string name="update_message">A newer version of JohnnyTV is ready. Update for the best experience.</string>
+    <string name="update_now">Update</string>
+    <string name="update_later">Later</string>
+    <string name="update_downloading">Downloading the update…</string>
+    <string name="update_percent">%1$d%%</string>
+    <string name="update_failed_title">The update did not download</string>
+    <string name="update_failed_message">The connection may have dropped. You can try again, or open the download link if this box has a browser.</string>
+    <string name="update_retry">Try again</string>
+    <string name="update_open_link">Open link</string>
+    <string name="update_permission_title">Allow JohnnyTV to install the update</string>
+    <string name="update_permission_message">Android needs your permission before an app can install an update. Choose JohnnyTV on the next screen and turn on “Allow from this source”, then come back and press Update.</string>
+    <string name="update_permission_go">Open settings</string>
+    <string name="update_no_installer">This box would not open the installer. Install the update by hand, or contact support.</string>
+
+    <!-- subscription -->
+    <string name="expiry_today">JohnnyTV Account Expires Today</string>
+    <string name="expiry_tomorrow">JohnnyTV Account Expires Tomorrow</string>
+    <string name="expiry_days">JohnnyTV Account Expires in %1$d Days</string>
+    <string name="expiry_ok">Got it</string>
+
+    <!-- sync -->
+    <string name="sync_title">Updating your content</string>
+    <string name="sync_message">This happens once. Browsing will be instant afterwards.</string>
+    <string name="count_channels">%1$s channels</string>
+    <string name="count_films">%1$s films</string>
+    <string name="count_series">%1$s series</string>
+    <string name="sync_empty">Nothing came back from the server. Check your account and try again.</string>
+    <string name="sync_failed">Could not load your content.</string>
+
+    <!-- sections -->
+    <string name="live_tv">Live TV</string>
+    <string name="movies">Movies</string>
+    <string name="series">Series</string>
+    <string name="favourites">Favourites</string>
+    <string name="recently_added">Recently added</string>
+    <string name="continue_watching">Continue watching</string>
+    <string name="all_items">All</string>
+    <string name="featured">Featured</string>
+
+    <!-- guide -->
+    <string name="tv_guide">TV Guide</string>
+    <string name="message_got_it">Got it</string>
+    <string name="whats_on_now">What\'s on now</string>
+    <string name="guide">Guide</string>
+    <string name="channel">Channel</string>
+    <string name="no_guide_short">No guide</string>
+    <string name="up_next">Next %1$s   %2$s</string>
+    <string name="view_list">List</string>
+    <string name="view_grid">Grid</string>
+    <string name="preview_unavailable">Preview unavailable</string>
+    <string name="channel_preview">Preview channels in list view</string>
+    <string name="channel_preview_on">On — the highlighted channel plays silently</string>
+    <string name="channel_preview_off">Off — uses no connection while browsing</string>
+    <string name="no_favourite_channels">No favourite channels yet. Long-press a channel in Live TV to add one.</string>
+    <string name="search_channels">Search channels</string>
+    <string name="pick_a_channel">Pick a channel to see what\'s on</string>
+    <string name="no_guide">No guide information for this channel.</string>
+    <string name="no_channels">No channels found. Try refreshing your content.</string>
+    <string name="on_now">ON NOW</string>
+    <string name="watch">Watch</string>
+    <string name="now_playing_label">Now: %s</string>
+
+    <!-- browsing -->
+    <string name="search_hint">Search</string>
+    <string name="sort_default">Default order</string>
+    <string name="sort_az">A – Z</string>
+    <string name="nothing_here">Nothing here</string>
+    <string name="loading">Loading…</string>
+    <string name="added_favourite">Added %s to favourites</string>
+    <string name="removed_favourite">Removed %s from favourites</string>
+
+    <!-- series -->
+    <string name="season_number">Season %d</string>
+    <string name="no_episodes">No episodes found for this series.</string>
+    <string name="add_to_favourites">Add to favourites</string>
+    <string name="in_favourites">In favourites</string>
+
+    <!-- player -->
+    <string name="nothing_to_play">Nothing to play.</string>
+    <string name="reconnecting">Reconnecting to %s…</string>
+    <string name="could_not_play">Could not play %s. The channel may be offline or the server busy.</string>
+
+    <!-- settings -->
+    <string name="settings">Settings</string>
+    <string name="account">Account</string>
+    <string name="content">Content</string>
+    <string name="refresh_content">Refresh content now</string>
+    <string name="clear_searches">Clear recent searches</string>
+    <string name="searches_cleared">Recent searches cleared</string>
+    <string name="last_error">View last error report</string>
+    <string name="no_errors">Nothing has gone wrong since the app was installed.</string>
+    <string name="close">Close</string>
+    <string name="clear_error">Clear</string>
+    <string name="sign_out">Sign out</string>
+    <string name="sign_out_confirm">You will need your username and password to sign back in.</string>
+    <string name="cancel">Cancel</string>
+    <string name="account_unavailable">Account details unavailable right now.</string>
+    <string name="catalogue_summary">%1$d channels · %2$d movies · %3$d series\nLast updated %4$s</string>
+    <string name="version_label">Version %1$s (%2$d)</string>
+    <string name="wrong_login">Wrong username or password.</string>
+</resources>

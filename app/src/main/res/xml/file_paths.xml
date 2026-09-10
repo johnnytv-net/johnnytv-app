@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The one folder the installer is allowed to read from: the cache directory
+    the update is downloaded into. Nothing else in the app is exposed.
+-->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>

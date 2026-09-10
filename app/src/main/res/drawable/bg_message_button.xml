@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The "Got it" button inside a message band.
+
+    bg_list_item is invisible until it is focused, which is right for a row in a
+    long list and wrong here: this is the one thing on the band you are meant to
+    press, and it has to look pressable before the remote ever reaches it. So it
+    carries a faint outline at rest and fills solid blue when focused.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/focus_fill" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/focus_fill" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#332E7DF7" />
+            <stroke android:width="1dp" android:color="#772E7DF7" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+</selector>

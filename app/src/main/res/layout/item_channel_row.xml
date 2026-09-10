@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    List view row: number, logo, channel name, and what is on right now with
+    how far through it is.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_list_item"
+    android:clickable="true"
+    android:focusable="true"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="6dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="7dp"
+    android:paddingBottom="7dp">
+
+    <TextView
+        android:id="@+id/rowNumber"
+        android:layout_width="38dp"
+        android:layout_height="wrap_content"
+        android:duplicateParentState="true"
+        android:fontFamily="sans-serif-medium"
+        android:gravity="end"
+        android:maxLines="1"
+        android:textColor="@color/epg_number_text"
+        android:textSize="14sp" />
+
+    <ImageView
+        android:id="@+id/rowLogo"
+        android:layout_width="46dp"
+        android:layout_height="38dp"
+        android:layout_marginStart="10dp"
+        android:background="@drawable/bg_logo_tile"
+        android:contentDescription="@string/live_tv"
+        android:padding="3dp"
+        android:scaleType="centerInside"
+        android:src="@drawable/tile_placeholder" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/rowName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:duplicateParentState="true"
+            android:ellipsize="end"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.02"
+            android:maxLines="1"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/rowNow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
+        <ProgressBar
+            android:id="@+id/rowProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="2dp"
+            android:layout_marginTop="5dp"
+            android:max="100"
+            android:progressDrawable="@drawable/bg_now_progress"
+            android:visibility="invisible" />
+    </LinearLayout>
+
+    <ImageView
+        android:id="@+id/rowStar"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_marginStart="8dp"
+        android:contentDescription="@string/favourites"
+        android:src="@drawable/ic_star"
+        android:visibility="gone" />
+</LinearLayout>

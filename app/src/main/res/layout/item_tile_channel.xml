@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Live TV: the same card as a poster, with the channel logo sitting inside it. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:clickable="true"
+    android:focusable="true"
+    android:orientation="vertical"
+    android:padding="5dp">
+
+    <com.johnnytv.player.ChannelFrame
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_poster_card"
+        android:duplicateParentState="true"
+        android:foreground="@drawable/fg_poster_border">
+
+        <ImageView
+            android:id="@+id/tileImage"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@string/app_name"
+            android:padding="7dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/tile_placeholder" />
+
+        <ImageView
+            android:id="@+id/tileStar"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_gravity="top|end"
+            android:layout_margin="5dp"
+            android:contentDescription="@string/favourites"
+            android:src="@drawable/ic_star"
+            android:visibility="gone" />
+    </com.johnnytv.player.ChannelFrame>
+
+    <TextView
+        android:id="@+id/tileTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:breakStrategy="simple"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:hyphenationFrequency="none"
+        android:maxLines="2"
+        android:minLines="2"
+        android:textColor="@color/text_primary"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/tileSubtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:maxLines="1"
+        android:textColor="@color/text_secondary"
+        android:textSize="11sp"
+        android:visibility="gone" />
+</LinearLayout>

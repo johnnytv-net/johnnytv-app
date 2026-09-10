@@ -1,0 +1,10 @@
+# Build output and local caches - never committed.
+build/
+.gradle/
+local.properties
+.idea/
+*.iml
+
+# The signing key. Lives in the repository secret KEYSTORE_B64, never here.
+*.jks
+*.keystore

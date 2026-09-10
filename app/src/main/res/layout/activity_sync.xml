@@ -1,0 +1,239 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    First run after signing in.
+
+    The JohnnyTV mark fills the screen behind everything, held right back, and the
+    only bright things are the arc turning and the bars filling. No sentence under
+    the rows: the rows already say what is happening.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_base">
+
+    <ImageView
+        android:id="@+id/syncBackdrop"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center"
+        android:alpha="0.30"
+        android:contentDescription="@string/app_name"
+        android:padding="40dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/logo_square" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <com.johnnytv.player.SpinnerView
+            android:id="@+id/syncSpinner"
+            android:layout_width="74dp"
+            android:layout_height="74dp"
+            android:contentDescription="@string/loading" />
+
+        <LinearLayout
+            android:layout_width="360dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="34dp"
+            android:orientation="vertical">
+
+            <!-- Live TV -->
+            <LinearLayout
+                android:id="@+id/rowLive"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:contentDescription="@string/live_tv"
+                        android:src="@drawable/ic_live"
+                        android:tint="@color/text_primary" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:layout_weight="1"
+                        android:fontFamily="sans-serif-medium"
+                        android:letterSpacing="0.02"
+                        android:text="@string/live_tv"
+                        android:textColor="@color/text_primary"
+                        android:textSize="11sp" />
+
+                    <TextView
+                        android:id="@+id/countLive"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="10sp" />
+
+                    <ImageView
+                        android:id="@+id/tickLive"
+                        android:layout_width="13dp"
+                        android:layout_height="13dp"
+                        android:layout_marginStart="8dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_tick"
+                        android:visibility="invisible" />
+                </LinearLayout>
+
+                <ProgressBar
+                    android:id="@+id/barLive"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="4dp"
+                    android:layout_marginTop="7dp"
+                    android:max="100"
+                    android:progressDrawable="@drawable/bg_sync_progress" />
+            </LinearLayout>
+
+            <!-- Movies -->
+            <LinearLayout
+                android:id="@+id/rowVod"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:contentDescription="@string/movies"
+                        android:src="@drawable/ic_movies"
+                        android:tint="@color/text_primary" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:layout_weight="1"
+                        android:fontFamily="sans-serif-medium"
+                        android:letterSpacing="0.02"
+                        android:text="@string/movies"
+                        android:textColor="@color/text_primary"
+                        android:textSize="11sp" />
+
+                    <TextView
+                        android:id="@+id/countVod"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="10sp" />
+
+                    <ImageView
+                        android:id="@+id/tickVod"
+                        android:layout_width="13dp"
+                        android:layout_height="13dp"
+                        android:layout_marginStart="8dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_tick"
+                        android:visibility="invisible" />
+                </LinearLayout>
+
+                <ProgressBar
+                    android:id="@+id/barVod"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="4dp"
+                    android:layout_marginTop="7dp"
+                    android:max="100"
+                    android:progressDrawable="@drawable/bg_sync_progress" />
+            </LinearLayout>
+
+            <!-- Series -->
+            <LinearLayout
+                android:id="@+id/rowSeries"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:contentDescription="@string/series"
+                        android:src="@drawable/ic_series"
+                        android:tint="@color/text_primary" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:layout_weight="1"
+                        android:fontFamily="sans-serif-medium"
+                        android:letterSpacing="0.02"
+                        android:text="@string/series"
+                        android:textColor="@color/text_primary"
+                        android:textSize="11sp" />
+
+                    <TextView
+                        android:id="@+id/countSeries"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="10sp" />
+
+                    <ImageView
+                        android:id="@+id/tickSeries"
+                        android:layout_width="13dp"
+                        android:layout_height="13dp"
+                        android:layout_marginStart="8dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_tick"
+                        android:visibility="invisible" />
+                </LinearLayout>
+
+                <ProgressBar
+                    android:id="@+id/barSeries"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="4dp"
+                    android:layout_marginTop="7dp"
+                    android:max="100"
+                    android:progressDrawable="@drawable/bg_sync_progress" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!--
+            Only ever shown when something has gone wrong. While the sync is
+            running the rows say everything there is to say.
+        -->
+        <TextView
+            android:id="@+id/syncMessage"
+            android:layout_width="360dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:gravity="center"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:visibility="gone" />
+    </LinearLayout>
+</FrameLayout>

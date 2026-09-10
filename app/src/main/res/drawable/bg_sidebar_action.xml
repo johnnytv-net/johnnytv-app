@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The TV Guide row in the Live TV sidebar.
+
+    It sits among the categories but is not one, so it carries an outline and a
+    tint of the brand blue. Without that it reads as a category that happens to
+    select nothing, and the first press feels broken.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/focus_fill" />
+            <stroke android:width="1dp" android:color="@color/spinner_arc" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/focus_fill" />
+            <stroke android:width="1dp" android:color="@color/spinner_arc" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#232E1F4A" />
+            <stroke android:width="1dp" android:color="#6B2E7DF7" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+</selector>

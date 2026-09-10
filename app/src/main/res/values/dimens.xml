@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        One source for the guide's row height. The channel column and the
+        programme grid are scrolled together by matching pixel deltas, so if
+        these two ever disagreed by a single pixel the drift would compound
+        with every row.
+    -->
+    <dimen name="epg_row_height">64dp</dimen>
+</resources>
