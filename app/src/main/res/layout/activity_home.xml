@@ -66,38 +66,69 @@
         android:background="@drawable/bg_message"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="18dp"
+        android:paddingStart="14dp"
         android:paddingEnd="14dp"
-        android:paddingTop="12dp"
-        android:paddingBottom="12dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="14dp"
         android:visibility="gone">
 
-        <TextView
-            android:id="@+id/homeMessageText"
+        <View
+            android:layout_width="4dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="16dp"
+            android:minHeight="34dp"
+            android:background="@drawable/bg_message_accent" />
+
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:maxLines="3"
-            android:ellipsize="end"
-            android:textColor="@color/text_primary"
-            android:textSize="15sp" />
+            android:orientation="vertical">
+
+            <!--
+                The headline. Sized to be read from a sofa rather than a desk -
+                this is the one thing on the screen the customer has not seen
+                before, so it is allowed to be the largest text on it.
+            -->
+            <TextView
+                android:id="@+id/homeMessageText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:textColor="@color/text_primary"
+                android:textSize="19sp"
+                android:textStyle="bold" />
+
+            <!-- The rest of the sentence, when there is one. -->
+            <TextView
+                android:id="@+id/homeMessageDetail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp"
+                android:visibility="gone" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/homeMessageDismiss"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
+            android:layout_marginStart="18dp"
             android:background="@drawable/bg_message_button"
             android:focusable="true"
             android:nextFocusDown="@id/tileLive"
             android:nextFocusRight="@id/homeMessageDismiss"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
             android:text="@string/message_got_it"
-            android:textColor="@color/text_secondary"
-            android:textSize="13sp" />
+            android:textColor="@color/text_primary"
+            android:textSize="14sp" />
     </LinearLayout>
 
     <LinearLayout
