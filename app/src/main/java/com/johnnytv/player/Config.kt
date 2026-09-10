@@ -20,7 +20,7 @@ object Config {
      * Leave blank and the app falls back to asking the user for a server address.
      */
     const val CONFIG_URL: String =
-        "https://raw.githubusercontent.com/bradleysharp9-web/johnnytv-config/main/config.json"
+        "https://raw.githubusercontent.com/johnnytv-net/johnnytv-config/main/config.json"
 
     /**
      * Every service this build accepts logins for, best guess first.
