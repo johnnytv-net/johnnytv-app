@@ -55,14 +55,43 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
-      - name: Check it came out signed
+      # The point of this step is to refuse to publish an APK that is not signed
+      # with OUR key. An APK signed by anything else cannot install over the last
+      # one, so shipping it would strand every customer - which is exactly the
+      # mess this whole pipeline exists to prevent. It compares the certificate
+      # in the built APK against the certificate in the keystore, and stops the
+      # build dead if they differ.
+      - name: Check it came out signed with the right key
         run: |
+          set -euo pipefail
           APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          if [ -z "$APK" ]; then echo "::error::No APK was produced."; exit 1; fi
           echo "APK=$APK" >> $GITHUB_ENV
-          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$APK" | head -20
+
+          # Newest build-tools, chosen properly - a bare glob here silently
+          # turned the whole check into a no-op once already.
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          echo "Using $APKSIGNER"
+
+          BUILT=$("$APKSIGNER" verify --print-certs "$APK" \
+                  | grep -i 'certificate SHA-256 digest' | head -1 \
+                  | awk '{print tolower($NF)}')
+          EXPECTED=$(keytool -list -v -keystore johnnytv.jks \
+                     -storepass johnnytv-signing -alias johnnytv \
+                     | grep -i 'SHA256:' | head -1 \
+                     | awk '{print tolower($NF)}' | tr -d ':')
+
+          echo "built    = $BUILT"
+          echo "expected = $EXPECTED"
+          if [ -z "$BUILT" ] || [ "$BUILT" != "$EXPECTED" ]; then
+            echo "::error::The APK is not signed with the JohnnyTV key. Refusing to publish."
+            exit 1
+          fi
+          echo "Signature confirmed."
 
       - name: Name it and read its version
         run: |
+          set -euo pipefail
           VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
           CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' app/build.gradle.kts)
           cp "$APK" JohnnyTV.apk
