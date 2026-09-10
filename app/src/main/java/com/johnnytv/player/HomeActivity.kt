@@ -116,9 +116,32 @@ class HomeActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Splits a message into the bit that shouts and the bit that explains.
+     *
+     * Written as one line in config.json, so the break has to come from the
+     * punctuation somebody would type anyway: a line break, or a dash with
+     * spaces around it. "Watch JohnnyTV anywhere for $5 - phone, laptop, car"
+     * becomes a headline and a quieter second line. No dash, no second line,
+     * and the whole thing is simply the headline.
+     */
+    private fun splitMessage(message: String): Pair<String, String> {
+        val breaks = listOf("\n", " — ", " – ", " - ")
+        for (mark in breaks) {
+            val at = message.indexOf(mark)
+            if (at > 0) {
+                val head = message.substring(0, at).trim()
+                val rest = message.substring(at + mark.length).trim()
+                if (head.isNotEmpty() && rest.isNotEmpty()) return head to rest
+            }
+        }
+        return message to ""
+    }
+
     private fun drawMessage() {
         val band = findViewById<View>(R.id.homeMessage)
         val text = findViewById<TextView>(R.id.homeMessageText)
+        val detail = findViewById<TextView>(R.id.homeMessageDetail)
         val dismiss = findViewById<TextView>(R.id.homeMessageDismiss)
 
         val message = prefs.message.trim()
@@ -129,7 +152,10 @@ class HomeActivity : AppCompatActivity() {
             return
         }
 
-        text.text = message
+        val (headline, rest) = splitMessage(message)
+        text.text = headline
+        detail.text = rest
+        detail.visibility = if (rest.isEmpty()) View.GONE else View.VISIBLE
         band.visibility = View.VISIBLE
         dismiss.setOnClickListener {
             prefs.messageRead = message
