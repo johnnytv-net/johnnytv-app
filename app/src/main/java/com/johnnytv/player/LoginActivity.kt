@@ -96,13 +96,14 @@ class LoginActivity : AppCompatActivity() {
                 prefs.renewalContact = remote.renewalContact
             }
 
-            if (remote != null && remote.notice.isNotBlank()) {
-                noticeLabel.text = remote.notice
-                noticeLabel.visibility = View.VISIBLE
-            }
-            // Kept for the home screen, which is where a signed-in customer
-            // actually reads it - they are carried past this screen too quickly
-            // to see anything on it.
+            // The notice belongs on the home screen, not here.
+            //
+            // Almost nobody sees this screen: a signed-in customer is carried
+            // through it in under a second, and the ones who do see it are
+            // mid-way through typing a password, which is the worst possible
+            // moment to offer them something. So it is stored and shown on the
+            // home screen instead, where it can be read and dismissed properly.
+            noticeLabel.visibility = View.GONE
             if (remote != null) prefs.message = remote.notice
 
             if (remote != null && isUpdateAvailable(remote)) {
