@@ -7,6 +7,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.widget.TextView
 import androidx.annotation.OptIn
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.media3.common.AudioAttributes
@@ -49,6 +50,9 @@ class PlayerActivity : AppCompatActivity() {
 
     /** The channels either side of this one, so up and down change channel. */
     private var siblings: List<StreamItem> = emptyList()
+
+    /** The "put this on?" question, while it is up. Only ever one at a time. */
+    private var castAsk: AlertDialog? = null
     private lateinit var channelLabel: TextView
 
     /** Where a held-down button has walked to, before it settles and tunes. */
@@ -161,6 +165,8 @@ class PlayerActivity : AppCompatActivity() {
         channelLabel.removeCallbacks(hideChannelLabel)
         channelLabel.visibility = View.GONE
         playerView.removeCallbacks(castWatch)
+        castAsk?.dismiss()
+        castAsk = null
         releasePlayer()
     }
 
@@ -197,16 +203,39 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Asks before taking the screen off whoever is sitting in front of it.
+     *
+     * A phone can be anywhere. This television is in somebody's living room,
+     * and there may well be a person watching it who did not send anything. So
+     * a request that arrives while something is playing is an offer, not an
+     * order: whoever is holding the remote decides, and ignoring it is the
+     * answer if nobody is there. The phone gets its way instantly only when the
+     * app is idle on the home screen, where there is nothing to interrupt.
+     */
     private fun obeyCast(command: CastLink.Command) {
-        // Cleared whatever happens: a channel this box does not have would sit
-        // in the letterbox being retried for as long as it lived.
+        // Cleared whatever happens - including when the answer is no. A request
+        // that survived being declined would simply ask again five seconds later.
         lifecycleScope.launch { withContext(Dispatchers.IO) { CastLink.ack(prefs) } }
         if (command.id == contentId) return
         val channel = Catalog.live.firstOrNull { it.streamId == command.id } ?: return
-        // Anything the remote had half-pressed belongs to the old channel.
-        playerView.removeCallbacks(applyChannelStep)
-        pendingIndex = -1
-        tune(channel)
+        if (castAsk != null) return
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(getString(R.string.cast_ask_title))
+            .setMessage(getString(R.string.cast_ask_message, channel.name))
+            .setPositiveButton(R.string.cast_ask_yes) { _, _ ->
+                playerView.removeCallbacks(applyChannelStep)
+                pendingIndex = -1
+                tune(channel)
+            }
+            .setNegativeButton(R.string.cast_ask_no, null)
+            .create()
+        dialog.setOnDismissListener { castAsk = null }
+        castAsk = dialog
+        dialog.show()
+        // An empty room should not be left holding a question for ever.
+        playerView.postDelayed({ if (dialog.isShowing) dialog.dismiss() }, CAST_ASK_MS)
     }
 
     // ---------- changing channel from the remote ----------
@@ -521,6 +550,9 @@ class PlayerActivity : AppCompatActivity() {
          * less than a tenth of a second of the video already streaming.
          */
         private const val CAST_POLL_MS = 6_000L
+
+        /** How long the question waits for somebody who may not be there. */
+        private const val CAST_ASK_MS = 20_000L
 
         private const val EXTRA_URLS = "extra_urls"
         private const val EXTRA_TITLE = "extra_title"
