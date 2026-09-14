@@ -68,6 +68,12 @@
     <string name="all_items">All</string>
     <string name="featured">Featured</string>
 
+    <!-- sent from the phone -->
+    <string name="cast_ask_title">Change channel?</string>
+    <string name="cast_ask_message">Your phone asked to put on %1$s.</string>
+    <string name="cast_ask_yes">Put it on</string>
+    <string name="cast_ask_no">Keep watching</string>
+
     <!-- guide -->
     <string name="tv_guide">TV Guide</string>
     <string name="message_got_it">Got it</string>
