@@ -147,6 +147,7 @@ class PlayerActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         if (urls.isNotEmpty()) startPlayback()
+        if (kind == Kind.LIVE) playerView.post(castWatch)
     }
 
     override fun onStop() {
@@ -159,6 +160,7 @@ class PlayerActivity : AppCompatActivity() {
         // there when the screen came back.
         channelLabel.removeCallbacks(hideChannelLabel)
         channelLabel.visibility = View.GONE
+        playerView.removeCallbacks(castWatch)
         releasePlayer()
     }
 
@@ -168,6 +170,43 @@ class PlayerActivity : AppCompatActivity() {
         val position = active.currentPosition
         val duration = if (active.duration > 0) active.duration else 0L
         prefs.savePosition(kind, contentId, position, duration)
+    }
+
+    // ---------- changing channel from the phone ----------
+
+    /**
+     * Two jobs on one timer.
+     *
+     * It tells the website what is on this screen, which is what lets the site
+     * say "your TV is on TSN" rather than handing somebody a dead picture on a
+     * one-connection line. And it looks for a channel the phone has asked for,
+     * because wanting to change what the television is showing is the whole
+     * point - waiting for somebody to back out to the home screen first would
+     * defeat it.
+     */
+    private val castWatch = object : Runnable {
+        override fun run() {
+            lifecycleScope.launch {
+                val command = withContext(Dispatchers.IO) {
+                    if (contentId.isNotBlank()) CastLink.report(prefs, contentId, title)
+                    CastLink.peek(prefs)
+                }
+                if (command != null && !isFinishing) obeyCast(command)
+            }
+            playerView.postDelayed(this, CAST_POLL_MS)
+        }
+    }
+
+    private fun obeyCast(command: CastLink.Command) {
+        // Cleared whatever happens: a channel this box does not have would sit
+        // in the letterbox being retried for as long as it lived.
+        lifecycleScope.launch { withContext(Dispatchers.IO) { CastLink.ack(prefs) } }
+        if (command.id == contentId) return
+        val channel = Catalog.live.firstOrNull { it.streamId == command.id } ?: return
+        // Anything the remote had half-pressed belongs to the old channel.
+        playerView.removeCallbacks(applyChannelStep)
+        pendingIndex = -1
+        tune(channel)
     }
 
     // ---------- changing channel from the remote ----------
@@ -473,6 +512,15 @@ class PlayerActivity : AppCompatActivity() {
 
         /** How long the presses must stop for before the channel actually changes. */
         private const val CHANNEL_SETTLE_MS = 600L
+
+        /**
+         * How often to tell the website what is on and look for a request.
+         *
+         * Six seconds is the slowest that still feels like pressing a button
+         * rather than sending a letter, and it costs a few hundred bytes -
+         * less than a tenth of a second of the video already streaming.
+         */
+        private const val CAST_POLL_MS = 6_000L
 
         private const val EXTRA_URLS = "extra_urls"
         private const val EXTRA_TITLE = "extra_title"

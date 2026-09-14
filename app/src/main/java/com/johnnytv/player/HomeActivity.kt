@@ -28,6 +28,23 @@ class HomeActivity : AppCompatActivity() {
     private var featured: SeriesItem? = null
 
     private val handler = Handler(Looper.getMainLooper())
+
+    /**
+     * Checks whether the phone has asked for a channel.
+     *
+     * Only while the home screen is in front, which is exactly when the
+     * television is idle and has nothing to lose by switching. A few hundred
+     * bytes every five seconds - less than one second of video.
+     */
+    private val castWatch = object : Runnable {
+        override fun run() {
+            lifecycleScope.launch {
+                val command = withContext(Dispatchers.IO) { CastLink.peek(prefs) }
+                if (command != null && !isFinishing) obeyCast(command)
+            }
+            handler.postDelayed(this, 5_000L)
+        }
+    }
     private val tick = object : Runnable {
         override fun run() {
             updateClock()
@@ -84,8 +101,26 @@ class HomeActivity : AppCompatActivity() {
         super.onStart()
         updateClock()
         handler.post(tick)
+        handler.post(castWatch)
         showMessage()
         checkExpiry()
+    }
+
+    /** Puts on whatever the phone asked for, if this television knows the channel. */
+    private fun obeyCast(command: CastLink.Command) {
+        val channel = Catalog.live.firstOrNull { it.streamId == command.id }
+        // Acknowledged either way: a channel this box cannot find would otherwise
+        // sit in the letterbox being retried every five seconds.
+        lifecycleScope.launch { withContext(Dispatchers.IO) { CastLink.ack(prefs) } }
+        if (channel == null) return
+        Catalog.playbackQueue = Catalog.live
+        PlayerActivity.start(
+            this,
+            urls = prefs.client().liveUrls(channel.streamId),
+            title = channel.name,
+            kind = Kind.LIVE,
+            contentId = channel.streamId
+        )
     }
 
     // ---------- a message from JohnnyTV ----------
@@ -231,6 +266,7 @@ class HomeActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         handler.removeCallbacks(tick)
+        handler.removeCallbacks(castWatch)
     }
 
     // ---------- artwork ----------
