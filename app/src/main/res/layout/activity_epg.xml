@@ -19,13 +19,13 @@
         android:orientation="horizontal"
         android:paddingStart="22dp"
         android:paddingEnd="22dp"
-        android:paddingTop="12dp"
-        android:paddingBottom="10dp">
+        android:paddingTop="10dp"
+        android:paddingBottom="8dp">
 
         <FrameLayout
             android:id="@+id/guidePreviewFrame"
-            android:layout_width="260dp"
-            android:layout_height="146dp"
+            android:layout_width="232dp"
+            android:layout_height="130dp"
             android:background="#FF05070A"
             android:clickable="true"
             android:focusable="false"
@@ -85,7 +85,7 @@
                     android:lineSpacingMultiplier="1.05"
                     android:maxLines="2"
                     android:textColor="@color/text_primary"
-                    android:textSize="25sp" />
+                    android:textSize="23sp" />
 
                 <!-- A favourite is marked from here, where the remote already is. -->
                 <ImageView
@@ -100,7 +100,7 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="11dp"
+                android:layout_marginTop="9dp"
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
@@ -148,10 +148,10 @@
                 android:id="@+id/selectedDescription"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="8dp"
                 android:ellipsize="end"
-                android:lineSpacingMultiplier="1.15"
-                android:maxLines="3"
+                android:lineSpacingMultiplier="1.12"
+                android:maxLines="2"
                 android:textColor="#FFDBE2EA"
                 android:textSize="15sp" />
 

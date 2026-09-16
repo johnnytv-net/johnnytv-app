@@ -141,7 +141,7 @@ class EpgActivity : AppCompatActivity() {
         pinGridWidth()
         positionNowLine()
 
-        channelAdapter = ChannelColumnAdapter(onPlay = { channel -> play(channel) })
+        channelAdapter = ChannelColumnAdapter(timeline, onPlay = { channel -> play(channel) })
         rowAdapter = EpgRowAdapter(
             timeline = timeline,
             programmesFor = { channel -> EpgCache.cached(channel.streamId) },
@@ -278,7 +278,7 @@ class EpgActivity : AppCompatActivity() {
             chip.isFocusable = true
             chip.isClickable = true
             chip.setBackgroundResource(R.drawable.bg_category_chip)
-            chip.setPadding(dp(16), dp(9), dp(16), dp(9))
+            chip.setPadding(dp(14), dp(7), dp(14), dp(7))
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT

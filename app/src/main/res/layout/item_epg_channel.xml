@@ -26,8 +26,8 @@
 
     <ImageView
         android:id="@+id/channelLogo"
-        android:layout_width="40dp"
-        android:layout_height="30dp"
+        android:layout_width="38dp"
+        android:layout_height="26dp"
         android:layout_marginStart="10dp"
         android:background="@drawable/bg_logo_tile"
         android:contentDescription="@string/live_tv"
@@ -47,5 +47,5 @@
         android:letterSpacing="0.02"
         android:maxLines="1"
         android:textColor="@color/epg_channel_text"
-        android:textSize="13sp" />
+        android:textSize="13.5sp" />
 </LinearLayout>

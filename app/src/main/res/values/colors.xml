@@ -17,9 +17,9 @@
     <!-- TV guide. Blocks sit just above the background so the grid reads as rows
          without any lines being drawn; the focused block flips to near-white with
          dark text, the way a set-top box guide does. -->
-    <color name="epg_block">#FF171B22</color>
-    <color name="epg_block_on_air">#FF243040</color>
-    <color name="epg_block_focused">#FFEEF3F9</color>
+    <color name="epg_block">#FF1F242C</color>
+    <color name="epg_block_on_air">#FF2B333D</color>
+    <color name="epg_block_focused">#FFF4F7FA</color>
     <color name="epg_on_dark">#FF0A0D11</color>
     <color name="epg_now">#FF6FB3FF</color>
 

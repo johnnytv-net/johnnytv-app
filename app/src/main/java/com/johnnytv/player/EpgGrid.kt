@@ -21,7 +21,23 @@ import java.util.Locale
 class Timeline(context: Context, hoursShown: Int = 12) {
 
     val pxPerMinute: Float = 5f * context.resources.displayMetrics.density
-    val rowHeightPx: Int = context.resources.getDimensionPixelSize(R.dimen.epg_row_height)
+
+    /**
+     * Eight channels on screen, whatever the television.
+     *
+     * A fixed row height is a guess about a screen you cannot see: the same 64dp
+     * that fills a 720p panel leaves half a row hanging off a 1080p one. So the
+     * height is worked out instead - take what the screen has, subtract the parts
+     * above the grid, divide by eight. The bounds are there so an unusual display
+     * cannot produce a row too thin to read or so tall it defeats the point.
+     */
+    val rowHeightPx: Int = run {
+        val metrics = context.resources.displayMetrics
+        val chrome = ROWS_CHROME_DP * metrics.density
+        val free = metrics.heightPixels - chrome
+        (free / ROWS_ON_SCREEN).toInt()
+            .coerceIn((34f * metrics.density).toInt(), (64f * metrics.density).toInt())
+    }
     val start: Long
     val end: Long
 
@@ -49,10 +65,23 @@ class Timeline(context: Context, hoursShown: Int = 12) {
         val clampedTo = to.coerceAtMost(end)
         return ((clampedTo - clampedFrom) / 60000f * pxPerMinute).toInt()
     }
+
+    companion object {
+        /** How many channels the guide should show at once. */
+        private const val ROWS_ON_SCREEN = 8
+
+        /**
+         * Everything above the rows, in dp: the preview panel and its padding, the
+         * category chips, and the time headings. Kept in step with activity_epg.xml
+         * by hand - if that layout grows, this number grows with it.
+         */
+        private const val ROWS_CHROME_DP = 214f
+    }
 }
 
 /** The channel names down the left. Same row height as the grid so the two scroll together. */
 class ChannelColumnAdapter(
+    private val timeline: Timeline,
     private val onPlay: (StreamItem) -> Unit = {}
 ) : RecyclerView.Adapter<ChannelColumnAdapter.VH>() {
 
@@ -106,6 +135,12 @@ class ChannelColumnAdapter(
         val holder = VH(
             LayoutInflater.from(parent.context).inflate(R.layout.item_epg_channel, parent, false)
         )
+        // The grid works its row height out from the screen so eight channels fit;
+        // this column has to agree with it exactly or the two halves drift apart
+        // as you scroll.
+        holder.itemView.layoutParams = holder.itemView.layoutParams.apply {
+            height = timeline.rowHeightPx
+        }
         // Tapping the channel itself watches it - the obvious thing to try.
         // Deliberately not focusable: a remote that could step left into this
         // column would lose its place in the guide on the way back.
@@ -205,7 +240,7 @@ class EpgRowAdapter(
             // A state list, because the focused block turns near-white and its
             // title has to turn dark with it.
             block.setTextColor(row.context.getColorStateList(R.color.epg_block_text))
-            block.textSize = 14f
+            block.textSize = 15f
             block.letterSpacing = 0.01f
             block.setPadding(dp(row.context, 14), 0, dp(row.context, 12), 0)
             block.setBackgroundResource(R.drawable.bg_epg_block)
