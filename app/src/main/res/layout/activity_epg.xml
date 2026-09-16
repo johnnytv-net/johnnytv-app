@@ -137,7 +137,7 @@
             android:textColor="@color/epg_now"
             android:textSize="13sp" />
 
-        <HorizontalScrollView
+        <com.johnnytv.player.SafeHorizontalScrollView
             android:id="@+id/timeHeaderScroll"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -147,7 +147,7 @@
                 android:id="@+id/timeHeader"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content" />
-        </HorizontalScrollView>
+        </com.johnnytv.player.SafeHorizontalScrollView>
     </LinearLayout>
 
     <!-- the grid -->
@@ -167,7 +167,7 @@
                 android:layout_width="228dp"
                 android:layout_height="match_parent" />
 
-            <HorizontalScrollView
+            <com.johnnytv.player.SafeHorizontalScrollView
                 android:id="@+id/gridScroll"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
@@ -189,7 +189,7 @@
                         android:layout_height="match_parent"
                         android:background="@color/epg_now" />
                 </FrameLayout>
-            </HorizontalScrollView>
+            </com.johnnytv.player.SafeHorizontalScrollView>
         </LinearLayout>
 
         <include

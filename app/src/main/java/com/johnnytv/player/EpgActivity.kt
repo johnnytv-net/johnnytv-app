@@ -39,6 +39,7 @@ class EpgActivity : AppCompatActivity() {
     private lateinit var timeHeader: FrameLayout
     private lateinit var timeHeaderScroll: HorizontalScrollView
     private lateinit var gridScroll: HorizontalScrollView
+    private lateinit var gridHost: FrameLayout
     private lateinit var channelColumn: RecyclerView
     private lateinit var gridRows: RecyclerView
     private lateinit var nowLine: View
@@ -84,6 +85,7 @@ class EpgActivity : AppCompatActivity() {
         timeHeader = findViewById(R.id.timeHeader)
         timeHeaderScroll = findViewById(R.id.timeHeaderScroll)
         gridScroll = findViewById(R.id.gridScroll)
+        gridHost = findViewById(R.id.gridHost)
         channelColumn = findViewById(R.id.channelColumn)
         gridRows = findViewById(R.id.gridRows)
         nowLine = findViewById(R.id.nowLine)
@@ -97,6 +99,7 @@ class EpgActivity : AppCompatActivity() {
         guideDate = findViewById(R.id.guideDate)
 
         buildTimeHeader()
+        pinGridWidth()
         positionNowLine()
 
         channelAdapter = ChannelColumnAdapter(onPlay = { channel -> play(channel) })
@@ -181,6 +184,20 @@ class EpgActivity : AppCompatActivity() {
             slot += halfHour
         }
         timeHeader.layoutParams = timeHeader.layoutParams.apply { width = timeline.widthPx }
+    }
+
+    /**
+     * The grid is always exactly as wide as the timeline, so say so.
+     *
+     * It was left to size itself around its rows, which meant it measured zero
+     * with no rows and the timeline's width with them - so every category change
+     * resized it, and a resize is what asks the scroll view to go looking for the
+     * child it remembered. Pinning the width removes the question entirely:
+     * nothing about switching category changes how wide this is.
+     */
+    private fun pinGridWidth() {
+        gridHost.layoutParams = gridHost.layoutParams.apply { width = timeline.widthPx }
+        gridRows.layoutParams = gridRows.layoutParams.apply { width = timeline.widthPx }
     }
 
     private fun positionNowLine() {
