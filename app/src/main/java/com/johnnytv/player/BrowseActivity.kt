@@ -544,7 +544,7 @@ class BrowseActivity : AppCompatActivity() {
             val ids = prefs.favouriteIds(Kind.LIVE)
             Catalog.live.filter { ids.contains(it.streamId) }
         }
-        else -> Catalog.live.filter { it.categoryId == categoryId }
+        else -> Catalog.liveChannels(categoryId, emptySet())
     }
 
     private fun tilesFor(categoryId: String): List<Tile> = when (kind) {
@@ -1028,12 +1028,15 @@ class BrowseActivity : AppCompatActivity() {
             }
             Kind.VOD -> {
                 val movie = Catalog.vod.firstOrNull { it.streamId == tile.id } ?: return
-                PlayerActivity.start(
+                // A poster and a title is not enough to choose by, so the film
+                // opens its own page first. Watch is already focused there, so
+                // anyone who knew what they wanted is still one press away.
+                MovieActivity.start(
                     this,
-                    urls = client.movieUrls(movie.streamId, movie.containerExtension),
+                    movieId = movie.streamId,
                     title = tile.title,
-                    kind = Kind.VOD,
-                    contentId = tile.id
+                    cover = movie.icon,
+                    containerExtension = movie.containerExtension
                 )
             }
         }

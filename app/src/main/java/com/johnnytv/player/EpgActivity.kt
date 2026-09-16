@@ -325,7 +325,7 @@ class EpgActivity : AppCompatActivity() {
                 val ids = prefs.favouriteIds(Kind.LIVE)
                 Catalog.live.filter { ids.contains(it.streamId) }
             }
-            else -> Catalog.live.filter { it.categoryId == categoryId }
+            else -> Catalog.liveChannels(categoryId, emptySet())
         }
 
         inFlight.clear()

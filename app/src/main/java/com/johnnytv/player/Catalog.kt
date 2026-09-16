@@ -79,7 +79,12 @@ object Catalog {
     fun liveChannels(categoryId: String, favouriteIds: Set<String>): List<StreamItem> = when (categoryId) {
         BrowseActivity.CATEGORY_ALL -> live.inPreferredChannelOrder(liveCategories)
         BrowseActivity.CATEGORY_FAVOURITES -> live.filter { favouriteIds.contains(it.streamId) }
-        else -> live.filter { it.categoryId == categoryId }
+        else -> {
+            val list = live.filter { it.categoryId == categoryId }
+            // An event block is a schedule, so show it as one.
+            val name = liveCategories.firstOrNull { it.id == categoryId }?.name ?: ""
+            if (EventOrder.isEventCategory(name)) EventOrder.sort(list) else list
+        }
     }
 
     private fun applyCounts() {

@@ -123,6 +123,24 @@ data class Tile(
     val condensed: String = searchable.filter { it.isLetterOrDigit() }
 }
 
+
+/**
+ * What a portal can tell you about a film before you commit to watching it.
+ * Every field is optional, because every portal fills in a different subset.
+ */
+data class MovieInfo(
+    val plot: String = "",
+    val cast: String = "",
+    val director: String = "",
+    val genre: String = "",
+    val releaseDate: String = "",
+    val rating: String = "",
+    val duration: String = "",
+    val cover: String = "",
+    val backdrop: String = "",
+    val containerExtension: String = "mp4"
+)
+
 /**
  * Puts a portal's categories into the order set in [Config], leaving everything
  * it says nothing about exactly where the portal had it.

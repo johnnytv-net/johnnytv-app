@@ -51,6 +51,8 @@
 
         <activity android:name=".SeriesActivity"
             android:screenOrientation="sensorLandscape" android:exported="false" />
+        <activity android:name=".MovieActivity"
+            android:screenOrientation="sensorLandscape" android:exported="false" />
 
         <activity android:name=".EpgActivity"
             android:screenOrientation="sensorLandscape" android:exported="false" />

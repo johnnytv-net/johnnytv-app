@@ -150,6 +150,56 @@ class XtreamClient(
         return ""
     }
 
+    /**
+     * Everything the portal knows about one film.
+     *
+     * Xtream returns this as a loose bag of fields whose names and types vary by
+     * panel - rating arrives as a string on one and a number on another, cast is
+     * sometimes "cast" and sometimes "actors" - so every value is read
+     * defensively and an absent one comes back blank rather than throwing.
+     */
+    fun movieInfo(vodId: String): MovieInfo {
+        val body = get("$server/player_api.php?${creds()}&action=get_vod_info&vod_id=${enc(vodId)}")
+        val root = try {
+            JSONObject(body.trim())
+        } catch (e: Exception) {
+            throw XtreamException("Could not read this film.")
+        }
+        val info = root.optJSONObject("info") ?: JSONObject()
+        val movie = root.optJSONObject("movie_data") ?: JSONObject()
+
+        fun text(vararg keys: String): String {
+            for (key in keys) {
+                val value = info.opt(key) ?: movie.opt(key) ?: continue
+                val asText = when (value) {
+                    is org.json.JSONArray ->
+                        (0 until value.length()).joinToString(", ") { value.optString(it, "") }
+                    else -> value.toString()
+                }
+                val cleaned = asText.trim()
+                if (cleaned.isNotBlank() && cleaned != "null" && cleaned != "0") return cleaned
+            }
+            return ""
+        }
+
+        val cover = text("movie_image", "cover_big", "cover")
+        return MovieInfo(
+            plot = text("plot", "description"),
+            cast = text("cast", "actors"),
+            director = text("director"),
+            genre = text("genre"),
+            releaseDate = text("releasedate", "release_date"),
+            rating = text("rating"),
+            duration = text("duration", "episode_run_time"),
+            cover = cover,
+            backdrop = run {
+                val arr = info.optJSONArray("backdrop_path")
+                if (arr != null && arr.length() > 0) arr.optString(0, "") else ""
+            },
+            containerExtension = text("container_extension").ifBlank { "mp4" }
+        )
+    }
+
     /** Seasons mapped to their episodes, in season order. */
     fun seriesEpisodes(seriesId: String): Map<Int, List<Episode>> {
         val body = get("$server/player_api.php?${creds()}&action=get_series_info&series_id=${enc(seriesId)}")

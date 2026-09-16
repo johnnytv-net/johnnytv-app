@@ -96,6 +96,11 @@
     <string name="no_channels">No channels found. Try refreshing your content.</string>
     <string name="on_now">ON NOW</string>
     <string name="watch">Watch</string>
+    <string name="resume">Resume</string>
+    <string name="start_again">Start again</string>
+    <string name="cast_line">Cast: %1$s</string>
+    <string name="director_line">Director: %1$s</string>
+    <string name="hours_minutes">%1$dh %2$dm</string>
     <string name="now_playing_label">Now: %s</string>
 
     <!-- browsing -->
