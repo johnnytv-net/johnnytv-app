@@ -81,6 +81,8 @@ class EpgActivity : AppCompatActivity() {
     private var previewing: StreamItem? = null
     private var previewJob: Job? = null
     private var previewPlayer: ExoPlayer? = null
+    /** Which of the channel's addresses the reused player is currently on. */
+    private var previewUrlIndex = 0
 
     private lateinit var channelAdapter: ChannelColumnAdapter
     private lateinit var rowAdapter: EpgRowAdapter
@@ -201,6 +203,11 @@ class EpgActivity : AppCompatActivity() {
         stopPreview()
         val context = applicationContext
         lifecycleScope.launch(Dispatchers.IO) { EpgCache.save(context) }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        releasePreviewPlayer()
     }
 
     // ---------- header ----------
@@ -473,24 +480,28 @@ class EpgActivity : AppCompatActivity() {
         }
     }
 
-    private fun startPreview(channel: StreamItem, urlIndex: Int = 0) {
-        releasePreviewPlayer()
-        val urls = prefs.client().liveUrls(channel.streamId)
-        if (urlIndex >= urls.size) {
-            previewNote.setText(R.string.preview_unavailable)
-            previewNote.visibility = View.VISIBLE
-            return
-        }
+    /**
+     * The player is built once and kept.
+     *
+     * Creating an ExoPlayer means starting up a decoder, and doing that again for
+     * every channel the remote pauses on was costing the best part of a second
+     * before a single frame could arrive. Handing the same player a new address
+     * skips all of it.
+     */
+    private fun ensurePreviewPlayer(): ExoPlayer {
+        previewPlayer?.let { return it }
 
         val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent(Config.USER_AGENT)
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(10_000)
-            .setReadTimeoutMs(15_000)
+            .setConnectTimeoutMs(8_000)
+            .setReadTimeoutMs(12_000)
 
-        // Shallow buffers: this only has to look alive, not survive a bad minute.
+        // Show a picture as soon as there is a quarter of a second of it. A
+        // preview that stutters is fine; a preview that makes you wait is not -
+        // the whole point is answering "what is this channel" quickly.
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(2_000, 10_000, 500, 1_500)
+            .setBufferDurationsMs(1_500, 8_000, 250, 1_000)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -504,14 +515,16 @@ class EpgActivity : AppCompatActivity() {
         exo.volume = 0f
         exo.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                // Never release a player from inside its own callback. Step out
+                // Never touch the player from inside its own callback. Step out
                 // first, try the other container once - some portals serve only
                 // .ts and some only .m3u8 - then give up rather than sitting on
                 // the connection retrying.
+                val channel = previewing ?: return
+                val next = previewUrlIndex + 1
                 previewVideo.post {
                     if (isFinishing || isDestroyed) return@post
                     if (previewing?.streamId != channel.streamId) return@post
-                    startPreview(channel, urlIndex + 1)
+                    startPreview(channel, next)
                 }
             }
 
@@ -522,16 +535,34 @@ class EpgActivity : AppCompatActivity() {
                 }
             }
         })
-
         previewVideo.player = exo
+        previewPlayer = exo
+        return exo
+    }
+
+    private fun startPreview(channel: StreamItem, urlIndex: Int = 0) {
+        val urls = prefs.client().liveUrls(channel.streamId)
+        if (urlIndex >= urls.size) {
+            previewNote.setText(R.string.preview_unavailable)
+            previewNote.visibility = View.VISIBLE
+            return
+        }
+        previewUrlIndex = urlIndex
+        val exo = ensurePreviewPlayer()
+        exo.stop()
         exo.setMediaItem(MediaItem.fromUri(urls[urlIndex]))
         exo.prepare()
         exo.playWhenReady = true
-        previewPlayer = exo
     }
 
+    /**
+     * Give the connection back without throwing the player away - stopping is
+     * what frees the line, and keeping the player is what makes the next channel
+     * appear quickly.
+     */
     private fun stopPreview() {
-        releasePreviewPlayer()
+        previewPlayer?.stop()
+        previewPlayer?.clearMediaItems()
     }
 
     private fun releasePreviewPlayer() {
@@ -627,7 +658,7 @@ class EpgActivity : AppCompatActivity() {
         private const val CATEGORY_FAVOURITES = "__favourites"
 
         /** How long the remote must sit still before a preview is worth opening. */
-        private const val PREVIEW_SETTLE_MS = 1_500L
+        private const val PREVIEW_SETTLE_MS = 600L
 
         private val PREVIEW_AUDIO: AudioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
