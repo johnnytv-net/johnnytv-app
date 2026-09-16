@@ -14,7 +14,7 @@
 
     <TextView
         android:id="@+id/channelNumber"
-        android:layout_width="36dp"
+        android:layout_width="34dp"
         android:layout_height="wrap_content"
         android:duplicateParentState="true"
         android:ellipsize="none"
@@ -26,8 +26,8 @@
 
     <ImageView
         android:id="@+id/channelLogo"
-        android:layout_width="48dp"
-        android:layout_height="40dp"
+        android:layout_width="40dp"
+        android:layout_height="30dp"
         android:layout_marginStart="10dp"
         android:background="@drawable/bg_logo_tile"
         android:contentDescription="@string/live_tv"
@@ -45,7 +45,7 @@
         android:ellipsize="end"
         android:fontFamily="sans-serif-medium"
         android:letterSpacing="0.02"
-        android:maxLines="2"
+        android:maxLines="1"
         android:textColor="@color/epg_channel_text"
         android:textSize="13sp" />
 </LinearLayout>

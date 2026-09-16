@@ -10,8 +10,25 @@ import android.view.ViewGroup
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.annotation.OptIn
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.PlayerView
+import coil.load
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -30,6 +47,7 @@ import java.util.Locale
  * Guide data is fetched per channel as rows come into view and cached, so the app
  * never has to pull the portal's entire XMLTV file.
  */
+@OptIn(UnstableApi::class)
 class EpgActivity : AppCompatActivity() {
 
     private lateinit var prefs: Prefs
@@ -46,10 +64,23 @@ class EpgActivity : AppCompatActivity() {
     private lateinit var progress: View
     private lateinit var status: TextView
 
-    private lateinit var guideClock: TextView
     private lateinit var selectedTitle: TextView
     private lateinit var selectedTime: TextView
+    private lateinit var selectedLength: TextView
+    private lateinit var selectedChannelTag: TextView
     private lateinit var selectedDescription: TextView
+    private lateinit var selectedProgress: ProgressBar
+    private lateinit var selectedStar: ImageView
+
+    private lateinit var previewFrame: FrameLayout
+    private lateinit var previewVideo: PlayerView
+    private lateinit var previewLogo: ImageView
+    private lateinit var previewNote: TextView
+
+    /** The channel the preview is showing, or trying to. */
+    private var previewing: StreamItem? = null
+    private var previewJob: Job? = null
+    private var previewPlayer: ExoPlayer? = null
 
     private lateinit var channelAdapter: ChannelColumnAdapter
     private lateinit var rowAdapter: EpgRowAdapter
@@ -91,10 +122,18 @@ class EpgActivity : AppCompatActivity() {
         nowLine = findViewById(R.id.nowLine)
         progress = findViewById(R.id.guideProgress)
         status = findViewById(R.id.guideStatus)
-        guideClock = findViewById(R.id.guideClock)
         selectedTitle = findViewById(R.id.selectedTitle)
         selectedTime = findViewById(R.id.selectedTime)
+        selectedLength = findViewById(R.id.selectedLength)
+        selectedChannelTag = findViewById(R.id.selectedChannelTag)
         selectedDescription = findViewById(R.id.selectedDescription)
+        selectedProgress = findViewById(R.id.selectedProgress)
+        selectedStar = findViewById(R.id.selectedStar)
+        previewFrame = findViewById(R.id.guidePreviewFrame)
+        previewVideo = findViewById(R.id.guidePreviewVideo)
+        previewLogo = findViewById(R.id.guidePreviewLogo)
+        previewNote = findViewById(R.id.guidePreviewNote)
+        previewFrame.setOnClickListener { previewing?.let { play(it) } }
         watchHint = findViewById(R.id.watchHint)
         guideDate = findViewById(R.id.guideDate)
 
@@ -149,11 +188,17 @@ class EpgActivity : AppCompatActivity() {
         if (landedOn.isNotBlank() && channels.any { it.streamId == landedOn }) {
             channelAdapter.select(landedOn)
         }
+        // onStop released the preview; start it again for whatever is highlighted.
+        previewing?.let { channel -> previewing = null; queuePreview(channel) }
     }
 
     override fun onStop() {
         super.onStop()
         handler.removeCallbacks(tick)
+        // Going to the player, or away from the app entirely - either way the
+        // connection this was holding has to go back.
+        previewJob?.cancel()
+        stopPreview()
         val context = applicationContext
         lifecycleScope.launch(Dispatchers.IO) { EpgCache.save(context) }
     }
@@ -206,10 +251,9 @@ class EpgActivity : AppCompatActivity() {
         nowLine.layoutParams = params
     }
 
+    /** One line, the way a set-top box writes it: "Tue., Sep. 15, 6:31 p.m." */
     private fun updateClock() {
-        val now = Date()
-        guideClock.text = SimpleDateFormat("h:mm a", Locale.getDefault()).format(now)
-        guideDate.text = SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(now)
+        guideDate.text = SimpleDateFormat("EEE, MMM d, h:mm a", Locale.getDefault()).format(Date())
         positionNowLine()
     }
 
@@ -328,8 +372,17 @@ class EpgActivity : AppCompatActivity() {
         channelAdapter.select("")
         selectedTitle.text = ""
         selectedTime.text = ""
-        selectedDescription.visibility = View.GONE
+        selectedLength.text = ""
+        selectedChannelTag.text = ""
+        selectedProgress.visibility = View.INVISIBLE
+        selectedDescription.visibility = View.INVISIBLE
+        selectedStar.setImageResource(R.drawable.ic_star_outline)
         watchHint.visibility = View.GONE
+        previewing = null
+        previewJob?.cancel()
+        stopPreview()
+        previewLogo.visibility = View.VISIBLE
+        previewLogo.setImageResource(R.drawable.tile_placeholder)
     }
 
     /**
@@ -354,13 +407,137 @@ class EpgActivity : AppCompatActivity() {
     private fun showSelected(channel: StreamItem, programme: Programme, fromFocus: Boolean = false) {
         shownKey = if (fromFocus) "" else "${channel.streamId}:${programme.start}"
         channelAdapter.select(channel.streamId)
+
         selectedTitle.text = programme.title
-        selectedTime.text = "${channel.name}   ·   ${EpgRowAdapter.slot(programme)}"
+        selectedTime.text = EpgRowAdapter.slot(programme)
+
+        val runs = ((programme.end - programme.start) / 60000L).toInt().coerceAtLeast(0)
+        selectedLength.text = if (runs > 0) getString(R.string.minutes_long, runs) else ""
+
+        // The bar is only meaningful for something actually running: a programme
+        // three hours away is not "0% through", it has not started.
+        val now = System.currentTimeMillis()
+        val running = now in programme.start until programme.end && runs > 0
+        selectedProgress.visibility = if (running) View.VISIBLE else View.INVISIBLE
+        if (running) {
+            selectedProgress.progress = (((now - programme.start) * 100L) /
+                (programme.end - programme.start)).toInt().coerceIn(0, 100)
+        }
+
+        val category = Catalog.liveCategories.firstOrNull { it.id == channel.categoryId }?.name
+        selectedChannelTag.text =
+            if (category.isNullOrBlank()) channel.name else "${channel.name}   ·   $category"
+
         selectedDescription.text = programme.description
         selectedDescription.visibility =
-            if (programme.description.isBlank()) View.GONE else View.VISIBLE
+            if (programme.description.isBlank()) View.INVISIBLE else View.VISIBLE
+
+        selectedStar.setImageResource(
+            if (prefs.isFavourite(Kind.LIVE, channel.streamId)) R.drawable.ic_star_filled
+            else R.drawable.ic_star_outline
+        )
+
         watchHint.setText(if (fromFocus) R.string.watch_hint_focus else R.string.watch_hint)
         watchHint.visibility = View.VISIBLE
+
+        queuePreview(channel)
+    }
+
+    /* =====================================================================
+       THE PREVIEW
+
+       Lifted wholesale from the Live TV list, rules and all, because those rules
+       were learned the hard way: a preview holds one of the line's connections,
+       and most lines here allow exactly one. So it waits until the remote has
+       actually settled, never runs two at once, and does nothing at all when the
+       viewer has switched previews off in Settings.
+       ===================================================================== */
+
+    private fun queuePreview(channel: StreamItem) {
+        if (!prefs.previewEnabled) return
+        if (previewing?.streamId == channel.streamId) return
+        previewing = channel
+        previewLogo.visibility = View.VISIBLE
+        previewLogo.load(channel.icon) {
+            placeholder(R.drawable.tile_placeholder)
+            error(R.drawable.tile_placeholder)
+        }
+        previewNote.visibility = View.GONE
+        stopPreview()
+        previewJob?.cancel()
+        previewJob = lifecycleScope.launch {
+            // Long enough that holding a direction down does not open a stream per
+            // row, short enough that pausing on a channel feels like it answered.
+            delay(PREVIEW_SETTLE_MS)
+            if (previewing?.streamId == channel.streamId) startPreview(channel)
+        }
+    }
+
+    private fun startPreview(channel: StreamItem, urlIndex: Int = 0) {
+        releasePreviewPlayer()
+        val urls = prefs.client().liveUrls(channel.streamId)
+        if (urlIndex >= urls.size) {
+            previewNote.setText(R.string.preview_unavailable)
+            previewNote.visibility = View.VISIBLE
+            return
+        }
+
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent(Config.USER_AGENT)
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(10_000)
+            .setReadTimeoutMs(15_000)
+
+        // Shallow buffers: this only has to look alive, not survive a bad minute.
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(2_000, 10_000, 500, 1_500)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
+        val exo = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
+            .setLoadControl(loadControl)
+            .build()
+        // Never takes audio focus: a muted picture that silenced whatever else the
+        // box was playing every time the remote moved would be intolerable.
+        exo.setAudioAttributes(PREVIEW_AUDIO, false)
+        exo.volume = 0f
+        exo.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                // Never release a player from inside its own callback. Step out
+                // first, try the other container once - some portals serve only
+                // .ts and some only .m3u8 - then give up rather than sitting on
+                // the connection retrying.
+                previewVideo.post {
+                    if (isFinishing || isDestroyed) return@post
+                    if (previewing?.streamId != channel.streamId) return@post
+                    startPreview(channel, urlIndex + 1)
+                }
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    previewLogo.visibility = View.GONE
+                    previewNote.visibility = View.GONE
+                }
+            }
+        })
+
+        previewVideo.player = exo
+        exo.setMediaItem(MediaItem.fromUri(urls[urlIndex]))
+        exo.prepare()
+        exo.playWhenReady = true
+        previewPlayer = exo
+    }
+
+    private fun stopPreview() {
+        releasePreviewPlayer()
+    }
+
+    private fun releasePreviewPlayer() {
+        previewVideo.player = null
+        previewPlayer?.release()
+        previewPlayer = null
     }
 
     /**
@@ -448,5 +625,13 @@ class EpgActivity : AppCompatActivity() {
     companion object {
         private const val CATEGORY_ALL = "__all"
         private const val CATEGORY_FAVOURITES = "__favourites"
+
+        /** How long the remote must sit still before a preview is worth opening. */
+        private const val PREVIEW_SETTLE_MS = 1_500L
+
+        private val PREVIEW_AUDIO: AudioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
     }
 }

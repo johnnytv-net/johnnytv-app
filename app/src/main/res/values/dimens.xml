@@ -6,5 +6,5 @@
         these two ever disagreed by a single pixel the drift would compound
         with every row.
     -->
-    <dimen name="epg_row_height">64dp</dimen>
+    <dimen name="epg_row_height">46dp</dimen>
 </resources>

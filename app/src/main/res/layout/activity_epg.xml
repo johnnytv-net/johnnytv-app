@@ -1,81 +1,160 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg_base"
     android:orientation="vertical">
 
-    <!-- what's selected, up top -->
+    <!-- WHAT IS HIGHLIGHTED: a live picture on the left, its details beside it.
+
+         A channel name tells you almost nothing about what a channel actually
+         is; a moving picture tells you at once. So the guide shows the
+         highlighted channel playing, muted, the way a set-top box does - and the
+         details beside it are given room to be read rather than squeezed under a
+         logo. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/bg_surface"
         android:orientation="horizontal"
-        android:paddingStart="20dp"
-        android:paddingEnd="20dp"
-        android:paddingTop="14dp"
-        android:paddingBottom="14dp">
+        android:paddingStart="22dp"
+        android:paddingEnd="22dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="10dp">
+
+        <FrameLayout
+            android:id="@+id/guidePreviewFrame"
+            android:layout_width="260dp"
+            android:layout_height="146dp"
+            android:background="#FF05070A"
+            android:clickable="true"
+            android:focusable="false"
+            android:foreground="@drawable/fg_poster_border">
+
+            <androidx.media3.ui.PlayerView
+                android:id="@+id/guidePreviewVideo"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                app:resize_mode="zoom"
+                app:use_controller="false" />
+
+            <ImageView
+                android:id="@+id/guidePreviewLogo"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="@string/live_tv"
+                android:padding="26dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/tile_placeholder" />
+
+            <TextView
+                android:id="@+id/guidePreviewNote"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|start"
+                android:layout_margin="8dp"
+                android:background="@drawable/bg_now_badge"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:textColor="#FFFFFFFF"
+                android:textSize="11sp"
+                android:visibility="gone" />
+        </FrameLayout>
 
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_marginStart="24dp"
             android:layout_weight="1"
             android:orientation="vertical">
 
             <LinearLayout
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal">
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:id="@+id/selectedTitle"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:letterSpacing="0.1"
-                    android:text="@string/guide"
-                    android:textAllCaps="true"
-                    android:textColor="@color/brand_primary"
-                    android:textSize="14sp" />
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:fontFamily="sans-serif-medium"
+                    android:lineSpacingMultiplier="1.05"
+                    android:maxLines="2"
+                    android:textColor="@color/text_primary"
+                    android:textSize="25sp" />
+
+                <!-- A favourite is marked from here, where the remote already is. -->
+                <ImageView
+                    android:id="@+id/selectedStar"
+                    android:layout_width="30dp"
+                    android:layout_height="30dp"
+                    android:layout_marginStart="16dp"
+                    android:contentDescription="@string/favourites"
+                    android:src="@drawable/ic_star_outline" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="11dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
                 <TextView
-                    android:id="@+id/guideClock"
+                    android:id="@+id/selectedTime"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="10dp"
+                    android:maxLines="1"
+                    android:textColor="@color/text_primary"
+                    android:textSize="15sp" />
+
+                <!-- How far through it is, so "started at six" means something. -->
+                <ProgressBar
+                    android:id="@+id/selectedProgress"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="104dp"
+                    android:layout_height="3dp"
+                    android:layout_marginStart="14dp"
+                    android:layout_marginEnd="14dp"
+                    android:max="100"
+                    android:progressDrawable="@drawable/bg_epg_elapsed" />
+
+                <TextView
+                    android:id="@+id/selectedLength"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:maxLines="1"
+                    android:textColor="@color/text_primary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:id="@+id/selectedChannelTag"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:gravity="end"
+                    android:letterSpacing="0.03"
+                    android:maxLines="1"
                     android:textColor="@color/text_secondary"
                     android:textSize="14sp" />
             </LinearLayout>
 
             <TextView
-                android:id="@+id/selectedTitle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="@color/text_primary"
-                android:textSize="22sp" />
-
-            <TextView
-                android:id="@+id/selectedTime"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
-
-            <TextView
                 android:id="@+id/selectedDescription"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
+                android:layout_marginTop="10dp"
                 android:ellipsize="end"
-                android:maxLines="2"
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
+                android:lineSpacingMultiplier="1.15"
+                android:maxLines="3"
+                android:textColor="#FFDBE2EA"
+                android:textSize="15sp" />
 
-            <!-- Tells people how to actually start watching what they just tapped. -->
             <TextView
                 android:id="@+id/watchHint"
                 android:layout_width="wrap_content"
@@ -88,15 +167,6 @@
                 android:textSize="12sp"
                 android:visibility="gone" />
         </LinearLayout>
-
-        <ImageView
-            android:layout_width="wrap_content"
-            android:layout_height="52dp"
-            android:layout_gravity="center_vertical"
-            android:layout_marginStart="20dp"
-            android:adjustViewBounds="true"
-            android:contentDescription="@string/app_name"
-            android:src="@drawable/logo" />
     </LinearLayout>
 
     <!-- categories -->
@@ -105,8 +175,8 @@
         android:layout_height="wrap_content"
         android:paddingStart="14dp"
         android:paddingEnd="14dp"
-        android:paddingTop="10dp"
-        android:paddingBottom="6dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="4dp"
         android:scrollbars="none">
 
         <LinearLayout
@@ -122,8 +192,8 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:paddingStart="14dp"
-        android:paddingTop="8dp"
-        android:paddingBottom="8dp">
+        android:paddingTop="5dp"
+        android:paddingBottom="5dp">
 
         <!-- Date and time sit above the channel column, as on a set-top box guide. -->
         <TextView

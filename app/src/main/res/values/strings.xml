@@ -84,6 +84,7 @@
     <string name="up_next">Next %1$s   %2$s</string>
     <string name="view_list">List</string>
     <string name="view_grid">Grid</string>
+    <string name="minutes_long">%1$d min</string>
     <string name="preview_unavailable">Preview unavailable</string>
     <string name="channel_preview">Preview channels in list view</string>
     <string name="channel_preview_on">On — the highlighted channel plays silently</string>
