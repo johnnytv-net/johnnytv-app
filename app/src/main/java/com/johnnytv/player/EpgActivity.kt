@@ -151,7 +151,8 @@ class EpgActivity : AppCompatActivity() {
             onFocused = { channel, programme -> showSelected(channel, programme, fromFocus = true) },
             onPressed = { channel, programme -> blockClicked(channel, programme) },
             onPlay = { channel -> play(channel) },
-            onLeftEdge = { focusCategoryRow() }
+            onLeftEdge = { focusCategoryRow() },
+            onTopEdge = { focusCategoryRow() }
         )
 
         channelColumn.layoutManager = LinearLayoutManager(this)
@@ -591,6 +592,18 @@ class EpgActivity : AppCompatActivity() {
                 ?: continue
             val onAir = row.findViewWithTag<View>(EpgRowAdapter.TAG_ON_AIR) ?: continue
             if (onAir.requestFocus()) return true
+        }
+        // Nothing is marked as on air - a category where every row is still
+        // loading, or a run of channels the portal keeps no listings for. Take
+        // the first thing that will accept the remote rather than leaving it
+        // stranded in the headings, which looks like the guide ignoring you.
+        for (position in first..last) {
+            val row = gridRows.findViewHolderForAdapterPosition(position)?.itemView as? ViewGroup
+                ?: continue
+            for (i in 0 until row.childCount) {
+                val child = row.getChildAt(i)
+                if (child.isFocusable && child.requestFocus()) return true
+            }
         }
         return false
     }

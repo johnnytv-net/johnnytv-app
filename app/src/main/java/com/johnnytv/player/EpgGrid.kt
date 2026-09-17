@@ -184,7 +184,9 @@ class EpgRowAdapter(
     private val onPressed: (StreamItem, Programme) -> Unit,
     private val onPlay: (StreamItem) -> Unit,
     /** Left was pressed on the earliest programme still on: there is no going back. */
-    private val onLeftEdge: () -> Unit = {}
+    private val onLeftEdge: () -> Unit = {},
+    /** Up was pressed on the top row: the headings are what is above it. */
+    private val onTopEdge: () -> Unit = {}
 ) : RecyclerView.Adapter<EpgRowAdapter.VH>() {
 
     private val items = ArrayList<StreamItem>()
@@ -210,14 +212,14 @@ class EpgRowAdapter(
 
         val listings = programmesFor(channel)
         if (listings == null) {
-            row.addView(placeholderBlock(row.context, R.string.loading))
+            row.addView(placeholderBlock(row.context, R.string.loading, channel, position))
             onNeedData(channel, position)
             return
         }
 
         val visible = listings.filter { it.end > timeline.start && it.start < timeline.end }
         if (visible.isEmpty()) {
-            row.addView(placeholderBlock(row.context, R.string.no_guide_short))
+            row.addView(placeholderBlock(row.context, R.string.no_guide_short, channel, position))
             return
         }
 
@@ -274,19 +276,25 @@ class EpgRowAdapter(
                 block.setOnFocusChangeListener { _, hasFocus ->
                     if (hasFocus) onFocused(channel, programme)
                 }
-                if (firstLive == null) {
-                    firstLive = block
-                    // Nothing to the left but the past. Left goes up to the
-                    // category headings instead of nudging against a wall.
-                    block.setOnKeyListener { _, keyCode, event ->
-                        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT &&
-                            event.action == KeyEvent.ACTION_DOWN
-                        ) {
-                            onLeftEdge()
-                            true
-                        } else {
-                            false
+                val isFirstBlock = firstLive == null
+                if (isFirstBlock) firstLive = block
+                block.setOnKeyListener { _, keyCode, event ->
+                    if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+                    when {
+                        // Nothing to the left but the past. Left goes up to the
+                        // category headings instead of nudging against a wall.
+                        isFirstBlock && keyCode == KeyEvent.KEYCODE_DPAD_LEFT -> {
+                            onLeftEdge(); true
                         }
+                        // Up out of the top row lands on the category you are
+                        // actually in. Left to itself, Android picks whichever
+                        // heading happens to sit nearest on screen, which after
+                        // scrolling along the categories is almost never the one
+                        // you came down from.
+                        position == 0 && keyCode == KeyEvent.KEYCODE_DPAD_UP -> {
+                            onTopEdge(); true
+                        }
+                        else -> false
                     }
                 }
             }
@@ -294,19 +302,64 @@ class EpgRowAdapter(
         }
     }
 
-    private fun placeholderBlock(context: Context, textRes: Int): View {
+    /**
+     * The row for a channel with nothing to say - still loading, or a channel the
+     * portal keeps no listings for.
+     *
+     * It used to be a caption: not focusable, not clickable, just grey words. That
+     * was wrong twice over. You could not watch the channel from the guide, which
+     * is the one thing the guide is for; and because the remote cannot land on it,
+     * a screenful of these was a screenful of nothing - pressing down from the
+     * category headings found no block to move to and the highlight stayed put,
+     * which reads as the guide being broken.
+     *
+     * So it behaves like any other block now. It says what it knows, it takes
+     * focus, and pressing it watches the channel.
+     */
+    private fun placeholderBlock(
+        context: Context,
+        textRes: Int,
+        channel: StreamItem,
+        position: Int
+    ): View {
         val label = TextView(context)
         label.setText(textRes)
         label.gravity = Gravity.CENTER_VERTICAL
-        label.setTextColor(context.getColor(R.color.text_secondary))
+        label.setTextColorStateList(context)
         label.textSize = 14f
         label.setPadding(dp(context, 14), 0, dp(context, 12), 0)
         label.setBackgroundResource(R.drawable.bg_epg_block)
+        label.isFocusable = true
+        label.isClickable = true
+        label.tag = TAG_ON_AIR
+        // Nothing is known about what is on, so the panel above is told exactly
+        // that rather than being left describing the last channel.
+        val blank = Programme(
+            title = context.getString(textRes),
+            description = "",
+            start = timeline.start,
+            end = timeline.end,
+            nowPlaying = false
+        )
+        label.setOnClickListener { onPlay(channel) }
+        label.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) onFocused(channel, blank) }
+        label.setOnKeyListener { _, keyCode, event ->
+            if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> { onLeftEdge(); true }
+                KeyEvent.KEYCODE_DPAD_UP -> if (position == 0) { onTopEdge(); true } else false
+                else -> false
+            }
+        }
         val gap = dp(context, 3)
         val params = FrameLayout.LayoutParams(timeline.widthPx - gap, timeline.rowHeightPx - gap * 2)
         params.topMargin = gap
         label.layoutParams = params
         return label
+    }
+
+    private fun TextView.setTextColorStateList(context: Context) {
+        setTextColor(context.getColorStateList(R.color.epg_block_text))
     }
 
     private fun dp(context: Context, value: Int): Int =

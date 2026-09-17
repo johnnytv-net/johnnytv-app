@@ -17,10 +17,19 @@
     <!-- TV guide. Blocks sit just above the background so the grid reads as rows
          without any lines being drawn; the focused block flips to near-white with
          dark text, the way a set-top box guide does. -->
-    <color name="epg_block">#FF1F242C</color>
-    <color name="epg_block_on_air">#FF2B333D</color>
-    <color name="epg_block_focused">#FFF4F7FA</color>
-    <color name="epg_on_dark">#FF0A0D11</color>
+    <!--
+      TRUE NEUTRAL GREY, ON PURPOSE.
+
+      These were blue-greys, which looked right on a monitor and came out
+      periwinkle on a television: a set with its colour pushed up amplifies any
+      tint it is given, and black and white survive only because they have no
+      tint to amplify. Equal red, green and blue has nothing to amplify either,
+      so it stays grey on every set at every setting.
+    -->
+    <color name="epg_block">#FF242424</color>
+    <color name="epg_block_on_air">#FF323232</color>
+    <color name="epg_block_focused">#FFF5F5F5</color>
+    <color name="epg_on_dark">#FF0C0C0C</color>
     <color name="epg_now">#FF6FB3FF</color>
 
     <!-- Loading indicator: a light blue arc turning on a near-black track. -->
