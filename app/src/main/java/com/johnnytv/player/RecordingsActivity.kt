@@ -97,6 +97,12 @@ class RecordingsActivity : AppCompatActivity() {
         val recordings = RecordingStore.all(this)
         val scheduled = Schedules.upcoming(this)
 
+        // The way in for a channel with no listings. PPV and event channels
+        // carry no guide at all, so holding OK on them does nothing - and those
+        // are precisely the channels somebody most wants to record, because a
+        // fight starts at a time and nobody is going to sit through the undercard.
+        column.addView(recordByTimeRow())
+
         emptyLine.visibility =
             if (recordings.isEmpty() && scheduled.isEmpty()) View.VISIBLE else View.GONE
 
@@ -111,6 +117,16 @@ class RecordingsActivity : AppCompatActivity() {
         // does not throw the highlight back to the top of the screen.
         val restore = focusedTag?.let { tag -> column.findViewWithTag<View>(tag) }
         (restore ?: column.getChildAt(0))?.requestFocus()
+    }
+
+    private fun recordByTimeRow(): View {
+        val row = LayoutInflater.from(this).inflate(R.layout.item_recording, column, false)
+        row.tag = "bytime"
+        row.findViewById<TextView>(R.id.recTitle).setText(R.string.record_by_time)
+        row.findViewById<TextView>(R.id.recDetail).setText(R.string.record_by_time_detail)
+        row.findViewById<TextView>(R.id.recBadge).visibility = View.GONE
+        row.setOnClickListener { RecordByTime.show(this) { draw() } }
+        return row
     }
 
     private fun heading(text: String): View {
