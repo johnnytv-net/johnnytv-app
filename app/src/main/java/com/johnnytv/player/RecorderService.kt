@@ -405,13 +405,6 @@ class RecorderService : Service() {
                  * An hour is a few hundred small files nobody will ever look at,
                  * and they play as one continuous programme.
                  */
-                startFreshChunk = true
-                needSync = true
-                // Every part has to open with the stream's table of contents,
-                // or a player handed that part cold has nothing to read it
-                // with. They come past several times a second, so waiting for
-                // one costs nothing.
-                needPat = true
                 nextPartSeconds = piece.seconds
                 nextPartIsBreak = piece.afterBreak
 
@@ -432,6 +425,24 @@ class RecorderService : Service() {
     }
 
     /** Pulls one segment down and writes it. */
+    /**
+     * Pulls one piece down and writes it - if it is actually new.
+     *
+     * A piece is fetched whole before any of it reaches the drive, because the
+     * decision worth making cannot be made a buffer at a time. Two things go
+     * wrong otherwise, and this panel produced both in one recording:
+     *
+     *  - Switching to the playlist mid-recording starts at the beginning of
+     *    whatever window the portal is offering, which is usually material
+     *    already on the drive. Written down, the recording runs forwards for
+     *    forty seconds and then lurches back half a minute.
+     *
+     *  - Portals reissue the same piece under a new address. Watching addresses
+     *    catches nothing; three pieces here were written twice, byte for byte.
+     *
+     * Both are the same question - is this piece older than what we already
+     * hold? - and the piece's own timestamps answer it.
+     */
     private fun fetchSegment(http: OkHttpClient, url: String, id: String): Boolean {
         val openedAt = System.currentTimeMillis()
         pieces++
@@ -443,14 +454,27 @@ class RecorderService : Service() {
             http.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code}")
                 val input = response.body?.byteStream() ?: return false
-                val buffer = ByteArray(64 * 1024)
+                val whole = input.readBytes()
                 backOnAir(id)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    if (read == 0) continue
-                    feed(buffer, read, id)
+                if (whole.isEmpty()) return false
+
+                val sync = findSync(whole)
+                val begins = if (sync >= 0) firstPts(whole, sync, whole.size) else -1L
+                if (begins >= 0L && lastPts >= 0L) {
+                    val behind = lastPts - begins
+                    val wrapped = behind > PTS_WRAP / 2 || behind < -(PTS_WRAP / 2)
+                    if (!wrapped && behind > -PIECE_SLACK_TICKS) {
+                        // Older than what is already on the drive, or the same
+                        // piece again under another name. Nothing to write.
+                        bytesSkippedRepeats += whole.size
+                        return true
+                    }
                 }
+
+                startFreshChunk = true
+                needSync = true
+                needPat = true
+                feed(whole, whole.size, id)
                 true
             }
         } catch (e: Exception) {
@@ -1302,6 +1326,15 @@ class RecorderService : Service() {
          * the read timeout above before we come back to it.
          */
         private const val RECONNECT_WAIT_MS = 250L
+
+        /**
+         * How much a piece may overlap what we hold and still count as new.
+         *
+         * Pieces butt up against each other exactly, so anything that starts
+         * before the end of what is already written is a repeat rather than a
+         * continuation.
+         */
+        private const val PIECE_SLACK_TICKS = 9_000L
 
         /** How long segment mode has to produce a piece before it is abandoned. */
         private const val SEGMENTS_MUST_DELIVER_MS = 15_000L

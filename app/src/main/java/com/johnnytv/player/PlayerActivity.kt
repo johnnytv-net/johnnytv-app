@@ -199,6 +199,7 @@ class PlayerActivity : AppCompatActivity() {
         if (urls.isNotEmpty()) startPlayback()
         if (kind == Kind.LIVE) playerView.post(castWatch)
         if (kind == Kind.LIVE && !playlist) playerView.postDelayed(stallWatch, STALL_CHECK_MS)
+        if (kind == Kind.LIVE && !playlist) playerView.postDelayed(recordingWatch, RECORDING_CHECK_MS)
     }
 
     override fun onStop() {
@@ -214,6 +215,7 @@ class PlayerActivity : AppCompatActivity() {
         playerView.removeCallbacks(castWatch)
         playerView.removeCallbacks(stallWatch)
         playerView.removeCallbacks(waitForChunk)
+        playerView.removeCallbacks(recordingWatch)
         stalledSince = 0L
         castAsk?.dismiss()
         castAsk = null
@@ -441,6 +443,56 @@ class PlayerActivity : AppCompatActivity() {
         } else {
             // The recording has finished and there is nothing more coming.
             finish()
+        }
+    }
+
+    /**
+     * A RECORDING STARTING UNDERNEATH THE PICTURE.
+     *
+     * Opening a channel while something records is already refused. What was
+     * missing is the other order of events: watching a channel, then starting a
+     * recording from the very screen you are watching on. Both then want the
+     * line's one connection, the portal picks one, and the viewer is told their
+     * channel is offline - which it is not.
+     *
+     * So the player gets out of the way. On the channel being recorded it
+     * switches to playing the recording, which costs no connection at all and
+     * is a few seconds behind live. On any other channel it says why and stops.
+     */
+    private val recordingWatch = object : Runnable {
+        override fun run() {
+            if (isFinishing) return
+            if (kind == Kind.LIVE && !playlist && RecorderService.isRecording) {
+                val recording = RecordingStore.all(this@PlayerActivity)
+                    .firstOrNull { it.isRecording }
+                val sameChannel = RecorderService.activeStreamId == contentId
+                val fromDisk = recording?.playlistFile()
+                if (sameChannel && fromDisk != null) {
+                    android.widget.Toast.makeText(
+                        this@PlayerActivity,
+                        R.string.record_watching_recording,
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                    startPlaylist(
+                        this@PlayerActivity,
+                        urls = listOf(android.net.Uri.fromFile(fromDisk).toString()),
+                        title = title,
+                        contentId = "rec:" + recording.id
+                    )
+                    finish()
+                    return
+                }
+                if (!sameChannel) {
+                    android.widget.Toast.makeText(
+                        this@PlayerActivity,
+                        R.string.record_busy_watching,
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                    finish()
+                    return
+                }
+            }
+            playerView.postDelayed(this, RECORDING_CHECK_MS)
         }
     }
 
@@ -743,6 +795,9 @@ class PlayerActivity : AppCompatActivity() {
         /** How long the picture may sit still before it counts as a stall. */
         /** How often to look for another finished chunk of a live recording. */
         private const val CHUNK_WAIT_MS = 4_000L
+
+        /** How often to look for a recording having started underneath us. */
+        private const val RECORDING_CHECK_MS = 2_000L
 
         private const val STALL_MS = 3_000L
         private const val STALL_CHECK_MS = 1_000L
