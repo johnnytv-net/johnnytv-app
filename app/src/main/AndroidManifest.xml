@@ -10,6 +10,28 @@
     -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!--
+        RECORDING.
+
+        A foreground service is the only thing Android reliably leaves running
+        when memory gets tight, which is what stops a recording dying halfway
+        through on a Firestick. The wake lock holds the box up while it writes -
+        a television switched off at the set still has to finish the game - and
+        the alarm permissions are what let a recording set for tonight actually
+        start tonight rather than whenever the box next wakes up.
+
+        Nothing here asks the customer for anything: recordings are written to
+        the app's own folder on the drive, which needs no storage permission at
+        all. That matters on a television, where granting a permission means
+        hunting through settings with a remote.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
@@ -57,6 +79,9 @@
         <activity android:name=".EpgActivity"
             android:screenOrientation="sensorLandscape" android:exported="false" />
 
+        <activity android:name=".RecordingsActivity"
+            android:screenOrientation="sensorLandscape" android:exported="false" />
+
         <activity android:name=".SettingsActivity"
             android:screenOrientation="sensorLandscape" android:exported="false" />
 
@@ -68,6 +93,30 @@
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:theme="@style/AppTheme.Fullscreen" />
 
+
+        <!--
+            The recorder. Its own process would be tidier still, but it shares
+            the login and the catalogue with the app, so it runs in the same one
+            and stays small by never touching the player or any artwork.
+        -->
+        <service
+            android:name=".RecorderService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <receiver
+            android:name=".RecordAlarmReceiver"
+            android:exported="false" />
+
+        <!-- Recordings set for tonight have to survive the power going out. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!--
             Lets the package installer read the downloaded APK out of our cache

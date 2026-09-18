@@ -373,6 +373,17 @@
             android:padding="15dp"
             android:src="@drawable/ic_search" />
         <ImageView
+            android:id="@+id/homeRecordings"
+            android:layout_width="66dp"
+            android:layout_height="56dp"
+            android:layout_marginStart="14dp"
+            android:background="@drawable/bg_action_button"
+            android:clickable="true"
+            android:contentDescription="@string/recordings"
+            android:focusable="true"
+            android:padding="15dp"
+            android:src="@drawable/ic_record" />
+        <ImageView
             android:id="@+id/homeEpg"
             android:layout_width="66dp"
             android:layout_height="56dp"

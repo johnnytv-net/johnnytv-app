@@ -41,6 +41,11 @@ class SettingsActivity : AppCompatActivity() {
             prefs.previewEnabled = !prefs.previewEnabled
             showPreviewState(previewState)
         }
+        val storageState = findViewById<TextView>(R.id.storageState)
+        showStorageState(storageState)
+        findViewById<View>(R.id.storageRow).setOnClickListener { chooseStorage(storageState) }
+        findViewById<View>(R.id.checkRow).setOnClickListener { showDeviceCheck() }
+
         findViewById<View>(R.id.clearSearchRow).setOnClickListener {
             prefs.clearRecentSearches()
             Toast.makeText(this, R.string.searches_cleared, Toast.LENGTH_SHORT).show()
@@ -64,6 +69,70 @@ class SettingsActivity : AppCompatActivity() {
         label.setText(
             if (prefs.previewEnabled) R.string.channel_preview_on else R.string.channel_preview_off
         )
+    }
+
+    /**
+     * Which drive recordings are written to.
+     *
+     * Only worth a question when there is more than one place to put them; with
+     * a single drive plugged in the row simply says where they are going, and a
+     * press still opens the list so somebody can see there is no choice to make
+     * rather than wondering whether they missed one.
+     */
+    private fun showStorageState(label: TextView) {
+        val target = Storage.chosen(this)
+        label.text = if (target == null) {
+            getString(R.string.record_no_storage)
+        } else {
+            getString(
+                R.string.recordings_storage,
+                target.label,
+                String.format(
+                    Locale.getDefault(),
+                    "%.0f GB",
+                    target.freeBytes / (1024.0 * 1024.0 * 1024.0)
+                )
+            )
+        }
+    }
+
+    private fun chooseStorage(label: TextView) {
+        val targets = Storage.targets(this)
+        if (targets.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.recording_storage_row)
+                .setMessage(R.string.record_no_storage)
+                .setPositiveButton(R.string.close, null)
+                .show()
+            return
+        }
+        val names = targets.map { target ->
+            getString(
+                R.string.recordings_storage,
+                target.label,
+                String.format(
+                    Locale.getDefault(),
+                    "%.0f GB",
+                    target.freeBytes / (1024.0 * 1024.0 * 1024.0)
+                )
+            )
+        }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.recording_storage_row)
+            .setItems(names) { _, which ->
+                prefs.recordingVolume = targets[which].id
+                showStorageState(label)
+            }
+            .show()
+    }
+
+    private fun showDeviceCheck() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.check_device)
+            .setMessage(DeviceCheck.report(this))
+            .setPositiveButton(R.string.close, null)
+            .show()
     }
 
     private fun showCatalogueSummary() {

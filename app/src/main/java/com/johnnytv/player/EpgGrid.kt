@@ -183,6 +183,8 @@ class EpgRowAdapter(
     /** A press: describe it, or watch it if it is already the one described. */
     private val onPressed: (StreamItem, Programme) -> Unit,
     private val onPlay: (StreamItem) -> Unit,
+    /** OK held down on a programme: record it. */
+    private val onRecord: (StreamItem, Programme) -> Unit = { _, _ -> },
     /** Left was pressed on the earliest programme still on: there is no going back. */
     private val onLeftEdge: () -> Unit = {},
     /** Up was pressed on the top row: the headings are what is above it. */
@@ -272,7 +274,11 @@ class EpgRowAdapter(
                 block.setOnClickListener {
                     if (block.isFocused) onPlay(channel) else onPressed(channel, programme)
                 }
-                block.setOnLongClickListener { onPlay(channel); true }
+                // Holding OK used to be a second way to watch the channel,
+                // which the plain press already does. It is worth more as the
+                // way in to recording: one press to read what a programme is,
+                // one hold to keep it.
+                block.setOnLongClickListener { onRecord(channel, programme); true }
                 block.setOnFocusChangeListener { _, hasFocus ->
                     if (hasFocus) onFocused(channel, programme)
                 }

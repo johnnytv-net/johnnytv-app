@@ -82,6 +82,9 @@ class HomeActivity : AppCompatActivity() {
                     .putExtra(BrowseActivity.EXTRA_SEARCH_ALL, true)
             )
         }
+        findViewById<View>(R.id.homeRecordings).setOnClickListener {
+            RecordingsActivity.open(this)
+        }
         findViewById<View>(R.id.homeEpg).setOnClickListener {
             startActivity(Intent(this, EpgActivity::class.java))
         }

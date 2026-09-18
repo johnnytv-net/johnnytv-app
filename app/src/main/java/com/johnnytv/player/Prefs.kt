@@ -100,6 +100,39 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_MESSAGE, "") ?: ""
         set(value) = sp.edit().putString(KEY_MESSAGE, value).apply()
 
+    /**
+     * Which drive recordings go to, remembered as the volume's own path so a
+     * stick plugged back in later is recognised as the same one.
+     */
+    var recordingVolume: String
+        get() = sp.getString(KEY_REC_VOLUME, "") ?: ""
+        set(value) = sp.edit().putString(KEY_REC_VOLUME, value).apply()
+
+    /**
+     * Channels that have stalled on this line before.
+     *
+     * A channel that buffers once is bad luck; one that buffers twice is a
+     * channel this connection cannot keep up with at the normal settings, so it
+     * is given a deeper head start from then on. Remembered rather than
+     * re-learned every time, because the second stall is the one the viewer
+     * notices and there is no reason to make them sit through it twice.
+     */
+    fun isJumpy(streamId: String): Boolean = jumpySet().contains(streamId)
+
+    fun noteStall(streamId: String): Boolean {
+        if (streamId.isBlank()) return false
+        val counted = sp.getInt(stallKey(streamId), 0) + 1
+        sp.edit().putInt(stallKey(streamId), counted).apply()
+        if (counted < STALLS_BEFORE_DEEPER_BUFFER) return false
+        val set = HashSet(jumpySet())
+        if (set.add(streamId)) sp.edit().putStringSet(KEY_JUMPY, set).apply()
+        return true
+    }
+
+    private fun stallKey(streamId: String) = "stalls:" + streamId
+
+    private fun jumpySet(): Set<String> = sp.getStringSet(KEY_JUMPY, emptySet()) ?: emptySet()
+
     var lastSync: Long
         get() = sp.getLong(KEY_LAST_SYNC, 0L)
         set(value) = sp.edit().putLong(KEY_LAST_SYNC, value).apply()
@@ -215,5 +248,10 @@ class Prefs(context: Context) {
         const val KEY_POSITIONS = "positions"
         const val KEY_CONTINUE = "continue_watching"
         const val KEY_SEARCHES = "recent_searches"
+        const val KEY_REC_VOLUME = "recording_volume"
+        const val KEY_JUMPY = "jumpy_channels"
+
+        /** How many stalls before a channel gets the deeper buffer for good. */
+        const val STALLS_BEFORE_DEEPER_BUFFER = 2
     }
 }

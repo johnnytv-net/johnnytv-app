@@ -151,6 +151,7 @@ class EpgActivity : AppCompatActivity() {
             onFocused = { channel, programme -> showSelected(channel, programme, fromFocus = true) },
             onPressed = { channel, programme -> blockClicked(channel, programme) },
             onPlay = { channel -> play(channel) },
+            onRecord = { channel, programme -> RecordDialog.show(this, channel, programme) },
             onLeftEdge = { focusCategoryRow() },
             onTopEdge = { focusCategoryRow() }
         )

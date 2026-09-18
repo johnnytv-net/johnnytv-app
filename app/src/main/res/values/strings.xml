@@ -9,8 +9,8 @@
     <string name="password_hint">Password</string>
     <string name="search_everything">Search</string>
     <string name="search_everything_hint">Search channels, films and series</string>
-    <string name="watch_hint">Press again to watch</string>
-    <string name="watch_hint_focus">Press OK to watch</string>
+    <string name="watch_hint">Press again to watch  ·  hold OK to record</string>
+    <string name="watch_hint_focus">Press OK to watch  ·  hold OK to record</string>
     <string name="search_prompt">Type to search across Live TV, Movies and Series</string>
     <string name="show_password">Show password</string>
     <string name="hide_password">Hide password</string>
@@ -141,4 +141,63 @@
     <string name="catalogue_summary">%1$d channels · %2$d movies · %3$d series\nLast updated %4$s</string>
     <string name="version_label">Version %1$s (%2$d)</string>
     <string name="wrong_login">Wrong username or password.</string>
+
+    <!-- recording -->
+    <string name="recordings">Recordings</string>
+    <string name="recordings_empty">Nothing recorded yet. Hold OK on a programme in the TV guide to record it.</string>
+    <string name="recordings_storage">%1$s · %2$s free</string>
+    <string name="recordings_scheduled">Scheduled (%1$d)</string>
+    <string name="recordings_in_progress">%1$s · recording · %2$d min · %3$s</string>
+    <string name="recordings_done_line">%1$s · %2$s · %3$d min · %4$s</string>
+    <string name="recordings_scheduled_line">%1$s · %2$s · %3$d min</string>
+    <string name="recordings_badge_recording">Recording</string>
+    <string name="recordings_badge_clean">No gaps</string>
+    <string name="recordings_badge_gaps">%1$d gap · %2$ds</string>
+    <string name="recordings_badge_failed">Nothing recorded</string>
+    <string name="recordings_badge_ready">Ready</string>
+    <string name="recordings_badge_series">Every episode</string>
+    <string name="recordings_play">Play</string>
+    <string name="recordings_keep">Keep — never delete automatically</string>
+    <string name="recordings_unkeep">Stop keeping</string>
+    <string name="recordings_stop">Stop recording</string>
+    <string name="recordings_delete">Delete</string>
+    <string name="recordings_delete_confirm">Delete %1$s? The video file goes with it.</string>
+    <string name="recordings_report">Recording report</string>
+    <string name="recordings_report_clean">No gaps. The feed never dropped.</string>
+    <string name="recordings_report_gap">Gap at %1$s — %2$d seconds, reconnected on its own.</string>
+    <string name="recordings_cancel_confirm">Cancel this recording?</string>
+    <string name="recordings_cancel_yes">Cancel it</string>
+    <string name="recordings_nothing_title">Nothing to play</string>
+    <string name="recordings_nothing_message">This recording has no video in it.</string>
+
+    <string name="record_title">Record</string>
+    <string name="record_this">Record</string>
+    <string name="record_now">Record now</string>
+    <string name="record_series">Every episode</string>
+    <string name="record_anyway">Record anyway</string>
+    <string name="record_padding">Starts %1$d min early and runs %2$d min over.</string>
+    <string name="record_padding_sport">Sport, so it is given extra room at the end.</string>
+    <string name="record_space_ok">Needs about %1$s. %2$s has %3$s free.</string>
+    <string name="record_space_low">Needs about %1$s, but %2$s only has %3$s free. Older watched recordings will be cleared to make room.</string>
+    <string name="record_no_storage">No drive found. Plug a USB stick or hard drive into the box.</string>
+    <string name="record_one_connection">Your line allows one connection, so while this records you can watch this channel but not another one.</string>
+    <string name="record_started">Recording %1$s</string>
+    <string name="record_scheduled">Scheduled for %1$s</string>
+    <string name="record_busy">Something is already recording. Stop that first.</string>
+    <string name="record_clash_title">Two at once</string>
+    <string name="record_clash_message">This overlaps %1$s, and your line allows one connection at a time.</string>
+    <string name="record_live_message">Record %1$s for the next %2$d hours.\n\n%3$s</string>
+    <string name="record_hint">Hold OK to record</string>
+    <string name="record_busy_watching">Recording in progress. Your line allows one connection, so this channel has to stay on until it finishes.</string>
+
+    <string name="check_device">Check my device</string>
+    <string name="check_no_drive">No USB drive is plugged in. Recordings will be saved on the box itself, which has far less room.</string>
+    <string name="check_drive_found">%1$s is plugged in and ready.</string>
+    <string name="check_nowhere_to_write">There is nowhere to save recordings on this device.</string>
+    <string name="check_space">%1$s has room for about %2$s hours of HD.</string>
+    <string name="check_writable">Writing to it works.</string>
+    <string name="check_not_writable">Cannot write to it. On a Firestick, use the original power brick with the OTG cable; on a box, try a different USB port.</string>
+    <string name="check_recording_now">Something is recording right now.</string>
+    <string name="check_idle">Nothing is recording at the moment.</string>
+    <string name="recording_storage_row">Save recordings to</string>
 </resources>

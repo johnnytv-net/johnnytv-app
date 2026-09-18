@@ -13,6 +13,10 @@ class JohnnyTvApp : Application(), ImageLoaderFactory {
         CrashReporter.install(this)
         // Whatever logo overrides were downloaded last time, ready before any screen draws.
         LogoPack.load(this)
+        // Alarms do not survive an app being force-stopped or updated, and a
+        // recording somebody set for tonight has to happen tonight - so they are
+        // all set again from the file every time the app starts.
+        runCatching { RecordScheduler.armAll(this) }
     }
 
     /**
