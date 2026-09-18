@@ -165,6 +165,10 @@ class RecorderService : Service() {
         var needSync = true
         /** The chunk is due to roll over, as soon as a PAT comes past. */
         var rotateWhenReady = false
+        /** This connection is new, so its first bytes belong in a new chunk. */
+        var startFreshChunk = false
+        /** Nothing is worth writing until the stream says where it begins. */
+        var needPat = false
         var bytesTotal = 0L
         var lastSave = 0L
         var awaySince = 0L
@@ -208,10 +212,26 @@ class RecorderService : Service() {
                         awaySince = 0L
                     }
 
-                    // A reconnection lands in the middle of whatever the portal
-                    // happened to be sending, so the stream has to be found
-                    // again before anything is written.
+                    /*
+                     * EVERY CONNECTION GETS ITS OWN CHUNK.
+                     *
+                     * A reconnection is not a continuation. The portal picks up
+                     * wherever it is now, usually replaying a few seconds it has
+                     * already sent, and with its own timing rather than a
+                     * continuation of the old one. Written into the middle of the
+                     * same file, that is what makes a recording repeat itself,
+                     * stick on one frame, and then run with the sound ahead of the
+                     * picture: the player is trying to read two streams as one.
+                     *
+                     * Started as a new chunk instead, the player treats it as a new
+                     * piece and resets its clock at the join - the seam becomes a
+                     * momentary pause instead of a minute of drift.
+                     */
                     needSync = true
+                    if (everWrote) {
+                        startFreshChunk = true
+                        needPat = true
+                    }
 
                     while (!stopping && System.currentTimeMillis() < endAt) {
                         val read = input.read(buffer)
@@ -260,10 +280,33 @@ class RecorderService : Service() {
                             needSync = false
                         }
 
-                        val whole = ((data.size - start) / TS_PACKET) * TS_PACKET
+                        var whole = ((data.size - start) / TS_PACKET) * TS_PACKET
                         if (whole <= 0) {
                             carry = data.copyOfRange(start, data.size)
                             continue
+                        }
+
+                        // A new connection: throw away everything up to the first
+                        // PAT, so the chunk starts where a player can start.
+                        if (needPat) {
+                            val pat = findPat(data, start, start + whole)
+                            if (pat < 0) {
+                                carry = data.copyOfRange(start + whole, data.size)
+                                continue
+                            }
+                            start = pat
+                            needPat = false
+                            whole = ((data.size - start) / TS_PACKET) * TS_PACKET
+                            if (whole <= 0) {
+                                carry = data.copyOfRange(start, data.size)
+                                continue
+                            }
+                        }
+
+                        if (startFreshChunk) {
+                            startFreshChunk = false
+                            rotateWhenReady = false
+                            openNewPart()
                         }
 
                         // A new chunk has to begin at a point the player can start

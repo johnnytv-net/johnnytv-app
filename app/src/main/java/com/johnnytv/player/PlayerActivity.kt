@@ -59,6 +59,9 @@ class PlayerActivity : AppCompatActivity() {
     /** Where a held-down button has walked to, before it settles and tunes. */
     private var pendingIndex = -1
 
+    /** The recording being watched while it is still being written. */
+    private var pendingRecordingId = ""
+
     /** This channel has stalled on this line before, so hold more in hand. */
     private var deeperBuffer = false
 
@@ -210,6 +213,7 @@ class PlayerActivity : AppCompatActivity() {
         channelLabel.visibility = View.GONE
         playerView.removeCallbacks(castWatch)
         playerView.removeCallbacks(stallWatch)
+        playerView.removeCallbacks(waitForChunk)
         stalledSince = 0L
         castAsk?.dismiss()
         castAsk = null
@@ -396,6 +400,44 @@ class PlayerActivity : AppCompatActivity() {
     private val hideChannelLabel = Runnable { channelLabel.visibility = View.GONE }
     private val hideNowPlaying = Runnable { nowPlayingLabel.visibility = View.GONE }
 
+    /**
+     * Sitting at the live edge of a recording in progress.
+     *
+     * Checks every few seconds for a chunk that has finished since, and picks up
+     * from there. The status line says what is happening, because a still
+     * picture with no explanation reads as broken.
+     */
+    private fun waitForMoreRecording() {
+        val recordingId = contentId.removePrefix("rec:")
+        showStatus(getString(R.string.recording_catching_up))
+        playerView.removeCallbacks(waitForChunk)
+        playerView.postDelayed(waitForChunk, CHUNK_WAIT_MS)
+        pendingRecordingId = recordingId
+    }
+
+    private val waitForChunk = Runnable {
+        val id = pendingRecordingId
+        if (id.isBlank() || isFinishing) return@Runnable
+        val recording = RecordingStore.find(this, id)
+        val files = recording?.playableFiles().orEmpty()
+        if (files.size > urls.size) {
+            // Something new has finished being written. Continue from it.
+            val fresh = files.drop(urls.size).map { android.net.Uri.fromFile(it).toString() }
+            urls = urls + fresh
+            hideStatus()
+            player?.let { active ->
+                for (url in fresh) active.addMediaItem(MediaItem.fromUri(url))
+                active.prepare()
+                active.playWhenReady = true
+            } ?: startPlayback()
+        } else if (recording?.isRecording == true) {
+            playerView.postDelayed(waitForChunk, CHUNK_WAIT_MS)
+        } else {
+            // The recording has finished and there is nothing more coming.
+            finish()
+        }
+    }
+
     // ---------- fixing itself ----------
 
     /**
@@ -516,6 +558,17 @@ class PlayerActivity : AppCompatActivity() {
                         }
                     }
                     Player.STATE_ENDED -> {
+                        if (playlist && contentId.startsWith("rec:") &&
+                            RecorderService.isRecording
+                        ) {
+                            // Caught up with a recording that is still being
+                            // written. The end of the file is not the end of the
+                            // programme - wait for the next chunk to finish and
+                            // carry on, rather than dropping the viewer back to
+                            // the guide mid-match.
+                            waitForMoreRecording()
+                            return
+                        }
                         if (kind == Kind.LIVE) {
                             // A live channel never really "ends" - the feed dropped.
                             // Reconnect instead of closing the player.
@@ -682,6 +735,9 @@ class PlayerActivity : AppCompatActivity() {
         private const val CAST_ASK_MS = 20_000L
 
         /** How long the picture may sit still before it counts as a stall. */
+        /** How often to look for another finished chunk of a live recording. */
+        private const val CHUNK_WAIT_MS = 4_000L
+
         private const val STALL_MS = 3_000L
         private const val STALL_CHECK_MS = 1_000L
 
