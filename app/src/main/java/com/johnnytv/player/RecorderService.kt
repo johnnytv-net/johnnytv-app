@@ -327,10 +327,30 @@ class RecorderService : Service() {
             emptyRounds = 0
 
             var got = 0
-            for (segment in segments) {
+            for (piece in segments) {
                 if (stopping || System.currentTimeMillis() >= endAt) break
-                if (!seen.add(segment)) continue
-                if (fetchSegment(http, segment, id)) got++
+                if (!seen.add(piece.url)) continue
+
+                /*
+                 * WHERE THE CLOCK JUMPS, THE FILE BREAKS.
+                 *
+                 * Every piece carries its own timestamps, and they do not always
+                 * continue from the last one. Written straight through, a player
+                 * reading that file reaches the jump and decides the programme is
+                 * over - which is a recording that stops dead after thirty
+                 * seconds even though all of it is there on the drive.
+                 *
+                 * Starting a new file at each jump gives the player a clean break
+                 * it understands: it finishes one piece, moves to the next, and
+                 * the viewer sees a continuous programme.
+                 */
+                if (piece.afterBreak || System.currentTimeMillis() - partStarted >= SEGMENT_PART_MS) {
+                    startFreshChunk = true
+                    needSync = true
+                    needPat = true
+                }
+
+                if (fetchSegment(http, piece.url, id)) got++
             }
 
             // Keep the memory of what we have seen from growing all night.
@@ -374,16 +394,34 @@ class RecorderService : Service() {
      * A master playlist points at other playlists rather than at video; when one
      * turns up, its first variant is followed instead.
      */
-    private fun segmentsIn(playlist: String, from: String): List<String> {
+    private fun segmentsIn(playlist: String, from: String): List<Piece> {
         if (!playlist.contains("#EXTM3U")) return emptyList()
         val lines = playlist.lines().map { it.trim() }.filter { it.isNotEmpty() }
 
         if (playlist.contains("#EXT-X-STREAM-INF")) {
             val variant = lines.firstOrNull { !it.startsWith("#") } ?: return emptyList()
-            return listOf(absolute(variant, from))
+            return listOf(Piece(absolute(variant, from), false))
         }
-        return lines.filter { !it.startsWith("#") }.map { absolute(it, from) }
+
+        // A playlist may announce that the next piece does not follow on from the
+        // last - an advert break spliced in, or the encoder restarting. That is
+        // the portal telling us exactly where the clock jumps, which is where a
+        // recording has to be split.
+        val out = ArrayList<Piece>()
+        var breakHere = false
+        for (line in lines) {
+            if (line.startsWith("#")) {
+                if (line.startsWith("#EXT-X-DISCONTINUITY")) breakHere = true
+                continue
+            }
+            out.add(Piece(absolute(line, from), breakHere))
+            breakHere = false
+        }
+        return out
     }
+
+    /** One piece of a segmented channel, and whether the clock jumps before it. */
+    private data class Piece(val url: String, val afterBreak: Boolean)
 
     /** Playlists may list pieces by full address or by name alone. */
     private fun absolute(reference: String, from: String): String {
@@ -820,6 +858,15 @@ class RecorderService : Service() {
          * that ends this fast twice in a row is telling us the same thing.
          */
         private const val SEGMENT_LOOKS_LIKE_MS = 25_000L
+
+        /**
+         * How much of a segmented channel goes in one file.
+         *
+         * Short enough that a timestamp jump we did not spot costs a break
+         * rather than the rest of the recording, long enough that an hour is
+         * thirty files and not three hundred.
+         */
+        private const val SEGMENT_PART_MS = 2L * 60L * 1000L
 
         /** How long to wait before asking a segmented channel what is new. */
         private const val POLL_WAIT_MS = 4_000L
