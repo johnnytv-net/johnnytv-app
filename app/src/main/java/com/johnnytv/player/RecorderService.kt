@@ -316,6 +316,20 @@ class RecorderService : Service() {
     ): Boolean {
         val seen = LinkedHashSet<String>()
         var emptyRounds = 0
+        /*
+         * SEGMENT MODE HAS TO EARN ITS PLACE.
+         *
+         * Following a playlist is right for a channel that is served in pieces.
+         * It is a disaster for one that is not, because nothing announces the
+         * mistake: the playlist is fetched, nothing on it is new, and the
+         * recorder waits politely while the programme goes past. Two minutes
+         * recorded, thirty-one seconds of it with a connection actually open.
+         *
+         * So it is given a short while to produce something. If no new piece
+         * arrives in that time, it gives up and goes back to reading the stream
+         * directly, which is the mode that was working.
+         */
+        var lastPieceAt = System.currentTimeMillis()
 
         while (!stopping && System.currentTimeMillis() < endAt) {
             val playlist = try {
@@ -392,6 +406,12 @@ class RecorderService : Service() {
             // Keep the memory of what we have seen from growing all night.
             while (seen.size > REMEMBER_SEGMENTS) seen.remove(seen.first())
 
+            if (got > 0) {
+                lastPieceAt = System.currentTimeMillis()
+            } else if (System.currentTimeMillis() - lastPieceAt > SEGMENTS_MUST_DELIVER_MS) {
+                return false
+            }
+
             housekeeping(id)
             runCatching { Thread.sleep(if (got > 0) POLL_WAIT_MS else POLL_WAIT_MS / 2) }
         }
@@ -400,6 +420,8 @@ class RecorderService : Service() {
 
     /** Pulls one segment down and writes it. */
     private fun fetchSegment(http: OkHttpClient, url: String, id: String): Boolean {
+        val openedAt = System.currentTimeMillis()
+        pieces++
         return try {
             val request = Request.Builder()
                 .url(url)
@@ -421,6 +443,8 @@ class RecorderService : Service() {
         } catch (e: Exception) {
             if (awaySince == 0L) awaySince = System.currentTimeMillis()
             false
+        } finally {
+            readingMs += System.currentTimeMillis() - openedAt
         }
     }
 
@@ -530,6 +554,7 @@ class RecorderService : Service() {
     private var bytesWaitingForClock = 0L
     /** How many times a connection was opened, and how long they were open. */
     private var connections = 0
+    private var pieces = 0
     private var readingMs = 0L
     /** Seconds of video actually captured, from the stream's own clock. */
     private var contentSeconds = 0.0
@@ -895,6 +920,7 @@ class RecorderService : Service() {
         val noSync = bytesSkippedNoSync
         val waiting = bytesWaitingForClock
         val opened = connections
+        val fetched = pieces
         val reading = readingMs
         val wall = ((finishedAt - startedAtWall) / 1000L).coerceAtLeast(1L)
         val content = contentSeconds + (if (partFirstPts >= 0L && partLastPts > partFirstPts)
@@ -908,7 +934,8 @@ class RecorderService : Service() {
             // identical from the outside, and they need opposite fixes.
             it.note = "Recorded over " + wall + "s: the feed delivered " +
                 String.format(java.util.Locale.US, "%.0f", content) + "s of video in " +
-                mb(arrived) + " across " + opened + " connection(s), reading for " +
+                mb(arrived) + " across " + opened + " connection(s) and " + fetched +
+                " piece(s), reading for " +
                 (reading / 1000L) + "s. Kept " + mb(total) +
                 " — repeats " + mb(repeats) + ", contents " + mb(noPat) +
                 ", clock " + mb(waiting) + ", unreadable " + mb(noSync) + "."
@@ -1195,8 +1222,17 @@ class RecorderService : Service() {
         /** How many segment names to remember, so nothing is fetched twice. */
         private const val REMEMBER_SEGMENTS = 400
 
-        /** How long to wait before opening a new connection after a drop. */
-        private const val RECONNECT_WAIT_MS = 1_500L
+        /**
+         * How long to wait before opening a new connection after a drop.
+         *
+         * Short, because on a channel that closes every fifteen seconds this
+         * pause is time off air. A portal that is refusing outright still gets
+         * the read timeout above before we come back to it.
+         */
+        private const val RECONNECT_WAIT_MS = 250L
+
+        /** How long segment mode has to produce a piece before it is abandoned. */
+        private const val SEGMENTS_MUST_DELIVER_MS = 15_000L
 
         /** How often the row on the Recordings screen is brought up to date. */
         private const val SAVE_EVERY_MS = 5_000L
