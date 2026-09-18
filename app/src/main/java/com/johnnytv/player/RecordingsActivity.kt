@@ -35,8 +35,13 @@ class RecordingsActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private val refresh = object : Runnable {
         override fun run() {
-            if (RecorderService.isRecording) draw()
-            handler.postDelayed(this, 5_000L)
+            // Always redraw, not only while something is recording. The old
+            // version stopped the moment recording did, which left the screen
+            // frozen on its last drawing - so a recording somebody had just
+            // stopped went on claiming to be in progress for as long as they
+            // stared at it.
+            draw()
+            handler.postDelayed(this, 3_000L)
         }
     }
 
@@ -209,8 +214,18 @@ class RecordingsActivity : AppCompatActivity() {
             options.add(getString(R.string.recordings_stop))
             actions.add {
                 RecorderService.stop(this)
+                // The recorder may be part-way through a read when asked to
+                // stop, so give it a moment and then keep an eye on it rather
+                // than drawing once and trusting it.
                 handler.postDelayed({ draw() }, 700L)
+                handler.postDelayed({ draw() }, 3_000L)
+                handler.postDelayed({ draw() }, 7_000L)
             }
+
+            // Worth seeing while it runs, not only afterwards - it is the only
+            // way to tell a recording that is going well from one that is not.
+            options.add(getString(R.string.recordings_report))
+            actions.add { showReport(recording) }
         } else {
             options.add(getString(R.string.recordings_play))
             actions.add { play(recording) }
