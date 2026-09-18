@@ -584,6 +584,17 @@ class EpgActivity : AppCompatActivity() {
     }
 
     private fun startPreview(channel: StreamItem, urlIndex: Int = 0) {
+        // The preview is a whole connection. queuePreview already refuses to
+        // start one while a recording is running, but a recording can begin
+        // while a preview is playing - somebody holding OK on the programme
+        // they are watching - so the last word on it belongs here, where every
+        // route to a preview ends up.
+        if (RecorderService.isRecording) {
+            stopPreview()
+            previewNote.setText(R.string.preview_recording)
+            previewNote.visibility = View.VISIBLE
+            return
+        }
         val urls = prefs.client().liveUrls(channel.streamId)
         if (urlIndex >= urls.size) {
             previewNote.setText(R.string.preview_unavailable)
@@ -591,6 +602,7 @@ class EpgActivity : AppCompatActivity() {
             return
         }
         previewUrlIndex = urlIndex
+        watchForRecording()
         val exo = ensurePreviewPlayer()
         exo.stop()
         exo.setMediaItem(MediaItem.fromUri(urls[urlIndex]))
@@ -606,6 +618,32 @@ class EpgActivity : AppCompatActivity() {
     private fun stopPreview() {
         previewPlayer?.stop()
         previewPlayer?.clearMediaItems()
+        previewGuard.removeCallbacksAndMessages(null)
+    }
+
+    /**
+     * Watches for a recording starting underneath a preview that is already
+     * playing, and gets out of its way. Without this the preview keeps the line
+     * for a few seconds and then freezes - which looks like the app is broken
+     * when it is really two things wanting the same single connection.
+     */
+    private val previewGuard = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private fun watchForRecording() {
+        previewGuard.removeCallbacksAndMessages(null)
+        previewGuard.postDelayed(object : Runnable {
+            override fun run() {
+                if (isFinishing) return
+                if (RecorderService.isRecording) {
+                    previewJob?.cancel()
+                    stopPreview()
+                    previewNote.setText(R.string.preview_recording)
+                    previewNote.visibility = View.VISIBLE
+                    return
+                }
+                previewGuard.postDelayed(this, 2_000L)
+            }
+        }, 2_000L)
     }
 
     private fun releasePreviewPlayer() {

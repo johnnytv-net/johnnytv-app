@@ -197,10 +197,17 @@ class RecorderService : Service() {
             }
 
             val startedAt = System.currentTimeMillis()
-            val endedCleanly = readOneStream(http, streamUrl, id, endAt)
+            val before = bytesTotal
+            readOneStream(http, streamUrl, id, endAt)
             val lasted = System.currentTimeMillis() - startedAt
+            val deliveredVideo = bytesTotal > before
 
-            if (endedCleanly && lasted < SEGMENT_LOOKS_LIKE_MS) {
+            // What matters is the shape of the ending, not its manners. Some
+            // portals close a segment tidily and some just cut the socket, and
+            // the first version of this only counted the polite ones - so a
+            // channel that hung up rudely every twelve seconds was never
+            // recognised as segmented at all.
+            if (deliveredVideo && lasted < SEGMENT_LOOKS_LIKE_MS) {
                 shortEndings++
                 // Twice is a pattern rather than bad luck. Switch to asking for
                 // the pieces properly, and stop calling these dropouts.
@@ -236,15 +243,15 @@ class RecorderService : Service() {
     /**
      * One connection to a continuous stream, read until it stops.
      *
-     * Returns true if the portal closed it politely, which is the clue that this
-     * might be a segmented channel rather than a broken one.
+     * How it ended is judged by the caller, from how long it lasted and whether
+     * any video came out of it.
      */
     private fun readOneStream(
         http: OkHttpClient,
         url: String,
         id: String,
         endAt: Long
-    ): Boolean {
+    ) {
         try {
             val request = Request.Builder()
                 .url(url)
@@ -266,7 +273,7 @@ class RecorderService : Service() {
 
                 while (!stopping && System.currentTimeMillis() < endAt) {
                     val read = input.read(buffer)
-                    if (read < 0) return true          // the portal closed it tidily
+                    if (read < 0) return               // the portal closed it
                     if (read == 0) continue
                     feed(buffer, read, id)
                     housekeeping(id)
@@ -274,9 +281,7 @@ class RecorderService : Service() {
             }
         } catch (e: Exception) {
             if (!everWrote) tried++
-            return false
         }
-        return false
     }
 
     /**
