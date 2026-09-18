@@ -113,7 +113,7 @@ class RecorderService : Service() {
             runCatching { out?.flush(); out?.close() }
             runCatching {
                 if (currentPart.isNotEmpty()) {
-                    partsWritten.add(currentPart to finishedLength())
+                    partsWritten.add(Triple(currentPart, finishedLength(), currentPartIsBreak))
                     currentPart = ""
                 }
                 writePlaylist(true)
