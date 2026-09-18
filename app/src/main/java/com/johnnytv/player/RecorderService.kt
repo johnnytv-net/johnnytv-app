@@ -363,6 +363,7 @@ class RecorderService : Service() {
                 startFreshChunk = true
                 needSync = true
                 needPat = false
+                nextPartSeconds = piece.seconds
 
                 if (fetchSegment(http, piece.url, id)) got++
             }
@@ -414,7 +415,7 @@ class RecorderService : Service() {
 
         if (playlist.contains("#EXT-X-STREAM-INF")) {
             val variant = lines.firstOrNull { !it.startsWith("#") } ?: return emptyList()
-            return listOf(Piece(absolute(variant, from), false))
+            return listOf(Piece(absolute(variant, from), false, 0.0))
         }
 
         // A playlist may announce that the next piece does not follow on from the
@@ -423,19 +424,37 @@ class RecorderService : Service() {
         // recording has to be split.
         val out = ArrayList<Piece>()
         var breakHere = false
+        var seconds = 0.0
         for (line in lines) {
             if (line.startsWith("#")) {
                 if (line.startsWith("#EXT-X-DISCONTINUITY")) breakHere = true
+                if (line.startsWith("#EXTINF:")) {
+                    seconds = line.removePrefix("#EXTINF:")
+                        .substringBefore(',')
+                        .trim()
+                        .toDoubleOrNull() ?: 0.0
+                }
                 continue
             }
-            out.add(Piece(absolute(line, from), breakHere))
+            out.add(Piece(absolute(line, from), breakHere, seconds))
             breakHere = false
+            seconds = 0.0
         }
         return out
     }
 
-    /** One piece of a segmented channel, and whether the clock jumps before it. */
-    private data class Piece(val url: String, val afterBreak: Boolean)
+    /**
+     * One piece of a segmented channel: where it is, whether the clock jumps
+     * before it, and how long it actually plays for.
+     *
+     * That last one matters more than it looks. The playlist written beside a
+     * recording has to say how long each piece runs, and timing how long it took
+     * to arrive is not the same thing at all - a twelve second piece can be
+     * fetched in half a second. Told a piece lasts half a second, a player runs
+     * out of material and sits there stuttering. The portal states the real
+     * figure, so that is the one to keep.
+     */
+    private data class Piece(val url: String, val afterBreak: Boolean, val seconds: Double)
 
     /** Playlists may list pieces by full address or by name alone. */
     private fun absolute(reference: String, from: String): String {
@@ -475,16 +494,21 @@ class RecorderService : Service() {
     /** After a reconnect: drop what the portal resends until it moves past lastPts. */
     private var trimming = false
 
-    /** Each finished part and how long it ran, for the playlist. */
+    /** Each finished part and how long it plays, for the playlist. */
     private val partsWritten = ArrayList<Pair<String, Double>>()
     private var currentPart = ""
+
+    /** How long the piece now being written plays for, as the portal stated it. */
+    private var currentPartSeconds = 0.0
+    private var nextPartSeconds = 0.0
 
     private fun openNewPart() {
         runCatching { out?.flush(); out?.close() }
         if (currentPart.isNotEmpty()) {
-            val seconds = ((System.currentTimeMillis() - partStarted) / 1000.0).coerceAtLeast(0.1)
-            partsWritten.add(currentPart to seconds)
+            partsWritten.add(currentPart to finishedLength())
         }
+        currentPartSeconds = nextPartSeconds
+        nextPartSeconds = 0.0
         val name = String.format("part%03d.ts", partIndex)
         partIndex++
         partStarted = System.currentTimeMillis()
@@ -511,8 +535,7 @@ class RecorderService : Service() {
     private fun writePlaylist(finished: Boolean) {
         val all = ArrayList(partsWritten)
         if (!finished && currentPart.isNotEmpty()) {
-            val soFar = ((System.currentTimeMillis() - partStarted) / 1000.0).coerceAtLeast(0.1)
-            all.add(currentPart to soFar)
+            all.add(currentPart to finishedLength())
         }
         if (all.isEmpty()) return
 
@@ -716,11 +739,20 @@ class RecorderService : Service() {
         }
     }
 
+    /**
+     * How long the part just written plays for: what the portal said where it
+     * said anything, and the time it took to arrive otherwise - which is right
+     * for a continuous stream, where the two are the same thing.
+     */
+    private fun finishedLength(): Double {
+        if (currentPartSeconds > 0.0) return currentPartSeconds
+        return ((System.currentTimeMillis() - partStarted) / 1000.0).coerceAtLeast(0.1)
+    }
+
     private fun closeUp(id: String) {
         runCatching { out?.flush(); out?.close() }
         if (currentPart.isNotEmpty()) {
-            val seconds = ((System.currentTimeMillis() - partStarted) / 1000.0).coerceAtLeast(0.1)
-            partsWritten.add(currentPart to seconds)
+            partsWritten.add(currentPart to finishedLength())
             currentPart = ""
         }
         writePlaylist(true)
