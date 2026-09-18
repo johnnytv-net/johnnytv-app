@@ -50,6 +50,44 @@ fun androidx.appcompat.app.AlertDialog.showForRemote() {
     show()
 }
 
+/**
+ * A menu of choices, built out of buttons rather than a list.
+ *
+ * The list version could not be driven with a remote at all on the Shield: the
+ * dialog opened, the options were there, and every press did nothing because
+ * nothing inside it would take the highlight. These are ordinary focusable
+ * rows, so the first one lights up on open and the remote walks them like any
+ * other screen.
+ */
+fun android.app.Activity.showOptions(
+    title: String,
+    options: List<String>,
+    onPick: (Int) -> Unit
+) {
+    val view = android.view.LayoutInflater.from(this)
+        .inflate(R.layout.dialog_options, null, false)
+    val column = view.findViewById<android.widget.LinearLayout>(R.id.optionsColumn)
+
+    val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+        .setTitle(title)
+        .setView(view)
+        .create()
+
+    options.forEachIndexed { index, label ->
+        val row = android.view.LayoutInflater.from(this)
+            .inflate(R.layout.item_option, column, false) as android.widget.TextView
+        row.text = label
+        row.setOnClickListener {
+            dialog.dismiss()
+            onPick(index)
+        }
+        column.addView(row)
+    }
+
+    dialog.setOnShowListener { column.getChildAt(0)?.requestFocus() }
+    dialog.show()
+}
+
 /** A drive or card the app can record to. */
 data class StorageTarget(
     val id: String,

@@ -244,11 +244,7 @@ class RecordingsActivity : AppCompatActivity() {
                 .show()
         }
 
-        AlertDialog.Builder(this)
-            .setTitle(recording.title)
-            .setItems(options.toTypedArray()) { _, which -> actions[which]() }
-            .create()
-            .showForRemote()
+        showOptions(recording.title, options) { which -> actions[which]() }
     }
 
     private fun showReport(recording: Recording) {

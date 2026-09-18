@@ -118,14 +118,10 @@ class SettingsActivity : AppCompatActivity() {
             )
         }.toTypedArray()
 
-        AlertDialog.Builder(this)
-            .setTitle(R.string.recording_storage_row)
-            .setItems(names) { _, which ->
-                prefs.recordingVolume = targets[which].id
-                showStorageState(label)
-            }
-            .create()
-            .showForRemote()
+        showOptions(getString(R.string.recording_storage_row), names.toList()) { which ->
+            prefs.recordingVolume = targets[which].id
+            showStorageState(label)
+        }
     }
 
     private fun showDeviceCheck() {
