@@ -97,6 +97,9 @@ class EpgActivity : AppCompatActivity() {
     /** Whether the opening selection has been put on the programme that is on now. */
     private var landedOnNow = false
 
+    /** What is waiting to be recorded, re-read whenever this screen comes back. */
+    private var scheduledNow: List<Scheduled> = emptyList()
+
     private val handler = Handler(Looper.getMainLooper())
     private val tick = object : Runnable {
         override fun run() {
@@ -151,7 +154,10 @@ class EpgActivity : AppCompatActivity() {
             onFocused = { channel, programme -> showSelected(channel, programme, fromFocus = true) },
             onPressed = { channel, programme -> blockClicked(channel, programme) },
             onPlay = { channel -> play(channel) },
-            onRecord = { channel, programme -> RecordDialog.show(this, channel, programme) },
+            onRecord = { channel, programme ->
+                RecordDialog.show(this, channel, programme) { refreshRecordMarks() }
+            },
+            recordState = { channel, programme -> recordStateFor(channel, programme) },
             onLeftEdge = { focusCategoryRow() },
             onTopEdge = { focusCategoryRow() }
         )
@@ -183,8 +189,40 @@ class EpgActivity : AppCompatActivity() {
         handler.post(tick)
     }
 
+    /**
+     * The red dots in the guide.
+     *
+     * Read from what is actually running and what is actually filed, rather
+     * than from anything this screen remembers - so a recording set on the
+     * player, or one that started while the guide was open, is marked too.
+     */
+    private fun recordStateFor(channel: StreamItem, programme: Programme): Int {
+        if (channel.streamId.isBlank()) return 0
+        val now = System.currentTimeMillis()
+        if (RecorderService.isRecording &&
+            RecorderService.activeStreamId == channel.streamId &&
+            programme.start <= now && programme.end > now
+        ) {
+            return 2
+        }
+        val waiting = scheduledNow.any {
+            it.streamId == channel.streamId &&
+                (
+                    (it.startAt < programme.end && programme.start < it.endAt) ||
+                        (it.series && it.title.equals(programme.title, ignoreCase = true))
+                    )
+        }
+        return if (waiting) 1 else 0
+    }
+
+    private fun refreshRecordMarks() {
+        scheduledNow = runCatching { Schedules.upcoming(this) }.getOrDefault(emptyList())
+        rowAdapter.notifyDataSetChanged()
+    }
+
     override fun onResume() {
         super.onResume()
+        refreshRecordMarks()
         // Coming back from a channel the viewer surfed away from: put the guide on
         // the channel they ended on, and clear the note either way so it cannot
         // move the remote on some later screen.
@@ -464,6 +502,9 @@ class EpgActivity : AppCompatActivity() {
 
     private fun queuePreview(channel: StreamItem) {
         if (!prefs.previewEnabled) return
+        // A preview is a whole stream. While something is recording, that is
+        // the line's one connection already spoken for.
+        if (RecorderService.isRecording) return
         if (previewing?.streamId == channel.streamId) return
         previewing = channel
         previewLogo.visibility = View.VISIBLE

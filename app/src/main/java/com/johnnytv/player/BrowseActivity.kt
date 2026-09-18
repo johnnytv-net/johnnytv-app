@@ -844,6 +844,9 @@ class BrowseActivity : AppCompatActivity() {
 
         previewJob?.cancel()
         if (!prefs.previewEnabled) return
+        // Same reason as the guide: a preview is a second connection, and
+        // while a recording is running there isn't one to spare.
+        if (RecorderService.isRecording) return
         previewJob = lifecycleScope.launch {
             // Only once the remote stops moving. Holding a direction through fifty
             // channels must not open fifty streams - on a line with one connection

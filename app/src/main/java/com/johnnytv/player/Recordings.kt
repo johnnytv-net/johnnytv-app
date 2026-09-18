@@ -36,8 +36,22 @@ data class StorageTarget(
     val dir: File,
     val removable: Boolean
 ) {
+    /**
+     * How much room is left on this volume.
+     *
+     * Asked of the recordings folder itself this reads zero until the first
+     * recording creates it, because usableSpace on a path that does not exist
+     * has nothing to measure - which showed up as a drive with "0.0 GB free"
+     * and a threat to delete things to make room. So it walks up to the first
+     * folder that does exist and asks that instead; free space belongs to the
+     * volume, not to the folder.
+     */
     val freeBytes: Long
-        get() = runCatching { dir.usableSpace }.getOrDefault(0L)
+        get() = runCatching {
+            var probe: File? = dir
+            while (probe != null && !probe.exists()) probe = probe.parentFile
+            probe?.usableSpace ?: 0L
+        }.getOrDefault(0L)
 
     /** Roughly how many hours of HD fit in what is left. */
     val freeHours: Double
@@ -291,6 +305,18 @@ object Storage {
         } else {
             "USB"
         }
-        return if (id.equals("emulated", true) || id.isBlank()) "USB drive" else "USB drive ($id)"
+        // Named by its size rather than its volume id: nobody knows their stick
+        // as "122A-2C7B", everybody knows it as the 128 gig one.
+        val size = runCatching {
+            var probe: File? = base
+            while (probe != null && !probe.exists()) probe = probe.parentFile
+            probe?.totalSpace ?: 0L
+        }.getOrDefault(0L)
+        val gb = size / (1000L * 1000L * 1000L)
+        return when {
+            gb > 0L -> "USB drive ($gb GB)"
+            id.equals("emulated", true) || id.isBlank() -> "USB drive"
+            else -> "USB drive ($id)"
+        }
     }
 }

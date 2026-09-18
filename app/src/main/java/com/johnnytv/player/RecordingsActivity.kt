@@ -256,15 +256,51 @@ class RecordingsActivity : AppCompatActivity() {
         if (recording.gaps.isEmpty()) {
             lines.add(getString(R.string.recordings_report_clean))
         } else {
-            for (gap in recording.gaps) {
-                lines.add(
-                    getString(
-                        R.string.recordings_report_gap,
-                        clock.format(Date(gap.at)),
-                        gap.seconds
+            // A run of blips close together is one event, not twenty. Reading
+            // twelve identical lines tells nobody anything except that the
+            // screen is full; "8:47 to 8:50, 12 blips, 12 seconds lost" is the
+            // same information in a sentence.
+            var runStart = recording.gaps.first()
+            var runEnd = runStart
+            var count = 0
+            var lost = 0
+
+            fun flush() {
+                if (count == 0) return
+                if (count == 1) {
+                    lines.add(
+                        getString(
+                            R.string.recordings_report_gap,
+                            clock.format(Date(runStart.at)),
+                            runStart.seconds
+                        )
                     )
-                )
+                } else {
+                    lines.add(
+                        getString(
+                            R.string.recordings_report_run,
+                            clock.format(Date(runStart.at)),
+                            clock.format(Date(runEnd.at)),
+                            count,
+                            lost
+                        )
+                    )
+                }
             }
+
+            for (gap in recording.gaps) {
+                if (count > 0 && gap.at - runEnd.at > RUN_TOGETHER_MS) {
+                    flush()
+                    count = 0
+                    lost = 0
+                    runStart = gap
+                }
+                if (count == 0) runStart = gap
+                runEnd = gap
+                count++
+                lost += gap.seconds
+            }
+            flush()
         }
         if (recording.note.isNotBlank()) lines.add(recording.note)
         AlertDialog.Builder(this)
@@ -297,6 +333,9 @@ class RecordingsActivity : AppCompatActivity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     companion object {
+        /** Blips closer together than this are read as one bad patch. */
+        private const val RUN_TOGETHER_MS = 2L * 60L * 1000L
+
         fun open(context: android.content.Context) {
             context.startActivity(Intent(context, RecordingsActivity::class.java))
         }

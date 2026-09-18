@@ -185,6 +185,12 @@ class EpgRowAdapter(
     private val onPlay: (StreamItem) -> Unit,
     /** OK held down on a programme: record it. */
     private val onRecord: (StreamItem, Programme) -> Unit = { _, _ -> },
+    /**
+     * Whether this programme is being recorded right now (2), set to be (1), or
+     * neither (0) - drawn as a red dot in front of the title, the way every
+     * set-top box marks its own recordings.
+     */
+    private val recordState: (StreamItem, Programme) -> Int = { _, _ -> 0 },
     /** Left was pressed on the earliest programme still on: there is no going back. */
     private val onLeftEdge: () -> Unit = {},
     /** Up was pressed on the top row: the headings are what is above it. */
@@ -237,7 +243,7 @@ class EpgRowAdapter(
             // the subtraction below would go negative and lay out over its neighbour.
             if (width <= gap) continue
             val block = TextView(row.context)
-            block.text = programme.title
+            block.text = withRecordDot(programme.title, recordState(channel, programme))
             block.maxLines = 2
             block.ellipsize = android.text.TextUtils.TruncateAt.END
             block.gravity = Gravity.CENTER_VERTICAL
@@ -306,6 +312,27 @@ class EpgRowAdapter(
             }
             row.addView(block)
         }
+    }
+
+    /**
+     * A filled red dot for a recording running now, a hollow one for a recording
+     * that is still waiting for its time.
+     *
+     * Drawn into the title rather than placed beside it, because these blocks
+     * are as wide as the programme is long: anything sitting alongside would be
+     * the first thing squeezed off a half-hour show.
+     */
+    private fun withRecordDot(title: String, state: Int): CharSequence {
+        if (state <= 0) return title
+        val mark = if (state >= 2) "\u25CF " else "\u25CB "
+        val text = android.text.SpannableString(mark + title)
+        text.setSpan(
+            android.text.style.ForegroundColorSpan(RECORD_RED),
+            0,
+            mark.length,
+            android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        return text
     }
 
     /**
@@ -379,6 +406,9 @@ class EpgRowAdapter(
 
         /** How far back a finished programme is faded, so it reads as history. */
         private const val PAST_ALPHA = 0.4f
+
+        /** The red every recorder has used since the video recorder. */
+        private const val RECORD_RED = 0xFFE0393E.toInt()
 
         fun clock(): SimpleDateFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
         fun headerClock(): SimpleDateFormat = SimpleDateFormat("EEE h:mm a", Locale.getDefault())

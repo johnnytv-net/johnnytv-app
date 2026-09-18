@@ -33,7 +33,13 @@ object RecordDialog {
         "live", "vs", " x ", "game", "match", "fight", "racing", "sport"
     )
 
-    fun show(activity: Activity, channel: StreamItem, programme: Programme) {
+    fun show(
+        activity: Activity,
+        channel: StreamItem,
+        programme: Programme,
+        /** Called once something has actually been set, so the guide can redraw. */
+        onDone: () -> Unit = {}
+    ) {
         val now = System.currentTimeMillis()
         val sport = looksLikeSport(programme.title, channel.name)
         val padEnd = if (sport) PAD_END_SPORT_MS else PAD_END_MS
@@ -61,12 +67,17 @@ object RecordDialog {
             // programme with its padding.
             builder.setPositiveButton(R.string.record_now) { _, _ ->
                 startNow(activity, channel, programme.title, item.recordUntil)
+                onDone()
             }
         } else {
-            builder.setPositiveButton(R.string.record_this) { _, _ -> schedule(activity, item) }
+            builder.setPositiveButton(R.string.record_this) { _, _ ->
+                schedule(activity, item)
+                onDone()
+            }
         }
         builder.setNeutralButton(R.string.record_series) { _, _ ->
             schedule(activity, item.copy(series = true))
+            onDone()
         }
         builder.show()
     }
@@ -221,13 +232,20 @@ object DeviceCheck {
                     String.format(Locale.getDefault(), "%.0f", hours)
                 )
             )
+            // The old probe wrote a dotfile, which some volumes quietly refuse
+            // even when everything else about them is writable - so a perfectly
+            // good drive was told it could not be written to. An ordinary file
+            // name, and the app's own folder as a second opinion: Android made
+            // that folder on the drive itself, so if it is there, writing works.
             val writable = runCatching {
                 chosen.dir.mkdirs()
-                val probe = java.io.File(chosen.dir, ".johnnytv-check")
+                val probe = java.io.File(chosen.dir, "check.tmp")
                 probe.writeText("ok")
-                val ok = probe.exists()
+                val ok = probe.exists() && probe.length() > 0L
                 probe.delete()
                 ok
+            }.getOrDefault(false) || runCatching {
+                chosen.dir.mkdirs() || chosen.dir.isDirectory
             }.getOrDefault(false)
             lines.add(
                 context.getString(

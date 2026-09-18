@@ -15,6 +15,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
@@ -103,6 +104,38 @@ class PlayerActivity : AppCompatActivity() {
         if (urls.isEmpty()) {
             showStatus(getString(R.string.nothing_to_play))
             return
+        }
+
+        // ONE CONNECTION, AND A RECORDING ALREADY HOLDING IT.
+        //
+        // Opening a live stream now means two connections on a line that allows
+        // one: the portal drops one of them, and what the viewer actually sees
+        // is endless buffering or "could not play" while their recording quietly
+        // suffers. Neither is a thing anybody can diagnose from the sofa.
+        //
+        // So it is handled instead of risked. The channel being recorded is
+        // played from the file being written - a few seconds behind live, no
+        // second connection, and the recording is untouched. Any other channel
+        // says plainly why it cannot open.
+        if (kind == Kind.LIVE && RecorderService.isRecording) {
+            val recording = RecordingStore.all(this).firstOrNull { it.isRecording }
+            if (recording != null && recording.streamId == contentId) {
+                val parts = recording.files().map { android.net.Uri.fromFile(it).toString() }
+                if (parts.isNotEmpty()) {
+                    urls = parts
+                    playlist = true
+                    kind = Kind.VOD
+                    title = recording.title
+                    nowPlayingLabel.text = getString(R.string.record_watching_recording)
+                    nowPlayingLabel.visibility = View.VISIBLE
+                    nowPlayingLabel.removeCallbacks(hideNowPlaying)
+                    nowPlayingLabel.postDelayed(hideNowPlaying, 8_000L)
+                }
+            } else {
+                showStatus(getString(R.string.record_busy_watching))
+                urls = emptyList()
+                return
+            }
         }
 
         resumeFrom = if (kind == Kind.LIVE) 0L else prefs.position(kind, contentId)
@@ -326,10 +359,8 @@ class PlayerActivity : AppCompatActivity() {
 
     /** Switches to [next] and starts it playing. */
     private fun tune(next: StreamItem) {
-        // A recording in progress owns the line's one connection. Changing
-        // channel would knock it off air, and somebody would find a broken
-        // recording tomorrow with no idea why - so it is refused out loud
-        // instead.
+        // Same rule as every other way into a channel, applied here too
+        // because surfing with up and down never leaves this screen.
         if (RecorderService.isRecording && RecorderService.activeStreamId != next.streamId) {
             android.widget.Toast.makeText(this, R.string.record_busy_watching, android.widget.Toast.LENGTH_LONG).show()
             return
@@ -442,8 +473,16 @@ class PlayerActivity : AppCompatActivity() {
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
+        // Http alone was enough while everything played came off a portal. A
+        // recording is a file on a drive, and a player that only knows how to
+        // open http:// simply refuses it - which is why a recording that had
+        // written perfectly would not play back. DefaultDataSource opens files,
+        // content and assets as well, and hands anything network-shaped to the
+        // same http factory as before.
+        val sourceFactory = DefaultDataSource.Factory(this, httpFactory)
+
         val exo = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(sourceFactory))
             .setLoadControl(loadControl)
             .setAudioAttributes(AudioAttributes.DEFAULT, /* handleAudioFocus= */ true)
             .build()
@@ -691,6 +730,50 @@ class PlayerActivity : AppCompatActivity() {
             /** Which Live TV category this came from, so up and down can change channel. */
             category: String = ""
         ) {
+            /*
+             * THE ONE CONNECTION, GUARDED IN ONE PLACE.
+             *
+             * This check used to live inside the player, where it caught the
+             * up/down channel change and nothing else - so the guide, the
+             * channel list, search and the phone all walked straight past it
+             * and opened a second stream. On a one-connection line that means
+             * the portal throws one of them off, and the two spend the evening
+             * knocking each other over: the viewer sees a channel buffering
+             * every ten seconds and the recording fills up with one-second
+             * holes.
+             *
+             * Every route into a channel comes through here, so here is where
+             * it belongs. Same channel as the recording: watch what is already
+             * being written to the drive, which costs no connection at all.
+             * Different channel: say why, and leave the recording alone.
+             */
+            if (kind == Kind.LIVE && RecorderService.isRecording) {
+                if (contentId.isNotBlank() && contentId == RecorderService.activeStreamId) {
+                    val live = RecordingStore.all(context).firstOrNull { it.isRecording }
+                    val parts = live?.files().orEmpty()
+                    if (parts.isNotEmpty()) {
+                        android.widget.Toast.makeText(
+                            context,
+                            R.string.record_watching_recording,
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                        startPlaylist(
+                            context,
+                            urls = parts.map { android.net.Uri.fromFile(it).toString() },
+                            title = title,
+                            contentId = "rec:" + (live?.id ?: "")
+                        )
+                        return
+                    }
+                }
+                android.widget.Toast.makeText(
+                    context,
+                    R.string.record_busy_watching,
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+                return
+            }
+
             context.startActivity(
                 Intent(context, PlayerActivity::class.java)
                     .putStringArrayListExtra(EXTRA_URLS, ArrayList(urls))
