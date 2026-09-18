@@ -566,6 +566,34 @@ class RecorderService : Service() {
             trimming = false
         }
 
+        /*
+         * A JUMP IN THE CLOCK, FOUND WITHOUT BEING TOLD.
+         *
+         * Portals are supposed to announce where their timestamps restart. Most
+         * do not. So the recorder watches for it: the first timestamp in this
+         * batch against the last one written. A second or two apart is normal
+         * television; ten seconds adrift, forwards or backwards, is a new clock.
+         *
+         * Written into the same file, a player reaches that point and decides
+         * the programme has ended - which is a five minute recording that stops
+         * at thirty seconds with everything still sitting on the drive. So the
+         * file is broken there: what we have goes down now, the rest starts a
+         * new part, and playback runs through the join without noticing.
+         */
+        if (lastPts >= 0L && !startFreshChunk) {
+            val jump = firstJump(data, start, start + whole, lastPts)
+            if (jump > start) {
+                runCatching { out?.write(data, start, jump - start) }
+                bytesTotal += jump - start
+                everWrote = true
+                carry = data.copyOfRange(jump, data.size)
+                startFreshChunk = true
+                needPat = true
+                needSync = true
+                return
+            }
+        }
+
         val newest = newestPts(data, start, start + whole)
         if (newest >= 0L) lastPts = newest
 
@@ -811,6 +839,29 @@ class RecorderService : Service() {
                 ((data[p + 2].toLong() and 0xFE) shl 14) or
                 ((data[p + 3].toLong() and 0xFF) shl 7) or
                 ((data[p + 4].toLong() and 0xFE) shr 1))
+        }
+
+        /** More than this far from the last timestamp is a new clock, not a programme. */
+        private const val CLOCK_JUMP_TICKS = 10L * 90_000L
+
+        /**
+         * The first packet whose timestamp does not follow on from [after].
+         *
+         * Returns -1 when the run continues sensibly, which is the normal case
+         * and costs one pass over packets that mostly carry no timestamp at all.
+         */
+        private fun firstJump(data: ByteArray, from: Int, until: Int, after: Long): Int {
+            var i = from
+            while (i + TS_PACKET <= until) {
+                val pts = ptsAt(data, i)
+                if (pts >= 0L) {
+                    val drift = pts - after
+                    val wrapped = drift < -(PTS_WRAP / 2) || drift > PTS_WRAP / 2
+                    if (!wrapped && (drift > CLOCK_JUMP_TICKS || drift < -CLOCK_JUMP_TICKS)) return i
+                }
+                i += TS_PACKET
+            }
+            return -1
         }
 
         /** The newest timestamp in a run of packets, for remembering where we are. */
