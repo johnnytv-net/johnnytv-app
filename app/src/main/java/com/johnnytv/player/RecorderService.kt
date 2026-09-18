@@ -280,7 +280,6 @@ class RecorderService : Service() {
                     startFreshChunk = true
                     needPat = true
                     trimming = true
-                    trimStartedAt = System.currentTimeMillis()
                 }
 
                 while (!stopping && System.currentTimeMillis() < endAt) {
@@ -510,8 +509,20 @@ class RecorderService : Service() {
     private var lastPts = -1L
     /** After a reconnect: drop what the portal resends until it moves past lastPts. */
     private var trimming = false
-    /** When that skipping started, so it cannot run away with the recording. */
-    private var trimStartedAt = 0L
+    /*
+     * WHERE THE PICTURE WENT.
+     *
+     * A recording that runs two minutes and holds thirty-five seconds is losing
+     * material between the socket and the drive, and guessing which branch is
+     * doing it has cost more time than measuring it will. Every route out of
+     * the data counts what it let go, and the totals go into the report.
+     */
+    private var bytesArrived = 0L
+    private var bytesSkippedRepeats = 0L
+    private var bytesSkippedNoPat = 0L
+    private var bytesSkippedNoSync = 0L
+    private var bytesWaitingForClock = 0L
+
     /** The first timestamp in the part being written, for its true length. */
     private var partFirstPts = -1L
     /** The newest timestamp in the part being written. */
@@ -621,6 +632,7 @@ class RecorderService : Service() {
      * glued to the front of the next read.
      */
     private fun feed(buffer: ByteArray, read: Int, id: String) {
+        bytesArrived += read
         val data = if (carry.isEmpty()) {
             buffer.copyOf(read)
         } else {
@@ -635,9 +647,11 @@ class RecorderService : Service() {
         if (needSync) {
             val at = findSync(data)
             if (at < 0) {
+                bytesSkippedNoSync += data.size
                 carry = data.copyOfRange((data.size - SYNC_LOOKBACK).coerceAtLeast(0), data.size)
                 return
             }
+            bytesSkippedNoSync += at
             start = at
             needSync = false
         }
@@ -653,9 +667,11 @@ class RecorderService : Service() {
         if (needPat) {
             val pat = findPat(data, start, start + whole)
             if (pat < 0) {
+                bytesSkippedNoPat += whole
                 carry = data.copyOfRange(start + whole, data.size)
                 return
             }
+            bytesSkippedNoPat += pat - start
             start = pat
             needPat = false
             whole = ((data.size - start) / TS_PACKET) * TS_PACKET
@@ -678,40 +694,58 @@ class RecorderService : Service() {
          */
         if (trimming && lastPts >= 0L) {
             /*
-             * TRIMMING, WITH A LIMIT.
+             * TRIMMING, DECIDED BY THE CLOCK.
              *
-             * Skipping what the portal resends is right when it resends a few
-             * seconds. It is catastrophic when it reconnects you a minute and a
-             * half in the past, which they do: the recorder then spends ninety
-             * seconds throwing away perfectly good television to get back to a
-             * moment nobody cares about, and the recording ends up two minutes
-             * long with forty seconds of picture in it.
+             * Skipping what a portal resends is right when it resends a couple
+             * of seconds. It is ruinous when it comes back somewhere else
+             * entirely - and this one drops and reconnects every few seconds,
+             * each time from a different point. Skipping "until the clock
+             * catches up" then throws away real television on every single
+             * reconnect: two minutes recorded, thirty-five seconds kept, and
+             * not one gap reported because each drop lasted under a second.
              *
-             * So there is a limit. Five seconds of skipping, and after that the
-             * new material is taken as it comes - as a new part, with its own
-             * clock, announced as such in the playlist. A few repeated seconds
-             * at a join is a far smaller price than a hole.
+             * So the decision is made from the stream's own clock, once, as
+             * soon as the first timestamp of the new connection arrives. Close
+             * behind where we were: skip the overlap, it is a genuine repeat.
+             * Anywhere else: keep everything, start a new part, and say in the
+             * playlist that the clock changed. Nothing is ever discarded on a
+             * guess.
              */
-            if (System.currentTimeMillis() - trimStartedAt > GIVE_UP_TRIMMING_MS) {
+            val arriving = firstPts(data, start, start + whole)
+            if (arriving < 0L) {
+                bytesWaitingForClock += whole
+                // No timestamp in this batch yet; hold it and wait rather than
+                // throwing it away.
+                carry = data.copyOfRange(start, data.size)
+                return
+            }
+
+            val behind = lastPts - arriving
+            val overlapping = behind in 1..OVERLAP_LIMIT_TICKS
+
+            if (overlapping) {
+                val fresh = firstPacketAfter(data, start, start + whole, lastPts)
+                if (fresh < 0) {
+                    bytesSkippedRepeats += whole
+                    carry = data.copyOfRange(start + whole, data.size)
+                    return
+                }
+                bytesSkippedRepeats += fresh - start
+                start = fresh
+                trimming = false
+                whole = ((data.size - start) / TS_PACKET) * TS_PACKET
+                if (whole <= 0) {
+                    carry = data.copyOfRange(start, data.size)
+                    return
+                }
+            } else {
+                // A different point in the stream: this is a new clock, not a
+                // repeat. Keep every frame of it.
                 trimming = false
                 startFreshChunk = true
                 needPat = true
                 nextPartIsBreak = true
                 lastPts = -1L
-                carry = data.copyOfRange(start, data.size)
-                return
-            }
-            val fresh = firstPacketAfter(data, start, start + whole, lastPts)
-            if (fresh < 0) {
-                carry = data.copyOfRange(start + whole, data.size)
-                return
-            }
-            start = fresh
-            trimming = false
-            whole = ((data.size - start) / TS_PACKET) * TS_PACKET
-            if (whole <= 0) {
-                carry = data.copyOfRange(start, data.size)
-                return
             }
         } else if (trimming) {
             trimming = false
@@ -828,6 +862,9 @@ class RecorderService : Service() {
         return ((System.currentTimeMillis() - partStarted) / 1000.0).coerceAtLeast(0.1)
     }
 
+    private fun mb(bytes: Long): String =
+        String.format(java.util.Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
+
     private fun closeUp(id: String) {
         runCatching { out?.flush(); out?.close() }
         if (currentPart.isNotEmpty()) {
@@ -839,10 +876,20 @@ class RecorderService : Service() {
         val finishedAt = System.currentTimeMillis()
         val wrote = everWrote
         val total = bytesTotal
+        val arrived = bytesArrived
+        val repeats = bytesSkippedRepeats
+        val noPat = bytesSkippedNoPat
+        val noSync = bytesSkippedNoSync
+        val waiting = bytesWaitingForClock
         RecordingStore.update(this, id) {
             it.bytes = total
             it.endedAt = finishedAt
             it.state = if (wrote) STATE_DONE else STATE_FAILED
+            if (arrived - total > arrived / 10) {
+                it.note = "Arrived " + mb(arrived) + ", kept " + mb(total) +
+                    " — repeats " + mb(repeats) + ", waiting for contents " + mb(noPat) +
+                    ", waiting for the clock " + mb(waiting) + ", unreadable " + mb(noSync) + "."
+            }
             if (!wrote && it.note.isBlank()) {
                 it.note = "Nothing arrived from the server for this channel."
             }
@@ -1045,8 +1092,14 @@ class RecorderService : Service() {
             return -1
         }
 
-        /** How long to keep skipping repeats before taking what arrives. */
-        private const val GIVE_UP_TRIMMING_MS = 5_000L
+        /**
+         * How far back counts as the portal repeating itself.
+         *
+         * Within a few seconds of where we were is a genuine overlap worth
+         * skipping. Beyond that it is simply a different moment, and skipping
+         * to reach the old one would mean discarding everything in between.
+         */
+        private const val OVERLAP_LIMIT_TICKS = 5L * 90_000L
 
         /** The first timestamp in a run of packets. */
         private fun firstPts(data: ByteArray, from: Int, until: Int): Long {

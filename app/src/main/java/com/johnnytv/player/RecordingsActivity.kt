@@ -263,10 +263,8 @@ class RecordingsActivity : AppCompatActivity() {
                 draw()
             }
 
-            if (recording.gaps.isNotEmpty() || recording.note.isNotBlank()) {
-                options.add(getString(R.string.recordings_report))
-                actions.add { showReport(recording) }
-            }
+            options.add(getString(R.string.recordings_report))
+            actions.add { showReport(recording) }
         }
 
         options.add(getString(R.string.recordings_delete))
