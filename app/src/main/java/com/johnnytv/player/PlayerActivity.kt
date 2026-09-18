@@ -415,7 +415,10 @@ class PlayerActivity : AppCompatActivity() {
         pendingRecordingId = recordingId
     }
 
-    private val waitForChunk = Runnable {
+    // The type is written out because this reschedules itself, and without it
+    // the compiler is working out the type of a thing from a body that mentions
+    // that same thing.
+    private val waitForChunk: Runnable = Runnable {
         val id = pendingRecordingId
         if (id.isBlank() || isFinishing) return@Runnable
         val recording = RecordingStore.find(this, id)
