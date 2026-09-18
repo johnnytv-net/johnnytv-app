@@ -29,6 +29,27 @@ import java.io.File
  * screen with a remote.
  */
 
+/**
+ * A list of choices the remote can reach.
+ *
+ * AlertDialog's own list is built for a finger: on a television it opens with
+ * nothing highlighted, and a remote with no highlight to move has nowhere to
+ * go - the box just sits there clicking. Giving the list focus and putting the
+ * highlight on the first row turns it back into something you can drive from
+ * the sofa.
+ */
+fun androidx.appcompat.app.AlertDialog.showForRemote() {
+    setOnShowListener {
+        listView?.let { list ->
+            list.isFocusable = true
+            list.isFocusableInTouchMode = true
+            list.requestFocus()
+            list.setSelection(0)
+        }
+    }
+    show()
+}
+
 /** A drive or card the app can record to. */
 data class StorageTarget(
     val id: String,
@@ -94,6 +115,19 @@ data class Recording(
     }
 
     fun lostSeconds(): Int = gaps.sumOf { it.seconds }
+
+    /**
+     * The chunks that are safe to play.
+     *
+     * While a recording is running, its newest chunk is being written to this
+     * second - handing that to the player means playing a file whose end keeps
+     * moving, which stalls on the last frame. Everything before it is finished
+     * and complete, so that is what gets played.
+     */
+    fun playableFiles(): List<File> {
+        val all = files()
+        return if (isRecording && all.size > 1) all.dropLast(1) else all
+    }
 
     /** The chunk files in order, as the player wants them. */
     fun files(): List<File> {

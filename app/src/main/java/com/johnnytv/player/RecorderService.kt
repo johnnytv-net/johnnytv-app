@@ -159,6 +159,12 @@ class RecorderService : Service() {
         var partIndex = 0
         var partStarted = 0L
         var out: FileOutputStream? = null
+        /** Bytes of a half-finished packet, waiting for the rest of it. */
+        var carry = EMPTY
+        /** True until the run of 0x47s has been found after a (re)connection. */
+        var needSync = true
+        /** The chunk is due to roll over, as soon as a PAT comes past. */
+        var rotateWhenReady = false
         var bytesTotal = 0L
         var lastSave = 0L
         var awaySince = 0L
@@ -202,13 +208,85 @@ class RecorderService : Service() {
                         awaySince = 0L
                     }
 
+                    // A reconnection lands in the middle of whatever the portal
+                    // happened to be sending, so the stream has to be found
+                    // again before anything is written.
+                    needSync = true
+
                     while (!stopping && System.currentTimeMillis() < endAt) {
                         val read = input.read(buffer)
                         if (read < 0) break          // the portal closed the connection
                         if (read == 0) continue
 
+                        /*
+                         * WHOLE PACKETS ONLY.
+                         *
+                         * A transport stream is a procession of 188-byte packets,
+                         * each starting with 0x47. Writing whatever happened to
+                         * arrive in the last read - which is what this used to do -
+                         * chops the first and last packet of every write in half.
+                         * The player then has to guess where the next frame starts:
+                         * the sound skips, and the picture sits on one frame until
+                         * the next keyframe turns up. That is the frozen photo with
+                         * the audio carrying on.
+                         *
+                         * So: anything left over at the end of a read is held back
+                         * and glued to the front of the next one, and only complete
+                         * packets ever reach the drive.
+                         */
+                        val data = if (carry.isEmpty()) {
+                            buffer.copyOf(read)
+                        } else {
+                            val joined = ByteArray(carry.size + read)
+                            System.arraycopy(carry, 0, joined, 0, carry.size)
+                            System.arraycopy(buffer, 0, joined, carry.size, read)
+                            joined
+                        }
+                        carry = EMPTY
+
+                        var start = 0
+                        if (needSync) {
+                            val at = findSync(data)
+                            if (at < 0) {
+                                // Not enough to be sure yet - keep the tail and
+                                // wait for more rather than writing rubbish.
+                                carry = data.copyOfRange(
+                                    (data.size - SYNC_LOOKBACK).coerceAtLeast(0),
+                                    data.size
+                                )
+                                continue
+                            }
+                            start = at
+                            needSync = false
+                        }
+
+                        val whole = ((data.size - start) / TS_PACKET) * TS_PACKET
+                        if (whole <= 0) {
+                            carry = data.copyOfRange(start, data.size)
+                            continue
+                        }
+
+                        // A new chunk has to begin at a point the player can start
+                        // reading cold, which means a PAT packet - the stream's own
+                        // table of contents. Splitting anywhere else leaves a file
+                        // whose first second cannot be decoded.
+                        var writeLen = whole
+                        var splitAt = -1
+                        if (rotateWhenReady) {
+                            val pat = findPat(data, start, start + whole)
+                            if (pat > start) {
+                                splitAt = pat
+                                writeLen = pat - start
+                            }
+                        }
+
                         try {
-                            out?.write(buffer, 0, read)
+                            out?.write(data, start, writeLen)
+                            if (splitAt >= 0) {
+                                openNewPart()
+                                rotateWhenReady = false
+                                out?.write(data, splitAt, start + whole - splitAt)
+                            }
                         } catch (writeFailure: Exception) {
                             // The drive went away mid-recording. Carry on into
                             // internal storage rather than ending here.
@@ -219,14 +297,16 @@ class RecorderService : Service() {
                                 it.note = "The drive was disconnected, so the rest was saved on the box."
                             }
                             openNewPart()
-                            out?.write(buffer, 0, read)
+                            rotateWhenReady = false
+                            out?.write(data, start, whole)
                         }
 
-                        bytesTotal += read
+                        carry = data.copyOfRange(start + whole, data.size)
+                        bytesTotal += whole
                         everWrote = true
 
                         val now = System.currentTimeMillis()
-                        if (now - partStarted >= PART_LENGTH_MS) openNewPart()
+                        if (now - partStarted >= PART_LENGTH_MS) rotateWhenReady = true
                         if (now - lastSave >= SAVE_EVERY_MS) {
                             lastSave = now
                             val soFar = bytesTotal
@@ -342,6 +422,55 @@ class RecorderService : Service() {
     }
 
     companion object {
+
+        private val EMPTY = ByteArray(0)
+
+        /** The size of one transport-stream packet. Not negotiable; it is the format. */
+        private const val TS_PACKET = 188
+
+        /** How much of an unsynced read to keep while waiting for more. */
+        private const val SYNC_LOOKBACK = TS_PACKET * 4
+
+        /**
+         * Where the packets start.
+         *
+         * One 0x47 proves nothing - it is a perfectly ordinary byte inside video
+         * data. Three of them exactly 188 apart is the stream.
+         */
+        private fun findSync(data: ByteArray): Int {
+            val last = data.size - TS_PACKET * 2 - 1
+            var i = 0
+            while (i <= last) {
+                if (data[i] == SYNC_BYTE &&
+                    data[i + TS_PACKET] == SYNC_BYTE &&
+                    data[i + TS_PACKET * 2] == SYNC_BYTE
+                ) {
+                    return i
+                }
+                i++
+            }
+            return -1
+        }
+
+        /**
+         * The next programme association table, which is where a player can pick
+         * the stream up from nothing. PID 0, carried in the two bytes after the
+         * sync byte.
+         */
+        private fun findPat(data: ByteArray, from: Int, until: Int): Int {
+            var i = from
+            while (i + TS_PACKET <= until) {
+                if (data[i] == SYNC_BYTE) {
+                    val pid = ((data[i + 1].toInt() and 0x1F) shl 8) or (data[i + 2].toInt() and 0xFF)
+                    val unitStart = (data[i + 1].toInt() and 0x40) != 0
+                    if (pid == 0 && unitStart) return i
+                }
+                i += TS_PACKET
+            }
+            return -1
+        }
+
+        private const val SYNC_BYTE: Byte = 0x47
 
         /** Ten minutes per chunk: small enough to lose nothing, few enough to play. */
         private const val PART_LENGTH_MS = 10L * 60L * 1000L

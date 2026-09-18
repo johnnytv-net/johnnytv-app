@@ -124,7 +124,8 @@ class SettingsActivity : AppCompatActivity() {
                 prefs.recordingVolume = targets[which].id
                 showStorageState(label)
             }
-            .show()
+            .create()
+            .showForRemote()
     }
 
     private fun showDeviceCheck() {

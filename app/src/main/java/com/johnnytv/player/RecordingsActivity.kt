@@ -183,7 +183,7 @@ class RecordingsActivity : AppCompatActivity() {
     // ---------- what a press does ----------
 
     private fun play(recording: Recording) {
-        val files = recording.files()
+        val files = recording.playableFiles()
         if (files.isEmpty()) {
             AlertDialog.Builder(this)
                 .setTitle(R.string.recordings_nothing_title)
@@ -247,7 +247,8 @@ class RecordingsActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle(recording.title)
             .setItems(options.toTypedArray()) { _, which -> actions[which]() }
-            .show()
+            .create()
+            .showForRemote()
     }
 
     private fun showReport(recording: Recording) {
