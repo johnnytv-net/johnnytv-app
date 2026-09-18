@@ -147,6 +147,15 @@ class RecorderService : Service() {
             StorageTarget.BYTES_PER_HOUR).toLong()
         runCatching { RecordingStore.freeUpSpace(this, needed, folder) }
 
+        // Try the playlist first. A portal that closes the raw stream every few
+        // seconds - which is what the reports have been full of - hands out a
+        // perfectly well behaved HLS playlist instead, where every segment has a
+        // number and is fetched exactly once. See recordFromPlaylist.
+        val playlistUrl = urls.firstOrNull { it.endsWith(".m3u8") }
+        if (playlistUrl != null && recordFromPlaylist(id, playlistUrl, endAt, folder)) {
+            return
+        }
+
         val http = OkHttpClient.Builder()
             .connectTimeout(12, TimeUnit.SECONDS)
             // The watchdog. A portal that stalls says nothing at all, so silence
@@ -169,6 +178,10 @@ class RecorderService : Service() {
         var startFreshChunk = false
         /** Nothing is worth writing until the stream says where it begins. */
         var needPat = false
+        /** The newest timestamp written to disk, in 90 kHz ticks. */
+        var lastPts = -1L
+        /** After a reconnect: drop what the portal resends until it moves past lastPts. */
+        var trimming = false
         var bytesTotal = 0L
         var lastSave = 0L
         var awaySince = 0L
@@ -231,6 +244,7 @@ class RecorderService : Service() {
                     if (everWrote) {
                         startFreshChunk = true
                         needPat = true
+                        trimming = true
                     }
 
                     while (!stopping && System.currentTimeMillis() < endAt) {
@@ -303,6 +317,42 @@ class RecorderService : Service() {
                             }
                         }
 
+                        /*
+                         * THE REWIND, CUT OUT.
+                         *
+                         * A portal does not resume where it left off. It reconnects
+                         * you to its own buffer, which usually means several seconds
+                         * you already have. Written down, those seconds play twice:
+                         * the recording jumps backwards, the sound repeats, and from
+                         * then on the picture and the audio are arguing about what
+                         * time it is.
+                         *
+                         * Every packet carries a timestamp, so the recorder keeps the
+                         * last one it wrote and throws away everything the portal
+                         * resends until the clock passes that point. What reaches the
+                         * drive is one continuous programme with the repeats removed.
+                         */
+                        if (trimming && lastPts >= 0L) {
+                            val fresh = firstPacketAfter(data, start, start + whole, lastPts)
+                            if (fresh < 0) {
+                                // All of this is material we already hold.
+                                carry = data.copyOfRange(start + whole, data.size)
+                                continue
+                            }
+                            start = fresh
+                            trimming = false
+                            whole = ((data.size - start) / TS_PACKET) * TS_PACKET
+                            if (whole <= 0) {
+                                carry = data.copyOfRange(start, data.size)
+                                continue
+                            }
+                        } else if (trimming) {
+                            trimming = false
+                        }
+
+                        val newest = newestPts(data, start, start + whole)
+                        if (newest >= 0L) lastPts = newest
+
                         if (startFreshChunk) {
                             startFreshChunk = false
                             rotateWhenReady = false
@@ -357,9 +407,12 @@ class RecorderService : Service() {
                         }
                     }
                 }
-                // A clean end of stream before the finish time is still a drop.
-                if (!stopping && System.currentTimeMillis() < endAt && awaySince == 0L) {
-                    awaySince = System.currentTimeMillis()
+                // A clean end of stream before the finish time means the portal
+                // closed on us. Straight back in - the wait is what turns a
+                // handover into a hole.
+                if (!stopping && System.currentTimeMillis() < endAt) {
+                    needSync = true
+                    continue
                 }
             } catch (e: Exception) {
                 if (awaySince == 0L) awaySince = System.currentTimeMillis()
@@ -383,6 +436,196 @@ class RecorderService : Service() {
                 it.note = "Nothing arrived from the server for this channel."
             }
         }
+    }
+
+    // ---------- recording from a playlist ----------
+
+    /**
+     * HLS RECORDING.
+     *
+     * The raw .ts approach assumes the portal will keep one connection open and
+     * keep pushing. Some do. This one closes it every fourteen seconds, and on
+     * every reconnect resends a few seconds it has already sent - which is why a
+     * recording made that way jumps backwards and the sound ends up somewhere
+     * else entirely. Two hundred and seventy five of those in an hour cannot be
+     * papered over.
+     *
+     * A playlist has none of that ambiguity. Every segment carries a number, so
+     * each one is fetched exactly once and written in order; a connection that
+     * dies takes one segment with it, and that segment is simply fetched again.
+     * Segments also begin at keyframes by definition, which makes them safe
+     * places to start a new chunk.
+     *
+     * Returns false if this portal does not actually serve a playlist, so the
+     * raw stream is still there to fall back on.
+     */
+    private fun recordFromPlaylist(
+        id: String,
+        playlistUrl: String,
+        endAt: Long,
+        startFolder: File
+    ): Boolean {
+        val http = OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+
+        var mediaUrl = playlistUrl
+        val first = fetchText(http, mediaUrl) ?: return false
+        if (!first.contains("#EXTM3U")) return false
+
+        // A master playlist just points at the real ones - follow the first.
+        if (first.contains("#EXT-X-STREAM-INF")) {
+            val variant = first.lineSequence()
+                .map { it.trim() }
+                .firstOrNull { it.isNotEmpty() && !it.startsWith("#") } ?: return false
+            mediaUrl = absolute(mediaUrl, variant)
+        }
+
+        var folder = startFolder
+        var out: FileOutputStream? = null
+        var partIndex = 0
+        var partStarted = 0L
+        var bytesTotal = 0L
+        var lastSave = 0L
+        var lastSequence = -1L
+        var awaySince = 0L
+        var everWrote = false
+        var rotateWhenReady = false
+
+        fun openNewPart() {
+            runCatching { out?.flush(); out?.close() }
+            val name = String.format("part%03d.ts", partIndex)
+            partIndex++
+            partStarted = System.currentTimeMillis()
+            out = FileOutputStream(File(folder, name))
+            RecordingStore.update(this, id) { if (!it.parts.contains(name)) it.parts.add(name) }
+        }
+
+        openNewPart()
+
+        while (!stopping && System.currentTimeMillis() < endAt) {
+            val text = fetchText(http, mediaUrl)
+            if (text == null) {
+                if (awaySince == 0L) awaySince = System.currentTimeMillis()
+                runCatching { Thread.sleep(1_000L) }
+                continue
+            }
+
+            var sequence = text.lineSequence()
+                .firstOrNull { it.startsWith("#EXT-X-MEDIA-SEQUENCE") }
+                ?.substringAfter(':')?.trim()?.toLongOrNull() ?: 0L
+
+            val targetSeconds = text.lineSequence()
+                .firstOrNull { it.startsWith("#EXT-X-TARGETDURATION") }
+                ?.substringAfter(':')?.trim()?.toDoubleOrNull() ?: 6.0
+
+            val segments = ArrayList<Pair<Long, String>>()
+            for (raw in text.lines()) {
+                val line = raw.trim()
+                if (line.isEmpty() || line.startsWith("#")) continue
+                segments.add(sequence to absolute(mediaUrl, line))
+                sequence++
+            }
+
+            var wroteThisRound = false
+            for ((number, url) in segments) {
+                if (stopping || System.currentTimeMillis() >= endAt) break
+                if (lastSequence >= 0 && number <= lastSequence) continue   // already have it
+
+                val bytes = fetchBytes(http, url)
+                if (bytes == null) {
+                    if (awaySince == 0L) awaySince = System.currentTimeMillis()
+                    continue
+                }
+
+                // A segment always starts at a keyframe, so this is a safe place
+                // to begin a new chunk.
+                if (rotateWhenReady) {
+                    rotateWhenReady = false
+                    openNewPart()
+                }
+
+                try {
+                    out?.write(bytes)
+                } catch (writeFailure: Exception) {
+                    val fallback = Storage.internal(this)?.dir ?: File(filesDir, Storage.FOLDER)
+                    folder = File(fallback, id).apply { mkdirs() }
+                    RecordingStore.update(this, id) {
+                        it.dirPath = folder.absolutePath
+                        it.note = "The drive was disconnected, so the rest was saved on the box."
+                    }
+                    openNewPart()
+                    out?.write(bytes)
+                }
+
+                lastSequence = number
+                bytesTotal += bytes.size
+                everWrote = true
+                wroteThisRound = true
+
+                if (awaySince > 0L) {
+                    val lost = ((System.currentTimeMillis() - awaySince) / 1000L).toInt()
+                    if (lost >= 2) {
+                        RecordingStore.update(this, id) {
+                            it.gaps.add(Gap(awaySince, lost))
+                            it.reconnects++
+                        }
+                    }
+                    awaySince = 0L
+                }
+
+                val now = System.currentTimeMillis()
+                if (now - partStarted >= PART_LENGTH_MS) rotateWhenReady = true
+                if (now - lastSave >= SAVE_EVERY_MS) {
+                    lastSave = now
+                    val soFar = bytesTotal
+                    RecordingStore.update(this, id) { it.bytes = soFar }
+                }
+            }
+
+            // Wait about half a segment before asking again - long enough not to
+            // hammer the portal, short enough never to fall behind its window.
+            val wait = if (wroteThisRound) (targetSeconds * 500).toLong() else 1_000L
+            runCatching { Thread.sleep(wait.coerceIn(500L, 6_000L)) }
+        }
+
+        runCatching { out?.flush(); out?.close() }
+
+        val finishedAt = System.currentTimeMillis()
+        RecordingStore.update(this, id) {
+            it.bytes = bytesTotal
+            it.endedAt = finishedAt
+            it.state = if (everWrote) STATE_DONE else STATE_FAILED
+        }
+        // If nothing at all arrived, let the raw stream have a go instead.
+        return everWrote
+    }
+
+    private fun fetchText(http: OkHttpClient, url: String): String? = runCatching {
+        val request = Request.Builder().url(url).header("User-Agent", Config.USER_AGENT).build()
+        http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) null else response.body?.string()
+        }
+    }.getOrNull()
+
+    private fun fetchBytes(http: OkHttpClient, url: String): ByteArray? = runCatching {
+        val request = Request.Builder().url(url).header("User-Agent", Config.USER_AGENT).build()
+        http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) null else response.body?.bytes()
+        }
+    }.getOrNull()
+
+    /** Playlists mix absolute and relative segment addresses. */
+    private fun absolute(playlistUrl: String, line: String): String = when {
+        line.startsWith("http://") || line.startsWith("https://") -> line
+        line.startsWith("/") -> {
+            val scheme = playlistUrl.substringBefore("://")
+            val host = playlistUrl.substringAfter("://").substringBefore('/')
+            "$scheme://$host$line"
+        }
+        else -> playlistUrl.substringBeforeLast('/') + "/" + line
     }
 
     // ---------- keeping the box awake ----------
@@ -514,6 +757,82 @@ class RecorderService : Service() {
         }
 
         private const val SYNC_BYTE: Byte = 0x47
+
+        /** A stream's clock wraps after about 26 hours. */
+        private const val PTS_WRAP = 1L shl 33
+
+        /**
+         * The timestamp on a packet, or -1 if it has none.
+         *
+         * Only the first packet of each audio or video unit carries one, sitting
+         * in the PES header behind five bytes with a particular shape. Anything
+         * that doesn't match that shape exactly is left alone rather than guessed
+         * at - a misread timestamp would be worse than no timestamp.
+         */
+        private fun ptsAt(data: ByteArray, packet: Int): Long {
+            if (data[packet] != SYNC_BYTE) return -1L
+            val unitStart = (data[packet + 1].toInt() and 0x40) != 0
+            if (!unitStart) return -1L
+
+            val adaptation = (data[packet + 3].toInt() shr 4) and 0x03
+            var payload = packet + 4
+            if (adaptation == 2) return -1L                       // no payload at all
+            if (adaptation == 3) payload += (data[packet + 4].toInt() and 0xFF) + 1
+            if (payload + 14 > packet + TS_PACKET) return -1L
+
+            // PES start code, then a stream id in the audio or video range.
+            if (data[payload].toInt() != 0x00 ||
+                data[payload + 1].toInt() != 0x00 ||
+                data[payload + 2].toInt() != 0x01
+            ) return -1L
+            val streamId = data[payload + 3].toInt() and 0xFF
+            val isAudioOrVideo = streamId in 0xC0..0xEF
+            if (!isAudioOrVideo) return -1L
+
+            val flags = data[payload + 7].toInt() and 0xC0
+            if (flags == 0) return -1L                            // carries no timestamp
+            val p = payload + 9
+            if ((data[p].toInt() and 0xF0) == 0) return -1L
+
+            return (((data[p].toLong() and 0x0E) shl 29) or
+                ((data[p + 1].toLong() and 0xFF) shl 22) or
+                ((data[p + 2].toLong() and 0xFE) shl 14) or
+                ((data[p + 3].toLong() and 0xFF) shl 7) or
+                ((data[p + 4].toLong() and 0xFE) shr 1))
+        }
+
+        /** The newest timestamp in a run of packets, for remembering where we are. */
+        private fun newestPts(data: ByteArray, from: Int, until: Int): Long {
+            var i = from
+            var best = -1L
+            while (i + TS_PACKET <= until) {
+                val pts = ptsAt(data, i)
+                if (pts >= 0L && (best < 0L || pts > best)) best = pts
+                i += TS_PACKET
+            }
+            return best
+        }
+
+        /**
+         * The first packet carrying material we do not already have.
+         *
+         * A timestamp that has gone backwards by hours is the clock wrapping
+         * rather than a rewind, so that counts as new. Anything within a few
+         * seconds behind is the portal replaying its buffer, and is skipped.
+         */
+        private fun firstPacketAfter(data: ByteArray, from: Int, until: Int, after: Long): Int {
+            var i = from
+            while (i + TS_PACKET <= until) {
+                val pts = ptsAt(data, i)
+                if (pts >= 0L) {
+                    val ahead = pts > after
+                    val wrapped = after - pts > PTS_WRAP / 2
+                    if (ahead || wrapped) return i
+                }
+                i += TS_PACKET
+            }
+            return -1
+        }
 
         /** Ten minutes per chunk: small enough to lose nothing, few enough to play. */
         private const val PART_LENGTH_MS = 10L * 60L * 1000L
