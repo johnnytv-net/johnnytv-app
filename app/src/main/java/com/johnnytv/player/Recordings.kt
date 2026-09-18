@@ -155,6 +155,18 @@ data class Recording(
     fun lostSeconds(): Int = gaps.sumOf { it.seconds }
 
     /**
+     * The playlist written beside the pieces, when there is one.
+     *
+     * This is what should be played: one file that names the pieces in order and
+     * marks every join, so the player treats the recording as a single
+     * programme rather than a folder of fragments.
+     */
+    fun playlistFile(): File? {
+        val file = File(File(dirPath), RecorderService.PLAYLIST_NAME)
+        return if (file.exists() && file.length() > 0L) file else null
+    }
+
+    /**
      * The chunks that are safe to play.
      *
      * While a recording is running, its newest chunk is being written to this

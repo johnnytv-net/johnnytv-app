@@ -812,7 +812,8 @@ class PlayerActivity : AppCompatActivity() {
             if (kind == Kind.LIVE && RecorderService.isRecording) {
                 if (contentId.isNotBlank() && contentId == RecorderService.activeStreamId) {
                     val live = RecordingStore.all(context).firstOrNull { it.isRecording }
-                    val parts = live?.playableFiles().orEmpty()
+                    val running = live?.playlistFile()
+                    val parts = if (running != null) listOf(running) else live?.playableFiles().orEmpty()
                     if (parts.isNotEmpty()) {
                         android.widget.Toast.makeText(
                             context,

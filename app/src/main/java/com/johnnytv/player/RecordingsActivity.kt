@@ -188,6 +188,18 @@ class RecordingsActivity : AppCompatActivity() {
     // ---------- what a press does ----------
 
     private fun play(recording: Recording) {
+        val playlist = recording.playlistFile()
+        if (playlist != null) {
+            RecordingStore.update(this, recording.id) { it.watched = true }
+            PlayerActivity.startPlaylist(
+                this,
+                urls = listOf(android.net.Uri.fromFile(playlist).toString()),
+                title = recording.title,
+                contentId = "rec:" + recording.id
+            )
+            return
+        }
+
         val files = recording.playableFiles()
         if (files.isEmpty()) {
             AlertDialog.Builder(this)

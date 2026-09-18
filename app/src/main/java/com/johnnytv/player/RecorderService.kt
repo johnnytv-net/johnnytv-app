@@ -475,13 +475,63 @@ class RecorderService : Service() {
     /** After a reconnect: drop what the portal resends until it moves past lastPts. */
     private var trimming = false
 
+    /** Each finished part and how long it ran, for the playlist. */
+    private val partsWritten = ArrayList<Pair<String, Double>>()
+    private var currentPart = ""
+
     private fun openNewPart() {
         runCatching { out?.flush(); out?.close() }
+        if (currentPart.isNotEmpty()) {
+            val seconds = ((System.currentTimeMillis() - partStarted) / 1000.0).coerceAtLeast(0.1)
+            partsWritten.add(currentPart to seconds)
+        }
         val name = String.format("part%03d.ts", partIndex)
         partIndex++
         partStarted = System.currentTimeMillis()
+        currentPart = name
         out = FileOutputStream(File(folder, name))
         RecordingStore.update(this, recordingId) { if (!it.parts.contains(name)) it.parts.add(name) }
+        writePlaylist(false)
+    }
+
+    /**
+     * THE RECORDING, DESCRIBED IN ITS OWN PLAYLIST.
+     *
+     * Handing a player a folder of stream pieces and asking it to run them
+     * together does not work, however carefully the pieces are cut: each one
+     * carries its own clock and its own internal numbering, and a player reading
+     * them as plain files gives up at the first join - a five minute recording
+     * that stops at thirty seconds with everything present on the drive.
+     *
+     * A playlist is how this format says "these pieces, in this order, and here
+     * is where things change". Written next to the pieces, the recording opens
+     * as one programme and the player's own machinery handles every join,
+     * because that is exactly what it was built for.
+     */
+    private fun writePlaylist(finished: Boolean) {
+        val all = ArrayList(partsWritten)
+        if (!finished && currentPart.isNotEmpty()) {
+            val soFar = ((System.currentTimeMillis() - partStarted) / 1000.0).coerceAtLeast(0.1)
+            all.add(currentPart to soFar)
+        }
+        if (all.isEmpty()) return
+
+        val longest = all.maxOf { it.second }
+        val text = StringBuilder()
+        text.append("#EXTM3U\n")
+        text.append("#EXT-X-VERSION:3\n")
+        text.append("#EXT-X-TARGETDURATION:").append(Math.ceil(longest).toInt()).append("\n")
+        text.append("#EXT-X-MEDIA-SEQUENCE:0\n")
+        text.append("#EXT-X-PLAYLIST-TYPE:EVENT\n")
+        for ((index, part) in all.withIndex()) {
+            // Every piece may restart the clock, so each one is announced as a
+            // discontinuity. It costs nothing where there isn't one.
+            if (index > 0) text.append("#EXT-X-DISCONTINUITY\n")
+            text.append("#EXTINF:").append(String.format(java.util.Locale.US, "%.3f", part.second)).append(",\n")
+            text.append(part.first).append("\n")
+        }
+        if (finished) text.append("#EXT-X-ENDLIST\n")
+        runCatching { File(folder, PLAYLIST_NAME).writeText(text.toString()) }
     }
 
     /** Back on air after being away: that is a gap worth reporting. */
@@ -668,6 +718,12 @@ class RecorderService : Service() {
 
     private fun closeUp(id: String) {
         runCatching { out?.flush(); out?.close() }
+        if (currentPart.isNotEmpty()) {
+            val seconds = ((System.currentTimeMillis() - partStarted) / 1000.0).coerceAtLeast(0.1)
+            partsWritten.add(currentPart to seconds)
+            currentPart = ""
+        }
+        writePlaylist(true)
         releaseLocks()
         val finishedAt = System.currentTimeMillis()
         val wrote = everWrote
@@ -947,6 +1003,9 @@ class RecorderService : Service() {
 
         /** An upper bound on the wake lock, so a stuck recording cannot hold the box awake for ever. */
         private const val MAX_RECORDING_MS = 12L * 60L * 60L * 1000L
+
+        /** The playlist written beside the pieces, which is what gets played. */
+        const val PLAYLIST_NAME = "recording.m3u8"
 
         private const val NOTIFICATION_ID = 4711
         private const val CHANNEL_ID = "johnnytv-recording"
