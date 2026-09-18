@@ -344,11 +344,25 @@ class RecorderService : Service() {
                  * it understands: it finishes one piece, moves to the next, and
                  * the viewer sees a continuous programme.
                  */
-                if (piece.afterBreak || System.currentTimeMillis() - partStarted >= SEGMENT_PART_MS) {
-                    startFreshChunk = true
-                    needSync = true
-                    needPat = true
-                }
+                /*
+                 * ONE PIECE, ONE FILE.
+                 *
+                 * Splitting only where the clock jumped was not enough, because a
+                 * clock is not the only thing that changes between HLS pieces:
+                 * the internal stream numbers can change too, and a player that
+                 * has bound itself to the old ones reads that as the end of the
+                 * programme. Hence a recording that stops dead eighteen seconds
+                 * in with all five minutes present on the drive.
+                 *
+                 * So each piece is written as its own file, which is exactly how
+                 * a player consumes this kind of channel in the first place -
+                 * every join becomes a boundary it already knows how to cross.
+                 * An hour is a few hundred small files nobody will ever look at,
+                 * and they play as one continuous programme.
+                 */
+                startFreshChunk = true
+                needSync = true
+                needPat = false
 
                 if (fetchSegment(http, piece.url, id)) got++
             }
