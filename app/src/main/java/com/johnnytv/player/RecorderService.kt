@@ -631,6 +631,16 @@ class RecorderService : Service() {
         if (!finished && currentPart.isNotEmpty()) {
             all.add(Triple(currentPart, finishedLength(), currentPartIsBreak))
         }
+        /*
+         * AN EMPTY PIECE STOPS EVERYTHING.
+         *
+         * Each reconnection opens a new part, and a reconnection that brings
+         * nothing back leaves that part empty. Listed in the playlist, a player
+         * reaching it finds no video where the playlist promised some and stops
+         * dead - so a recording with six reconnects and one dud piece will not
+         * play at all, however good the rest of it is.
+         */
+        all.retainAll { (it.second > 0.0) && File(folder, it.first).length() > 0L }
         if (all.isEmpty()) return
 
         val longest = all.maxOf { it.second }
@@ -781,11 +791,20 @@ class RecorderService : Service() {
                 // what is arriving and mark the join, rather than carving a
                 // hole out of the recording waiting for a clock that is not
                 // coming back.
+                //
+                // The batch is handed back rather than written here: a new part
+                // has to begin at a table of contents, and that check has
+                // already been made further up this pass. Returning lets it run
+                // again on the way in, which is the difference between a part a
+                // player can open and one it cannot.
                 trimming = false
                 startFreshChunk = true
                 needPat = true
                 nextPartIsBreak = true
                 lastPts = -1L
+                carry = data.copyOfRange(start, data.size)
+                needSync = true
+                return
             } else if (overlapping) {
                 val fresh = firstPacketAfter(data, start, start + whole, lastPts)
                 if (fresh < 0) {
@@ -803,12 +822,16 @@ class RecorderService : Service() {
                 }
             } else {
                 // A different point in the stream: this is a new clock, not a
-                // repeat. Keep every frame of it.
+                // repeat. Keep every frame of it - handed back so the new part
+                // starts at a table of contents rather than mid-picture.
                 trimming = false
                 startFreshChunk = true
                 needPat = true
                 nextPartIsBreak = true
                 lastPts = -1L
+                carry = data.copyOfRange(start, data.size)
+                needSync = true
+                return
             }
         } else if (trimming) {
             trimming = false
@@ -843,17 +866,25 @@ class RecorderService : Service() {
             }
         }
 
+        // The part's length is measured from the timestamps actually written
+        // into it. Taken any later than this - or skipped on the passes that
+        // return early - a part ends up claiming seconds it does not contain,
+        // and a player waits at the end of it for material that was never
+        // there.
         val newest = newestPts(data, start, start + whole)
         if (newest >= 0L) {
             lastPts = newest
             partLastPts = newest
-            if (partFirstPts < 0L) {
-                val firstHere = firstPts(data, start, start + whole)
-                if (firstHere >= 0L) partFirstPts = firstHere
-            }
+        }
+        if (partFirstPts < 0L) {
+            val firstHere = firstPts(data, start, start + whole)
+            if (firstHere >= 0L) partFirstPts = firstHere
         }
 
         if (startFreshChunk) {
+            // Opened here, with data in hand, rather than the moment a
+            // reconnection is noticed - so a connection that brings nothing
+            // back leaves no empty file behind it.
             startFreshChunk = false
             rotateWhenReady = false
             openNewPart()
