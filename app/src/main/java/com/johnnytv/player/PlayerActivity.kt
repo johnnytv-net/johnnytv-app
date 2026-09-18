@@ -425,11 +425,14 @@ class PlayerActivity : AppCompatActivity() {
             val fresh = files.drop(urls.size).map { android.net.Uri.fromFile(it).toString() }
             urls = urls + fresh
             hideStatus()
-            player?.let { active ->
+            val active = player
+            if (active != null) {
                 for (url in fresh) active.addMediaItem(MediaItem.fromUri(url))
                 active.prepare()
                 active.playWhenReady = true
-            } ?: startPlayback()
+            } else {
+                startPlayback()
+            }
         } else if (recording?.isRecording == true) {
             playerView.postDelayed(waitForChunk, CHUNK_WAIT_MS)
         } else {
