@@ -291,6 +291,7 @@ class RecorderService : Service() {
                     startFreshChunk = true
                     needPat = true
                     trimming = true
+                    trimStartedAt = System.currentTimeMillis()
                 }
 
                 while (!stopping && System.currentTimeMillis() < endAt) {
@@ -551,6 +552,8 @@ class RecorderService : Service() {
     private var lastPts = -1L
     /** After a reconnect: drop what the portal resends until it moves past lastPts. */
     private var trimming = false
+    /** When skipping a repeat began, so it cannot run away with the recording. */
+    private var trimStartedAt = 0L
     /*
      * WHERE THE PICTURE WENT.
      *
@@ -773,7 +776,17 @@ class RecorderService : Service() {
             val behind = lastPts - arriving
             val overlapping = behind in 1..OVERLAP_LIMIT_TICKS
 
-            if (overlapping) {
+            if (overlapping && System.currentTimeMillis() - trimStartedAt > SKIP_TIME_LIMIT_MS) {
+                // Skipping has gone on too long to be a repeat any more. Take
+                // what is arriving and mark the join, rather than carving a
+                // hole out of the recording waiting for a clock that is not
+                // coming back.
+                trimming = false
+                startFreshChunk = true
+                needPat = true
+                nextPartIsBreak = true
+                lastPts = -1L
+            } else if (overlapping) {
                 val fresh = firstPacketAfter(data, start, start + whole, lastPts)
                 if (fresh < 0) {
                     bytesSkippedRepeats += whole
@@ -1160,7 +1173,23 @@ class RecorderService : Service() {
          * skipping. Beyond that it is simply a different moment, and skipping
          * to reach the old one would mean discarding everything in between.
          */
-        private const val OVERLAP_LIMIT_TICKS = 5L * 90_000L
+        /**
+         * How far behind a reconnection may land and still count as a repeat.
+         *
+         * Generous, because portals hand back a minute or more of their buffer
+         * and every second of that is material we already hold. Written down it
+         * plays twice: the recording jumps backwards at each join.
+         */
+        private const val OVERLAP_LIMIT_TICKS = 120L * 90_000L
+
+        /**
+         * How long skipping a repeat may take before it is abandoned.
+         *
+         * The safety net. Skipping "until the clock catches up" once cost
+         * ninety seconds of a two minute recording, because the stream never
+         * did catch up. After this long the material is taken as it comes.
+         */
+        private const val SKIP_TIME_LIMIT_MS = 8_000L
 
         /** The first timestamp in a run of packets. */
         private fun firstPts(data: ByteArray, from: Int, until: Int): Long {
