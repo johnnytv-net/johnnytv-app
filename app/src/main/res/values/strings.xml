@@ -189,7 +189,6 @@
     <string name="record_live_message">Record %1$s for the next %2$d hours.\n\n%3$s</string>
     <string name="record_hint">Hold OK to record</string>
     <string name="record_watching_recording">Playing from the recording, a few seconds behind live</string>
-    <string name="record_watching_recording">This channel is recording, so this plays from the recording rather than opening a second connection.</string>
     <string name="recordings_report_run">%1$s to %2$s — %3$d short drops, %4$d seconds lost in total, each one reconnected on its own.</string>
     <string name="record_busy_watching">Recording in progress. Your line allows one connection, so this channel has to stay on until it finishes.</string>
 
