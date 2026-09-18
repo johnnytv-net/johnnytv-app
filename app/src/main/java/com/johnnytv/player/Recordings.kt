@@ -163,7 +163,31 @@ data class Recording(
      */
     fun playlistFile(): File? {
         val file = File(File(dirPath), RecorderService.PLAYLIST_NAME)
-        return if (file.exists() && file.length() > 0L) file else null
+        if (!file.exists() || file.length() <= 0L) return null
+
+        /*
+         * A FINISHED RECORDING HAS TO SAY SO.
+         *
+         * Without its end marker a playlist means "still being written", and a
+         * player treats that as live television: it skips to the end, plays the
+         * last few seconds, runs out and stops. Which is a two minute recording
+         * that plays for fifteen seconds and drops you back to the list.
+         *
+         * The recorder writes that marker when it closes, but it is not always
+         * given the chance - the system can tear the service down first. So any
+         * recording that is no longer running gets its playlist finished here
+         * before it is played.
+         */
+        if (!isRecording) {
+            runCatching {
+                val text = file.readText()
+                if (!text.contains("#EXT-X-ENDLIST")) {
+                    val ending = if (text.endsWith("\n")) "" else "\n"
+                    file.appendText(ending + "#EXT-X-ENDLIST\n")
+                }
+            }
+        }
+        return file
     }
 
     /**

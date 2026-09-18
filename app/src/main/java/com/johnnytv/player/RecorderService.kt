@@ -107,6 +107,17 @@ class RecorderService : Service() {
         // there claiming to be in progress for ever.
         val id = activeId
         if (id.isNotBlank()) {
+            // Torn down before the recorder could tidy up: close the file and
+            // finish the playlist here, so what was captured still plays as a
+            // complete recording rather than an unfinished live stream.
+            runCatching { out?.flush(); out?.close() }
+            runCatching {
+                if (currentPart.isNotEmpty()) {
+                    partsWritten.add(currentPart to finishedLength())
+                    currentPart = ""
+                }
+                writePlaylist(true)
+            }
             RecordingStore.update(this, id) {
                 if (it.isRecording) {
                     it.state = STATE_DONE
