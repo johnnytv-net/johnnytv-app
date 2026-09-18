@@ -121,6 +121,30 @@ class RecorderService : Service() {
 
     // ---------- the loop ----------
 
+    // ---------- the two ways a portal hands out a channel ----------
+
+    /**
+     * ONE STREAM, OR MANY PIECES.
+     *
+     * Portals serve live television in one of two shapes, and the difference
+     * decides how a recorder has to behave.
+     *
+     * Some open a socket and pour video down it for hours. That is the easy one:
+     * read until the programme ends, and treat silence as a fault.
+     *
+     * Others hand out twelve seconds at a time and close politely, because that
+     * is how HLS works. Read that the first way and every twelve seconds looks
+     * like a failure - the recorder reconnects, notes a dropout, and stitches a
+     * seam into the file. One evening of that is hundreds of seams, which is
+     * exactly what A&E produced: 122 "drops" in 25 minutes, none of them real.
+     *
+     * So the recorder learns which it is dealing with. Two clean endings in
+     * quick succession is not a bad line, it is a segmented channel saying so,
+     * and from that point it follows the playlist instead: ask what the pieces
+     * are, fetch each one, write them end to end. No reconnects, no seams.
+     */
+    private enum class Mode { STREAM, SEGMENTS }
+
     private fun record(
         id: String,
         title: String,
@@ -132,8 +156,9 @@ class RecorderService : Service() {
         holdLocks()
 
         val target = Storage.chosen(this)
-        var folder = File(target?.dir ?: File(filesDir, Storage.FOLDER), id)
+        folder = File(target?.dir ?: File(filesDir, Storage.FOLDER), id)
         folder.mkdirs()
+        recordingId = id
 
         RecordingStore.update(this, id) {
             it.dirPath = folder.absolutePath
@@ -147,15 +172,6 @@ class RecorderService : Service() {
             StorageTarget.BYTES_PER_HOUR).toLong()
         runCatching { RecordingStore.freeUpSpace(this, needed, folder) }
 
-        // Try the playlist first. A portal that closes the raw stream every few
-        // seconds - which is what the reports have been full of - hands out a
-        // perfectly well behaved HLS playlist instead, where every segment has a
-        // number and is fetched exactly once. See recordFromPlaylist.
-        val playlistUrl = urls.firstOrNull { it.endsWith(".m3u8") }
-        if (playlistUrl != null && recordFromPlaylist(id, playlistUrl, endAt, folder)) {
-            return
-        }
-
         val http = OkHttpClient.Builder()
             .connectTimeout(12, TimeUnit.SECONDS)
             // The watchdog. A portal that stalls says nothing at all, so silence
@@ -164,468 +180,421 @@ class RecorderService : Service() {
             .retryOnConnectionFailure(true)
             .build()
 
-        var urlIndex = 0
-        var partIndex = 0
-        var partStarted = 0L
-        var out: FileOutputStream? = null
-        /** Bytes of a half-finished packet, waiting for the rest of it. */
-        var carry = EMPTY
-        /** True until the run of 0x47s has been found after a (re)connection. */
-        var needSync = true
-        /** The chunk is due to roll over, as soon as a PAT comes past. */
-        var rotateWhenReady = false
-        /** This connection is new, so its first bytes belong in a new chunk. */
-        var startFreshChunk = false
-        /** Nothing is worth writing until the stream says where it begins. */
-        var needPat = false
-        /** The newest timestamp written to disk, in 90 kHz ticks. */
-        var lastPts = -1L
-        /** After a reconnect: drop what the portal resends until it moves past lastPts. */
-        var trimming = false
-        var bytesTotal = 0L
-        var lastSave = 0L
-        var awaySince = 0L
-        var everWrote = false
-
-        fun openNewPart() {
-            runCatching { out?.flush(); out?.close() }
-            val name = String.format("part%03d.ts", partIndex)
-            partIndex++
-            partStarted = System.currentTimeMillis()
-            out = FileOutputStream(File(folder, name))
-            RecordingStore.update(this, id) { if (!it.parts.contains(name)) it.parts.add(name) }
-        }
-
         openNewPart()
 
+        val streamUrl = urls.firstOrNull { !it.contains(".m3u8") } ?: urls.first()
+        val playlistUrl = urls.firstOrNull { it.contains(".m3u8") }
+
+        var mode = Mode.STREAM
+        var shortEndings = 0
+
         while (!stopping && System.currentTimeMillis() < endAt) {
-            val url = urls[urlIndex % urls.size]
-            try {
-                val request = Request.Builder()
-                    .url(url)
-                    .header("User-Agent", Config.USER_AGENT)
-                    .build()
-                http.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code}")
-                    val body = response.body ?: throw IllegalStateException("empty")
-                    val input = body.byteStream()
-                    val buffer = ByteArray(64 * 1024)
+            if (mode == Mode.SEGMENTS && playlistUrl != null) {
+                // If it turns out not to be a playlist after all, fall back to
+                // reading it as one long stream rather than spinning here.
+                if (!followPlaylist(http, playlistUrl, id, endAt)) mode = Mode.STREAM
+                continue
+            }
 
-                    // Back on air. If we were away, that is a gap worth reporting -
-                    // it is the difference between "it recorded" and "it recorded,
-                    // and here is exactly what you missed".
-                    if (awaySince > 0L) {
-                        val lost = ((System.currentTimeMillis() - awaySince) / 1000L).toInt()
-                        if (lost > 0) {
-                            RecordingStore.update(this, id) {
-                                it.gaps.add(Gap(awaySince, lost))
-                                it.reconnects++
-                            }
-                        }
-                        awaySince = 0L
+            val startedAt = System.currentTimeMillis()
+            val endedCleanly = readOneStream(http, streamUrl, id, endAt)
+            val lasted = System.currentTimeMillis() - startedAt
+
+            if (endedCleanly && lasted < SEGMENT_LOOKS_LIKE_MS) {
+                shortEndings++
+                // Twice is a pattern rather than bad luck. Switch to asking for
+                // the pieces properly, and stop calling these dropouts.
+                if (shortEndings >= 2 && playlistUrl != null) {
+                    mode = Mode.SEGMENTS
+                    awaySince = 0L
+                    RecordingStore.update(this, id) {
+                        it.gaps.clear()
+                        it.reconnects = 0
                     }
-
-                    /*
-                     * EVERY CONNECTION GETS ITS OWN CHUNK.
-                     *
-                     * A reconnection is not a continuation. The portal picks up
-                     * wherever it is now, usually replaying a few seconds it has
-                     * already sent, and with its own timing rather than a
-                     * continuation of the old one. Written into the middle of the
-                     * same file, that is what makes a recording repeat itself,
-                     * stick on one frame, and then run with the sound ahead of the
-                     * picture: the player is trying to read two streams as one.
-                     *
-                     * Started as a new chunk instead, the player treats it as a new
-                     * piece and resets its clock at the join - the seam becomes a
-                     * momentary pause instead of a minute of drift.
-                     */
-                    needSync = true
-                    if (everWrote) {
-                        startFreshChunk = true
-                        needPat = true
-                        trimming = true
-                    }
-
-                    while (!stopping && System.currentTimeMillis() < endAt) {
-                        val read = input.read(buffer)
-                        if (read < 0) break          // the portal closed the connection
-                        if (read == 0) continue
-
-                        /*
-                         * WHOLE PACKETS ONLY.
-                         *
-                         * A transport stream is a procession of 188-byte packets,
-                         * each starting with 0x47. Writing whatever happened to
-                         * arrive in the last read - which is what this used to do -
-                         * chops the first and last packet of every write in half.
-                         * The player then has to guess where the next frame starts:
-                         * the sound skips, and the picture sits on one frame until
-                         * the next keyframe turns up. That is the frozen photo with
-                         * the audio carrying on.
-                         *
-                         * So: anything left over at the end of a read is held back
-                         * and glued to the front of the next one, and only complete
-                         * packets ever reach the drive.
-                         */
-                        val data = if (carry.isEmpty()) {
-                            buffer.copyOf(read)
-                        } else {
-                            val joined = ByteArray(carry.size + read)
-                            System.arraycopy(carry, 0, joined, 0, carry.size)
-                            System.arraycopy(buffer, 0, joined, carry.size, read)
-                            joined
-                        }
-                        carry = EMPTY
-
-                        var start = 0
-                        if (needSync) {
-                            val at = findSync(data)
-                            if (at < 0) {
-                                // Not enough to be sure yet - keep the tail and
-                                // wait for more rather than writing rubbish.
-                                carry = data.copyOfRange(
-                                    (data.size - SYNC_LOOKBACK).coerceAtLeast(0),
-                                    data.size
-                                )
-                                continue
-                            }
-                            start = at
-                            needSync = false
-                        }
-
-                        var whole = ((data.size - start) / TS_PACKET) * TS_PACKET
-                        if (whole <= 0) {
-                            carry = data.copyOfRange(start, data.size)
-                            continue
-                        }
-
-                        // A new connection: throw away everything up to the first
-                        // PAT, so the chunk starts where a player can start.
-                        if (needPat) {
-                            val pat = findPat(data, start, start + whole)
-                            if (pat < 0) {
-                                carry = data.copyOfRange(start + whole, data.size)
-                                continue
-                            }
-                            start = pat
-                            needPat = false
-                            whole = ((data.size - start) / TS_PACKET) * TS_PACKET
-                            if (whole <= 0) {
-                                carry = data.copyOfRange(start, data.size)
-                                continue
-                            }
-                        }
-
-                        /*
-                         * THE REWIND, CUT OUT.
-                         *
-                         * A portal does not resume where it left off. It reconnects
-                         * you to its own buffer, which usually means several seconds
-                         * you already have. Written down, those seconds play twice:
-                         * the recording jumps backwards, the sound repeats, and from
-                         * then on the picture and the audio are arguing about what
-                         * time it is.
-                         *
-                         * Every packet carries a timestamp, so the recorder keeps the
-                         * last one it wrote and throws away everything the portal
-                         * resends until the clock passes that point. What reaches the
-                         * drive is one continuous programme with the repeats removed.
-                         */
-                        if (trimming && lastPts >= 0L) {
-                            val fresh = firstPacketAfter(data, start, start + whole, lastPts)
-                            if (fresh < 0) {
-                                // All of this is material we already hold.
-                                carry = data.copyOfRange(start + whole, data.size)
-                                continue
-                            }
-                            start = fresh
-                            trimming = false
-                            whole = ((data.size - start) / TS_PACKET) * TS_PACKET
-                            if (whole <= 0) {
-                                carry = data.copyOfRange(start, data.size)
-                                continue
-                            }
-                        } else if (trimming) {
-                            trimming = false
-                        }
-
-                        val newest = newestPts(data, start, start + whole)
-                        if (newest >= 0L) lastPts = newest
-
-                        if (startFreshChunk) {
-                            startFreshChunk = false
-                            rotateWhenReady = false
-                            openNewPart()
-                        }
-
-                        // A new chunk has to begin at a point the player can start
-                        // reading cold, which means a PAT packet - the stream's own
-                        // table of contents. Splitting anywhere else leaves a file
-                        // whose first second cannot be decoded.
-                        var writeLen = whole
-                        var splitAt = -1
-                        if (rotateWhenReady) {
-                            val pat = findPat(data, start, start + whole)
-                            if (pat > start) {
-                                splitAt = pat
-                                writeLen = pat - start
-                            }
-                        }
-
-                        try {
-                            out?.write(data, start, writeLen)
-                            if (splitAt >= 0) {
-                                openNewPart()
-                                rotateWhenReady = false
-                                out?.write(data, splitAt, start + whole - splitAt)
-                            }
-                        } catch (writeFailure: Exception) {
-                            // The drive went away mid-recording. Carry on into
-                            // internal storage rather than ending here.
-                            val fallback = Storage.internal(this)?.dir ?: File(filesDir, Storage.FOLDER)
-                            folder = File(fallback, id).apply { mkdirs() }
-                            RecordingStore.update(this, id) {
-                                it.dirPath = folder.absolutePath
-                                it.note = "The drive was disconnected, so the rest was saved on the box."
-                            }
-                            openNewPart()
-                            rotateWhenReady = false
-                            out?.write(data, start, whole)
-                        }
-
-                        carry = data.copyOfRange(start + whole, data.size)
-                        bytesTotal += whole
-                        everWrote = true
-
-                        val now = System.currentTimeMillis()
-                        if (now - partStarted >= PART_LENGTH_MS) rotateWhenReady = true
-                        if (now - lastSave >= SAVE_EVERY_MS) {
-                            lastSave = now
-                            val soFar = bytesTotal
-                            RecordingStore.update(this, id) { it.bytes = soFar }
-                        }
-                    }
-                }
-                // A clean end of stream before the finish time means the portal
-                // closed on us. Straight back in - the wait is what turns a
-                // handover into a hole.
-                if (!stopping && System.currentTimeMillis() < endAt) {
-                    needSync = true
                     continue
                 }
-            } catch (e: Exception) {
+            } else {
+                shortEndings = 0
+            }
+
+            // The plain stream address is not answering at all. The playlist is
+            // worth a try before giving the evening up as lost.
+            if (!everWrote && tried >= 2 && playlistUrl != null) {
+                mode = Mode.SEGMENTS
+                continue
+            }
+
+            if (!stopping && System.currentTimeMillis() < endAt) {
                 if (awaySince == 0L) awaySince = System.currentTimeMillis()
-                // A stream that has never produced a byte is probably the wrong
-                // container for this portal - try the other one. One that worked
-                // and then stopped gets reconnected as it is.
-                if (!everWrote) urlIndex++
                 runCatching { Thread.sleep(RECONNECT_WAIT_MS) }
             }
         }
 
-        runCatching { out?.flush(); out?.close() }
-        releaseLocks()
-
-        val finishedAt = System.currentTimeMillis()
-        RecordingStore.update(this, id) {
-            it.bytes = bytesTotal
-            it.endedAt = finishedAt
-            it.state = if (everWrote) STATE_DONE else STATE_FAILED
-            if (!everWrote && it.note.isBlank()) {
-                it.note = "Nothing arrived from the server for this channel."
-            }
-        }
+        closeUp(id)
     }
 
-    // ---------- recording from a playlist ----------
+    /**
+     * One connection to a continuous stream, read until it stops.
+     *
+     * Returns true if the portal closed it politely, which is the clue that this
+     * might be a segmented channel rather than a broken one.
+     */
+    private fun readOneStream(
+        http: OkHttpClient,
+        url: String,
+        id: String,
+        endAt: Long
+    ): Boolean {
+        try {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", Config.USER_AGENT)
+                .build()
+            http.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code}")
+                val body = response.body ?: throw IllegalStateException("empty")
+                val input = body.byteStream()
+                val buffer = ByteArray(64 * 1024)
+
+                backOnAir(id)
+                needSync = true
+                if (everWrote) {
+                    startFreshChunk = true
+                    needPat = true
+                    trimming = true
+                }
+
+                while (!stopping && System.currentTimeMillis() < endAt) {
+                    val read = input.read(buffer)
+                    if (read < 0) return true          // the portal closed it tidily
+                    if (read == 0) continue
+                    feed(buffer, read, id)
+                    housekeeping(id)
+                }
+            }
+        } catch (e: Exception) {
+            if (!everWrote) tried++
+            return false
+        }
+        return false
+    }
 
     /**
-     * HLS RECORDING.
+     * A segmented channel, followed the way it expects.
      *
-     * The raw .ts approach assumes the portal will keep one connection open and
-     * keep pushing. Some do. This one closes it every fourteen seconds, and on
-     * every reconnect resends a few seconds it has already sent - which is why a
-     * recording made that way jumps backwards and the sound ends up somewhere
-     * else entirely. Two hundred and seventy five of those in an hour cannot be
-     * papered over.
-     *
-     * A playlist has none of that ambiguity. Every segment carries a number, so
-     * each one is fetched exactly once and written in order; a connection that
-     * dies takes one segment with it, and that segment is simply fetched again.
-     * Segments also begin at keyframes by definition, which makes them safe
-     * places to start a new chunk.
-     *
-     * Returns false if this portal does not actually serve a playlist, so the
-     * raw stream is still there to fall back on.
+     * Read the playlist, fetch anything on it we do not already have, write the
+     * pieces end to end, then ask again. Segments arrive whole and in order, so
+     * there is nothing to resynchronise and no seam between them - the file is
+     * as continuous as the broadcast.
      */
-    private fun recordFromPlaylist(
-        id: String,
+    private fun followPlaylist(
+        http: OkHttpClient,
         playlistUrl: String,
-        endAt: Long,
-        startFolder: File
+        id: String,
+        endAt: Long
     ): Boolean {
-        val http = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .build()
-
-        var mediaUrl = playlistUrl
-        val first = fetchText(http, mediaUrl) ?: return false
-        if (!first.contains("#EXTM3U")) return false
-
-        // A master playlist just points at the real ones - follow the first.
-        if (first.contains("#EXT-X-STREAM-INF")) {
-            val variant = first.lineSequence()
-                .map { it.trim() }
-                .firstOrNull { it.isNotEmpty() && !it.startsWith("#") } ?: return false
-            mediaUrl = absolute(mediaUrl, variant)
-        }
-
-        var folder = startFolder
-        var out: FileOutputStream? = null
-        var partIndex = 0
-        var partStarted = 0L
-        var bytesTotal = 0L
-        var lastSave = 0L
-        var lastSequence = -1L
-        var awaySince = 0L
-        var everWrote = false
-        var rotateWhenReady = false
-
-        fun openNewPart() {
-            runCatching { out?.flush(); out?.close() }
-            val name = String.format("part%03d.ts", partIndex)
-            partIndex++
-            partStarted = System.currentTimeMillis()
-            out = FileOutputStream(File(folder, name))
-            RecordingStore.update(this, id) { if (!it.parts.contains(name)) it.parts.add(name) }
-        }
-
-        openNewPart()
+        val seen = LinkedHashSet<String>()
+        var emptyRounds = 0
 
         while (!stopping && System.currentTimeMillis() < endAt) {
-            val text = fetchText(http, mediaUrl)
-            if (text == null) {
+            val playlist = try {
+                val request = Request.Builder()
+                    .url(playlistUrl)
+                    .header("User-Agent", Config.USER_AGENT)
+                    .build()
+                http.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code}")
+                    response.body?.string().orEmpty()
+                }
+            } catch (e: Exception) {
                 if (awaySince == 0L) awaySince = System.currentTimeMillis()
-                runCatching { Thread.sleep(1_000L) }
+                runCatching { Thread.sleep(RECONNECT_WAIT_MS) }
                 continue
             }
 
-            var sequence = text.lineSequence()
-                .firstOrNull { it.startsWith("#EXT-X-MEDIA-SEQUENCE") }
-                ?.substringAfter(':')?.trim()?.toLongOrNull() ?: 0L
-
-            val targetSeconds = text.lineSequence()
-                .firstOrNull { it.startsWith("#EXT-X-TARGETDURATION") }
-                ?.substringAfter(':')?.trim()?.toDoubleOrNull() ?: 6.0
-
-            val segments = ArrayList<Pair<Long, String>>()
-            for (raw in text.lines()) {
-                val line = raw.trim()
-                if (line.isEmpty() || line.startsWith("#")) continue
-                segments.add(sequence to absolute(mediaUrl, line))
-                sequence++
+            val segments = segmentsIn(playlist, playlistUrl)
+            if (segments.isEmpty()) {
+                // Not a playlist after all - go back to reading it as a stream.
+                if (++emptyRounds >= 3) return false
+                runCatching { Thread.sleep(POLL_WAIT_MS) }
+                continue
             }
+            emptyRounds = 0
 
-            var wroteThisRound = false
-            for ((number, url) in segments) {
+            var got = 0
+            for (segment in segments) {
                 if (stopping || System.currentTimeMillis() >= endAt) break
-                if (lastSequence >= 0 && number <= lastSequence) continue   // already have it
-
-                val bytes = fetchBytes(http, url)
-                if (bytes == null) {
-                    if (awaySince == 0L) awaySince = System.currentTimeMillis()
-                    continue
-                }
-
-                // A segment always starts at a keyframe, so this is a safe place
-                // to begin a new chunk.
-                if (rotateWhenReady) {
-                    rotateWhenReady = false
-                    openNewPart()
-                }
-
-                try {
-                    out?.write(bytes)
-                } catch (writeFailure: Exception) {
-                    val fallback = Storage.internal(this)?.dir ?: File(filesDir, Storage.FOLDER)
-                    folder = File(fallback, id).apply { mkdirs() }
-                    RecordingStore.update(this, id) {
-                        it.dirPath = folder.absolutePath
-                        it.note = "The drive was disconnected, so the rest was saved on the box."
-                    }
-                    openNewPart()
-                    out?.write(bytes)
-                }
-
-                lastSequence = number
-                bytesTotal += bytes.size
-                everWrote = true
-                wroteThisRound = true
-
-                if (awaySince > 0L) {
-                    val lost = ((System.currentTimeMillis() - awaySince) / 1000L).toInt()
-                    if (lost >= 2) {
-                        RecordingStore.update(this, id) {
-                            it.gaps.add(Gap(awaySince, lost))
-                            it.reconnects++
-                        }
-                    }
-                    awaySince = 0L
-                }
-
-                val now = System.currentTimeMillis()
-                if (now - partStarted >= PART_LENGTH_MS) rotateWhenReady = true
-                if (now - lastSave >= SAVE_EVERY_MS) {
-                    lastSave = now
-                    val soFar = bytesTotal
-                    RecordingStore.update(this, id) { it.bytes = soFar }
-                }
+                if (!seen.add(segment)) continue
+                if (fetchSegment(http, segment, id)) got++
             }
 
-            // Wait about half a segment before asking again - long enough not to
-            // hammer the portal, short enough never to fall behind its window.
-            val wait = if (wroteThisRound) (targetSeconds * 500).toLong() else 1_000L
-            runCatching { Thread.sleep(wait.coerceIn(500L, 6_000L)) }
-        }
+            // Keep the memory of what we have seen from growing all night.
+            while (seen.size > REMEMBER_SEGMENTS) seen.remove(seen.first())
 
-        runCatching { out?.flush(); out?.close() }
-
-        val finishedAt = System.currentTimeMillis()
-        RecordingStore.update(this, id) {
-            it.bytes = bytesTotal
-            it.endedAt = finishedAt
-            it.state = if (everWrote) STATE_DONE else STATE_FAILED
+            housekeeping(id)
+            runCatching { Thread.sleep(if (got > 0) POLL_WAIT_MS else POLL_WAIT_MS / 2) }
         }
-        // If nothing at all arrived, let the raw stream have a go instead.
-        return everWrote
+        return true
     }
 
-    private fun fetchText(http: OkHttpClient, url: String): String? = runCatching {
-        val request = Request.Builder().url(url).header("User-Agent", Config.USER_AGENT).build()
-        http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) null else response.body?.string()
+    /** Pulls one segment down and writes it. */
+    private fun fetchSegment(http: OkHttpClient, url: String, id: String): Boolean {
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", Config.USER_AGENT)
+                .build()
+            http.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code}")
+                val input = response.body?.byteStream() ?: return false
+                val buffer = ByteArray(64 * 1024)
+                backOnAir(id)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    if (read == 0) continue
+                    feed(buffer, read, id)
+                }
+                true
+            }
+        } catch (e: Exception) {
+            if (awaySince == 0L) awaySince = System.currentTimeMillis()
+            false
         }
-    }.getOrNull()
+    }
 
-    private fun fetchBytes(http: OkHttpClient, url: String): ByteArray? = runCatching {
-        val request = Request.Builder().url(url).header("User-Agent", Config.USER_AGENT).build()
-        http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) null else response.body?.bytes()
-        }
-    }.getOrNull()
+    /**
+     * The segment addresses in a playlist, in order.
+     *
+     * A master playlist points at other playlists rather than at video; when one
+     * turns up, its first variant is followed instead.
+     */
+    private fun segmentsIn(playlist: String, from: String): List<String> {
+        if (!playlist.contains("#EXTM3U")) return emptyList()
+        val lines = playlist.lines().map { it.trim() }.filter { it.isNotEmpty() }
 
-    /** Playlists mix absolute and relative segment addresses. */
-    private fun absolute(playlistUrl: String, line: String): String = when {
-        line.startsWith("http://") || line.startsWith("https://") -> line
-        line.startsWith("/") -> {
-            val scheme = playlistUrl.substringBefore("://")
-            val host = playlistUrl.substringAfter("://").substringBefore('/')
-            "$scheme://$host$line"
+        if (playlist.contains("#EXT-X-STREAM-INF")) {
+            val variant = lines.firstOrNull { !it.startsWith("#") } ?: return emptyList()
+            return listOf(absolute(variant, from))
         }
-        else -> playlistUrl.substringBeforeLast('/') + "/" + line
+        return lines.filter { !it.startsWith("#") }.map { absolute(it, from) }
+    }
+
+    /** Playlists may list pieces by full address or by name alone. */
+    private fun absolute(reference: String, from: String): String {
+        if (reference.startsWith("http://") || reference.startsWith("https://")) return reference
+        return try {
+            java.net.URL(java.net.URL(from), reference).toString()
+        } catch (e: Exception) {
+            reference
+        }
+    }
+
+    // ---------- writing ----------
+
+    private var folder: File = File("")
+    private var recordingId: String = ""
+    private var out: FileOutputStream? = null
+    private var partIndex = 0
+    private var partStarted = 0L
+    private var bytesTotal = 0L
+    private var lastSave = 0L
+    private var awaySince = 0L
+    private var everWrote = false
+    private var tried = 0
+
+    /** Bytes of a half-finished packet, waiting for the rest of it. */
+    private var carry = EMPTY
+    /** True until the run of 0x47s has been found after a (re)connection. */
+    private var needSync = true
+    /** The chunk is due to roll over, as soon as a PAT comes past. */
+    private var rotateWhenReady = false
+    /** This connection is new, so its first bytes belong in a new chunk. */
+    private var startFreshChunk = false
+    /** Nothing is worth writing until the stream says where it begins. */
+    private var needPat = false
+    /** The newest timestamp written to disk, in 90 kHz ticks. */
+    private var lastPts = -1L
+    /** After a reconnect: drop what the portal resends until it moves past lastPts. */
+    private var trimming = false
+
+    private fun openNewPart() {
+        runCatching { out?.flush(); out?.close() }
+        val name = String.format("part%03d.ts", partIndex)
+        partIndex++
+        partStarted = System.currentTimeMillis()
+        out = FileOutputStream(File(folder, name))
+        RecordingStore.update(this, recordingId) { if (!it.parts.contains(name)) it.parts.add(name) }
+    }
+
+    /** Back on air after being away: that is a gap worth reporting. */
+    private fun backOnAir(id: String) {
+        if (awaySince <= 0L) return
+        val lost = ((System.currentTimeMillis() - awaySince) / 1000L).toInt()
+        if (lost > 0) {
+            RecordingStore.update(this, id) {
+                it.gaps.add(Gap(awaySince, lost))
+                it.reconnects++
+            }
+        }
+        awaySince = 0L
+    }
+
+    /**
+     * Bytes to disk - whole packets only, repeats removed.
+     *
+     * A transport stream is a procession of 188-byte packets, each starting with
+     * 0x47. Writing whatever happened to arrive in the last read chops the first
+     * and last packet of every write in half, and the player then has to guess
+     * where the next frame starts: the sound skips and the picture sits on one
+     * frame until the next keyframe. So anything left over is held back and
+     * glued to the front of the next read.
+     */
+    private fun feed(buffer: ByteArray, read: Int, id: String) {
+        val data = if (carry.isEmpty()) {
+            buffer.copyOf(read)
+        } else {
+            val joined = ByteArray(carry.size + read)
+            System.arraycopy(carry, 0, joined, 0, carry.size)
+            System.arraycopy(buffer, 0, joined, carry.size, read)
+            joined
+        }
+        carry = EMPTY
+
+        var start = 0
+        if (needSync) {
+            val at = findSync(data)
+            if (at < 0) {
+                carry = data.copyOfRange((data.size - SYNC_LOOKBACK).coerceAtLeast(0), data.size)
+                return
+            }
+            start = at
+            needSync = false
+        }
+
+        var whole = ((data.size - start) / TS_PACKET) * TS_PACKET
+        if (whole <= 0) {
+            carry = data.copyOfRange(start, data.size)
+            return
+        }
+
+        // A new connection: throw away everything up to the first PAT, so the
+        // chunk starts where a player can start.
+        if (needPat) {
+            val pat = findPat(data, start, start + whole)
+            if (pat < 0) {
+                carry = data.copyOfRange(start + whole, data.size)
+                return
+            }
+            start = pat
+            needPat = false
+            whole = ((data.size - start) / TS_PACKET) * TS_PACKET
+            if (whole <= 0) {
+                carry = data.copyOfRange(start, data.size)
+                return
+            }
+        }
+
+        /*
+         * THE REWIND, CUT OUT.
+         *
+         * A portal does not resume where it left off. It reconnects you to its
+         * own buffer, which usually means several seconds you already have.
+         * Written down, those seconds play twice: the recording jumps backwards,
+         * the sound repeats, and from then on the picture and the audio are
+         * arguing about what time it is. Every packet carries a timestamp, so
+         * the recorder keeps the last one it wrote and throws away what the
+         * portal resends until the clock passes that point.
+         */
+        if (trimming && lastPts >= 0L) {
+            val fresh = firstPacketAfter(data, start, start + whole, lastPts)
+            if (fresh < 0) {
+                carry = data.copyOfRange(start + whole, data.size)
+                return
+            }
+            start = fresh
+            trimming = false
+            whole = ((data.size - start) / TS_PACKET) * TS_PACKET
+            if (whole <= 0) {
+                carry = data.copyOfRange(start, data.size)
+                return
+            }
+        } else if (trimming) {
+            trimming = false
+        }
+
+        val newest = newestPts(data, start, start + whole)
+        if (newest >= 0L) lastPts = newest
+
+        if (startFreshChunk) {
+            startFreshChunk = false
+            rotateWhenReady = false
+            openNewPart()
+        }
+
+        // A new chunk has to begin at a point the player can start reading cold,
+        // which means a PAT packet - the stream's own table of contents.
+        var writeLen = whole
+        var splitAt = -1
+        if (rotateWhenReady) {
+            val pat = findPat(data, start, start + whole)
+            if (pat > start) {
+                splitAt = pat
+                writeLen = pat - start
+            }
+        }
+
+        try {
+            out?.write(data, start, writeLen)
+            if (splitAt >= 0) {
+                openNewPart()
+                rotateWhenReady = false
+                out?.write(data, splitAt, start + whole - splitAt)
+            }
+        } catch (writeFailure: Exception) {
+            // The drive went away mid-recording. Carry on into internal storage
+            // rather than ending here.
+            val fallback = Storage.internal(this)?.dir ?: File(filesDir, Storage.FOLDER)
+            folder = File(fallback, id).apply { mkdirs() }
+            RecordingStore.update(this, id) {
+                it.dirPath = folder.absolutePath
+                it.note = "The drive was disconnected, so the rest was saved on the box."
+            }
+            openNewPart()
+            rotateWhenReady = false
+            runCatching { out?.write(data, start, whole) }
+        }
+
+        carry = data.copyOfRange(start + whole, data.size)
+        bytesTotal += whole
+        everWrote = true
+    }
+
+    /** Chunk rotation and keeping the row on screen current. */
+    private fun housekeeping(id: String) {
+        val now = System.currentTimeMillis()
+        if (now - partStarted >= PART_LENGTH_MS) rotateWhenReady = true
+        if (now - lastSave >= SAVE_EVERY_MS) {
+            lastSave = now
+            val soFar = bytesTotal
+            RecordingStore.update(this, id) { it.bytes = soFar }
+        }
+    }
+
+    private fun closeUp(id: String) {
+        runCatching { out?.flush(); out?.close() }
+        releaseLocks()
+        val finishedAt = System.currentTimeMillis()
+        val wrote = everWrote
+        val total = bytesTotal
+        RecordingStore.update(this, id) {
+            it.bytes = total
+            it.endedAt = finishedAt
+            it.state = if (wrote) STATE_DONE else STATE_FAILED
+            if (!wrote && it.note.isBlank()) {
+                it.note = "Nothing arrived from the server for this channel."
+            }
+        }
     }
 
     // ---------- keeping the box awake ----------
@@ -839,6 +808,19 @@ class RecorderService : Service() {
 
         /** Silence from the portal for this long counts as the feed having dropped. */
         private const val SILENCE_IS_A_DROP_MS = 5_000L
+
+        /**
+         * A connection that ends tidily inside this long was a segment, not a
+         * stream. HLS pieces are usually six to twelve seconds; a real stream
+         * that ends this fast twice in a row is telling us the same thing.
+         */
+        private const val SEGMENT_LOOKS_LIKE_MS = 25_000L
+
+        /** How long to wait before asking a segmented channel what is new. */
+        private const val POLL_WAIT_MS = 4_000L
+
+        /** How many segment names to remember, so nothing is fetched twice. */
+        private const val REMEMBER_SEGMENTS = 400
 
         /** How long to wait before opening a new connection after a drop. */
         private const val RECONNECT_WAIT_MS = 1_500L
