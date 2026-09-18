@@ -171,9 +171,10 @@ class RecorderService : Service() {
         folder.mkdirs()
         recordingId = id
 
+        startedAtWall = System.currentTimeMillis()
         RecordingStore.update(this, id) {
             it.dirPath = folder.absolutePath
-            it.startedAt = System.currentTimeMillis()
+            it.startedAt = startedAtWall
         }
 
         // Clear the way first: watched recordings nobody has marked Keep are
@@ -263,6 +264,8 @@ class RecorderService : Service() {
         id: String,
         endAt: Long
     ) {
+        val openedAt = System.currentTimeMillis()
+        connections++
         try {
             val request = Request.Builder()
                 .url(url)
@@ -292,6 +295,8 @@ class RecorderService : Service() {
             }
         } catch (e: Exception) {
             if (!everWrote) tried++
+        } finally {
+            readingMs += System.currentTimeMillis() - openedAt
         }
     }
 
@@ -486,6 +491,7 @@ class RecorderService : Service() {
 
     private var folder: File = File("")
     private var recordingId: String = ""
+    private var startedAtWall = 0L
     private var out: FileOutputStream? = null
     private var partIndex = 0
     private var partStarted = 0L
@@ -522,6 +528,11 @@ class RecorderService : Service() {
     private var bytesSkippedNoPat = 0L
     private var bytesSkippedNoSync = 0L
     private var bytesWaitingForClock = 0L
+    /** How many times a connection was opened, and how long they were open. */
+    private var connections = 0
+    private var readingMs = 0L
+    /** Seconds of video actually captured, from the stream's own clock. */
+    private var contentSeconds = 0.0
 
     /** The first timestamp in the part being written, for its true length. */
     private var partFirstPts = -1L
@@ -542,7 +553,9 @@ class RecorderService : Service() {
     private fun openNewPart() {
         runCatching { out?.flush(); out?.close() }
         if (currentPart.isNotEmpty()) {
-            partsWritten.add(Triple(currentPart, finishedLength(), currentPartIsBreak))
+            val length = finishedLength()
+            contentSeconds += length
+            partsWritten.add(Triple(currentPart, length, currentPartIsBreak))
         }
         currentPartIsBreak = nextPartIsBreak
         nextPartIsBreak = false
@@ -881,15 +894,24 @@ class RecorderService : Service() {
         val noPat = bytesSkippedNoPat
         val noSync = bytesSkippedNoSync
         val waiting = bytesWaitingForClock
+        val opened = connections
+        val reading = readingMs
+        val wall = ((finishedAt - startedAtWall) / 1000L).coerceAtLeast(1L)
+        val content = contentSeconds + (if (partFirstPts >= 0L && partLastPts > partFirstPts)
+            (partLastPts - partFirstPts) / 90_000.0 else 0.0)
         RecordingStore.update(this, id) {
             it.bytes = total
             it.endedAt = finishedAt
             it.state = if (wrote) STATE_DONE else STATE_FAILED
-            if (arrived - total > arrived / 10) {
-                it.note = "Arrived " + mb(arrived) + ", kept " + mb(total) +
-                    " — repeats " + mb(repeats) + ", waiting for contents " + mb(noPat) +
-                    ", waiting for the clock " + mb(waiting) + ", unreadable " + mb(noSync) + "."
-            }
+            // Always written, not only when a lot went missing. "Nothing was
+            // dropped" and "the portal only sent us forty seconds" look
+            // identical from the outside, and they need opposite fixes.
+            it.note = "Recorded over " + wall + "s: the feed delivered " +
+                String.format(java.util.Locale.US, "%.0f", content) + "s of video in " +
+                mb(arrived) + " across " + opened + " connection(s), reading for " +
+                (reading / 1000L) + "s. Kept " + mb(total) +
+                " — repeats " + mb(repeats) + ", contents " + mb(noPat) +
+                ", clock " + mb(waiting) + ", unreadable " + mb(noSync) + "."
             if (!wrote && it.note.isBlank()) {
                 it.note = "Nothing arrived from the server for this channel."
             }
