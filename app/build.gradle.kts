@@ -30,8 +30,8 @@ android {
         applicationId = "com.johnnytv.player"   // WHITE LABEL: unique per client
         minSdk = 26
         targetSdk = 34
-        versionCode = 53
-        versionName = "5.21"
+        versionCode = 54
+        versionName = "5.22"
     }
 
     signingConfigs {

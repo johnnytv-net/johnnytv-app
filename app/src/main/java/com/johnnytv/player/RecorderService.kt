@@ -269,6 +269,7 @@ class RecorderService : Service() {
                     startFreshChunk = true
                     needPat = true
                     trimming = true
+                    trimStartedAt = System.currentTimeMillis()
                 }
 
                 while (!stopping && System.currentTimeMillis() < endAt) {
@@ -493,6 +494,12 @@ class RecorderService : Service() {
     private var lastPts = -1L
     /** After a reconnect: drop what the portal resends until it moves past lastPts. */
     private var trimming = false
+    /** When that skipping started, so it cannot run away with the recording. */
+    private var trimStartedAt = 0L
+    /** The first timestamp in the part being written, for its true length. */
+    private var partFirstPts = -1L
+    /** The newest timestamp in the part being written. */
+    private var partLastPts = -1L
 
     /** Each finished part and how long it plays, for the playlist. */
     private val partsWritten = ArrayList<Pair<String, Double>>()
@@ -509,6 +516,8 @@ class RecorderService : Service() {
         }
         currentPartSeconds = nextPartSeconds
         nextPartSeconds = 0.0
+        partFirstPts = -1L
+        partLastPts = -1L
         val name = String.format("part%03d.ts", partIndex)
         partIndex++
         partStarted = System.currentTimeMillis()
@@ -637,6 +646,29 @@ class RecorderService : Service() {
          * portal resends until the clock passes that point.
          */
         if (trimming && lastPts >= 0L) {
+            /*
+             * TRIMMING, WITH A LIMIT.
+             *
+             * Skipping what the portal resends is right when it resends a few
+             * seconds. It is catastrophic when it reconnects you a minute and a
+             * half in the past, which they do: the recorder then spends ninety
+             * seconds throwing away perfectly good television to get back to a
+             * moment nobody cares about, and the recording ends up two minutes
+             * long with forty seconds of picture in it.
+             *
+             * So there is a limit. Five seconds of skipping, and after that the
+             * new material is taken as it comes - as a new part, with its own
+             * clock, announced as such in the playlist. A few repeated seconds
+             * at a join is a far smaller price than a hole.
+             */
+            if (System.currentTimeMillis() - trimStartedAt > GIVE_UP_TRIMMING_MS) {
+                trimming = false
+                startFreshChunk = true
+                needPat = true
+                lastPts = -1L
+                carry = data.copyOfRange(start, data.size)
+                return
+            }
             val fresh = firstPacketAfter(data, start, start + whole, lastPts)
             if (fresh < 0) {
                 carry = data.copyOfRange(start + whole, data.size)
@@ -682,7 +714,14 @@ class RecorderService : Service() {
         }
 
         val newest = newestPts(data, start, start + whole)
-        if (newest >= 0L) lastPts = newest
+        if (newest >= 0L) {
+            lastPts = newest
+            partLastPts = newest
+            if (partFirstPts < 0L) {
+                val firstHere = firstPts(data, start, start + whole)
+                if (firstHere >= 0L) partFirstPts = firstHere
+            }
+        }
 
         if (startFreshChunk) {
             startFreshChunk = false
@@ -745,6 +784,13 @@ class RecorderService : Service() {
      * for a continuous stream, where the two are the same thing.
      */
     private fun finishedLength(): Double {
+        // The video's own clock is the only honest measure. Wall time says how
+        // long we sat there, which after a reconnect is not the same thing at
+        // all - and a playlist that overstates a part leaves the player waiting
+        // for material that does not exist.
+        if (partFirstPts >= 0L && partLastPts > partFirstPts) {
+            return (partLastPts - partFirstPts) / 90_000.0
+        }
         if (currentPartSeconds > 0.0) return currentPartSeconds
         return ((System.currentTimeMillis() - partStarted) / 1000.0).coerceAtLeast(0.1)
     }
@@ -964,6 +1010,20 @@ class RecorderService : Service() {
                 i += TS_PACKET
             }
             return -1
+        }
+
+        /** How long to keep skipping repeats before taking what arrives. */
+        private const val GIVE_UP_TRIMMING_MS = 5_000L
+
+        /** The first timestamp in a run of packets. */
+        private fun firstPts(data: ByteArray, from: Int, until: Int): Long {
+            var i = from
+            while (i + TS_PACKET <= until) {
+                val pts = ptsAt(data, i)
+                if (pts >= 0L) return pts
+                i += TS_PACKET
+            }
+            return -1L
         }
 
         /** The newest timestamp in a run of packets, for remembering where we are. */
