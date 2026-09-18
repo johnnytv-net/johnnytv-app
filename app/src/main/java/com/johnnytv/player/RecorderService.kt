@@ -199,12 +199,20 @@ class RecorderService : Service() {
 
         var mode = Mode.STREAM
         var shortEndings = 0
+        /** Set once the playlist route has been tried and found wanting. */
+        var segmentsFailed = false
 
         while (!stopping && System.currentTimeMillis() < endAt) {
             if (mode == Mode.SEGMENTS && playlistUrl != null) {
                 // If it turns out not to be a playlist after all, fall back to
                 // reading it as one long stream rather than spinning here.
-                if (!followPlaylist(http, playlistUrl, id, endAt)) mode = Mode.STREAM
+                if (!followPlaylist(http, playlistUrl, id, endAt)) {
+                    // It had its chance and produced nothing. Reading the stream
+                    // directly is what works on this channel, so stay there.
+                    mode = Mode.STREAM
+                    segmentsFailed = true
+                    shortEndings = 0
+                }
                 continue
             }
 
@@ -223,7 +231,7 @@ class RecorderService : Service() {
                 shortEndings++
                 // Twice is a pattern rather than bad luck. Switch to asking for
                 // the pieces properly, and stop calling these dropouts.
-                if (shortEndings >= 2 && playlistUrl != null) {
+                if (shortEndings >= 2 && playlistUrl != null && !segmentsFailed) {
                     mode = Mode.SEGMENTS
                     awaySince = 0L
                     RecordingStore.update(this, id) {
@@ -332,6 +340,12 @@ class RecorderService : Service() {
         var lastPieceAt = System.currentTimeMillis()
 
         while (!stopping && System.currentTimeMillis() < endAt) {
+            // Checked here rather than after a successful fetch, because the way
+            // this went wrong was a playlist that never fetched at all: the
+            // error path looped quietly for a hundred seconds while the
+            // programme went past and the recorder read nothing.
+            if (System.currentTimeMillis() - lastPieceAt > SEGMENTS_MUST_DELIVER_MS) return false
+
             val playlist = try {
                 val request = Request.Builder()
                     .url(playlistUrl)
@@ -408,8 +422,6 @@ class RecorderService : Service() {
 
             if (got > 0) {
                 lastPieceAt = System.currentTimeMillis()
-            } else if (System.currentTimeMillis() - lastPieceAt > SEGMENTS_MUST_DELIVER_MS) {
-                return false
             }
 
             housekeeping(id)
