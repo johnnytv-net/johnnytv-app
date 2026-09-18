@@ -178,7 +178,12 @@ data class Recording(
          * recording that is no longer running gets its playlist finished here
          * before it is played.
          */
-        if (!isRecording) {
+        // "Not recording" has to mean the recorder is not running, not merely
+        // that the row says so. A recording whose state was left stuck reads as
+        // live for ever, and the player sits at the end waiting for a piece
+        // that is never coming.
+        val stillRunning = RecorderService.isRecording && RecorderService.activeId == id
+        if (!stillRunning) {
             runCatching {
                 val text = file.readText()
                 if (!text.contains("#EXT-X-ENDLIST")) {

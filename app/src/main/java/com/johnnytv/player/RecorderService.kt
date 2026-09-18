@@ -374,8 +374,13 @@ class RecorderService : Service() {
                  */
                 startFreshChunk = true
                 needSync = true
-                needPat = false
+                // Every part has to open with the stream's table of contents,
+                // or a player handed that part cold has nothing to read it
+                // with. They come past several times a second, so waiting for
+                // one costs nothing.
+                needPat = true
                 nextPartSeconds = piece.seconds
+                nextPartIsBreak = piece.afterBreak
 
                 if (fetchSegment(http, piece.url, id)) got++
             }
@@ -512,9 +517,12 @@ class RecorderService : Service() {
     /** The newest timestamp in the part being written. */
     private var partLastPts = -1L
 
-    /** Each finished part and how long it plays, for the playlist. */
-    private val partsWritten = ArrayList<Pair<String, Double>>()
+    /** Each finished part: its name, how long it plays, and whether the clock jumped before it. */
+    private val partsWritten = ArrayList<Triple<String, Double, Boolean>>()
     private var currentPart = ""
+    /** Whether the part being written started a new clock. */
+    private var currentPartIsBreak = false
+    private var nextPartIsBreak = false
 
     /** How long the piece now being written plays for, as the portal stated it. */
     private var currentPartSeconds = 0.0
@@ -523,8 +531,10 @@ class RecorderService : Service() {
     private fun openNewPart() {
         runCatching { out?.flush(); out?.close() }
         if (currentPart.isNotEmpty()) {
-            partsWritten.add(currentPart to finishedLength())
+            partsWritten.add(Triple(currentPart, finishedLength(), currentPartIsBreak))
         }
+        currentPartIsBreak = nextPartIsBreak
+        nextPartIsBreak = false
         currentPartSeconds = nextPartSeconds
         nextPartSeconds = 0.0
         partFirstPts = -1L
@@ -555,7 +565,7 @@ class RecorderService : Service() {
     private fun writePlaylist(finished: Boolean) {
         val all = ArrayList(partsWritten)
         if (!finished && currentPart.isNotEmpty()) {
-            all.add(currentPart to finishedLength())
+            all.add(Triple(currentPart, finishedLength(), currentPartIsBreak))
         }
         if (all.isEmpty()) return
 
@@ -567,9 +577,19 @@ class RecorderService : Service() {
         text.append("#EXT-X-MEDIA-SEQUENCE:0\n")
         text.append("#EXT-X-PLAYLIST-TYPE:EVENT\n")
         for ((index, part) in all.withIndex()) {
-            // Every piece may restart the clock, so each one is announced as a
-            // discontinuity. It costs nothing where there isn't one.
-            if (index > 0) text.append("#EXT-X-DISCONTINUITY\n")
+            /*
+             * A DISCONTINUITY IS A CLAIM, NOT A COURTESY.
+             *
+             * Announcing one tells the player to throw away everything it knows
+             * about the stream's timing and start again from what the next part
+             * tells it. Where the parts actually run on from each other - which
+             * is most of the time, because a reconnect usually resumes cleanly -
+             * that instruction leaves it waiting for a fresh start that never
+             * arrives, and the picture sits there spinning.
+             *
+             * So it is only declared where the clock genuinely jumped.
+             */
+            if (index > 0 && part.third) text.append("#EXT-X-DISCONTINUITY\n")
             text.append("#EXTINF:").append(String.format(java.util.Locale.US, "%.3f", part.second)).append(",\n")
             text.append(part.first).append("\n")
         }
@@ -676,6 +696,7 @@ class RecorderService : Service() {
                 trimming = false
                 startFreshChunk = true
                 needPat = true
+                nextPartIsBreak = true
                 lastPts = -1L
                 carry = data.copyOfRange(start, data.size)
                 return
@@ -720,6 +741,7 @@ class RecorderService : Service() {
                 startFreshChunk = true
                 needPat = true
                 needSync = true
+                nextPartIsBreak = true
                 return
             }
         }
@@ -809,7 +831,7 @@ class RecorderService : Service() {
     private fun closeUp(id: String) {
         runCatching { out?.flush(); out?.close() }
         if (currentPart.isNotEmpty()) {
-            partsWritten.add(currentPart to finishedLength())
+            partsWritten.add(Triple(currentPart, finishedLength(), currentPartIsBreak))
             currentPart = ""
         }
         writePlaylist(true)

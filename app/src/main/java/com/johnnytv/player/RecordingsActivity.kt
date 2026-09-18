@@ -82,6 +82,18 @@ class RecordingsActivity : AppCompatActivity() {
             )
         }
 
+        // A row left saying "Recording" after the recorder has gone is not just
+        // untidy - it makes the app treat a finished recording as live, which
+        // is a picture that spins at the end instead of stopping.
+        for (stale in RecordingStore.all(this)) {
+            if (stale.isRecording && RecorderService.activeId != stale.id) {
+                RecordingStore.update(this, stale.id) {
+                    it.state = STATE_DONE
+                    if (it.endedAt <= 0L) it.endedAt = System.currentTimeMillis()
+                }
+            }
+        }
+
         val recordings = RecordingStore.all(this)
         val scheduled = Schedules.upcoming(this)
 
