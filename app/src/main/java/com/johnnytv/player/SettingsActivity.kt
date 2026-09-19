@@ -46,13 +46,6 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.storageRow).setOnClickListener { chooseStorage(storageState) }
         findViewById<View>(R.id.checkRow).setOnClickListener { showDeviceCheck() }
 
-        val backdropState = findViewById<TextView>(R.id.backdropState)
-        showBackdropState(backdropState)
-        findViewById<View>(R.id.backdropRow).setOnClickListener {
-            prefs.newspaperBackground = !prefs.newspaperBackground
-            showBackdropState(backdropState)
-        }
-
         val weatherState = findViewById<TextView>(R.id.weatherState)
         showWeatherState(weatherState)
         findViewById<View>(R.id.weatherRow).setOnClickListener { askForTown(weatherState) }
@@ -141,12 +134,6 @@ class SettingsActivity : AppCompatActivity() {
             .setMessage(DeviceCheck.report(this))
             .setPositiveButton(R.string.close, null)
             .show()
-    }
-
-    private fun showBackdropState(label: TextView) {
-        label.setText(
-            if (prefs.newspaperBackground) R.string.backdrop_on else R.string.backdrop_off
-        )
     }
 
     private fun showWeatherState(label: TextView) {

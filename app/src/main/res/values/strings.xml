@@ -220,9 +220,6 @@
     <string name="save">Save</string>
     <string name="home_expires">Expires %1$s</string>
     <string name="weather_degrees">%1$d°</string>
-    <string name="backdrop_row">Newspaper background</string>
-    <string name="backdrop_on">On — takes effect next time the app opens</string>
-    <string name="backdrop_off">Off — plain background</string>
     <string name="weather_town_row">Weather location</string>
     <string name="weather_town_automatic">Worked out from your connection</string>
     <string name="weather_town_prompt">Type your town, or leave it empty to work it out from your connection.</string>

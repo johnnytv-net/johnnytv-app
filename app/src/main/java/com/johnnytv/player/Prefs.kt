@@ -109,17 +109,6 @@ class Prefs(context: Context) {
      *
      * Blank means "work it out", which is the case for nearly everybody.
      */
-    /**
-     * The newspaper behind the home screen.
-     *
-     * On by default, and a switch rather than a rebuild - it is the sort of
-     * thing somebody either likes or wants gone, and a Firestick having a hard
-     * time of it should be one press to settle rather than a new version.
-     */
-    var newspaperBackground: Boolean
-        get() = sp.getBoolean(KEY_BACKDROP, true)
-        set(value) = sp.edit().putBoolean(KEY_BACKDROP, value).apply()
-
     var weatherTown: String
         get() = sp.getString(KEY_WEATHER_TOWN, "") ?: ""
         set(value) = sp.edit().putString(KEY_WEATHER_TOWN, value).apply()
@@ -277,7 +266,6 @@ class Prefs(context: Context) {
         const val KEY_CONTINUE = "continue_watching"
         const val KEY_SEARCHES = "recent_searches"
         const val KEY_REC_VOLUME = "recording_volume"
-        const val KEY_BACKDROP = "newspaper_background"
         const val KEY_WEATHER_TOWN = "weather_town"
         const val KEY_WEATHER_LAT = "weather_lat"
         const val KEY_WEATHER_LON = "weather_lon"
