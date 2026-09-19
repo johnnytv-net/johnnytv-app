@@ -1,7 +1,6 @@
 package com.johnnytv.player
 
 import android.app.Activity
-import android.app.TimePickerDialog
 import androidx.appcompat.app.AlertDialog
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -73,75 +72,147 @@ object RecordByTime {
      * a worse answer to the same question.
      */
     fun forChannel(activity: Activity, channel: StreamItem, onDone: () -> Unit = {}) {
-        pickStart(activity, channel, onDone)
+        pickTimes(activity, channel, onDone)
     }
 
     private fun pickChannel(activity: Activity, matches: List<StreamItem>, onDone: () -> Unit) {
         activity.showOptions(
             activity.getString(R.string.record_by_time_which_channel),
             matches.map { it.name }
-        ) { which -> pickStart(activity, matches[which], onDone) }
+        ) { which -> pickTimes(activity, matches[which], onDone) }
     }
 
-    private fun pickStart(activity: Activity, channel: StreamItem, onDone: () -> Unit) {
-        val now = Calendar.getInstance()
-        TimePickerDialog(
-            activity,
-            { _, hour, minute ->
-                val start = Calendar.getInstance()
-                start.set(Calendar.HOUR_OF_DAY, hour)
-                start.set(Calendar.MINUTE, minute)
-                start.set(Calendar.SECOND, 0)
-                // A time that has already gone today is meant for tomorrow.
-                if (start.timeInMillis < System.currentTimeMillis() - 60_000L) {
-                    start.add(Calendar.DAY_OF_YEAR, 1)
-                }
-                pickLength(activity, channel, start.timeInMillis, onDone)
-            },
-            now.get(Calendar.HOUR_OF_DAY),
-            now.get(Calendar.MINUTE),
-            false
-        ).show()
-    }
+    /**
+     * Start and stop, as two clocks.
+     *
+     * The first version asked for a start time on a spinner dial and then a
+     * length from a list, which is two different ways of thinking about the
+     * same thing: a fight starts at seven and ends when it ends, and nobody
+     * works in minutes. Two clocks say it the way anybody would.
+     *
+     * A stop time earlier than the start means the small hours of the next
+     * morning, which is where events usually finish.
+     */
+    private fun pickTimes(activity: Activity, channel: StreamItem, onDone: () -> Unit) {
+        val view = activity.layoutInflater.inflate(R.layout.dialog_time_range, null, false)
 
-    private fun pickLength(
-        activity: Activity,
-        channel: StreamItem,
-        startAt: Long,
-        onDone: () -> Unit
-    ) {
-        val choices = listOf(30, 60, 90, 120, 180, 240)
-        activity.showOptions(
-            activity.getString(R.string.record_by_time_how_long),
-            choices.map { activity.getString(R.string.record_by_time_minutes, it) }
-        ) { which ->
-            val minutes = choices[which]
-            val item = Scheduled(
-                id = "t" + System.currentTimeMillis(),
-                title = channel.name,
-                channel = channel.name,
-                streamId = channel.streamId,
-                startAt = startAt,
-                endAt = startAt + minutes * 60_000L,
-                // No listings means no way to know if it starts late, so this
-                // gets more room at both ends than a guide recording would.
-                padStartMs = 2L * 60_000L,
-                padEndMs = 10L * 60_000L,
-                series = false
-            )
+        val startHour = view.findViewById<android.widget.NumberPicker>(R.id.startHour)
+        val startMinute = view.findViewById<android.widget.NumberPicker>(R.id.startMinute)
+        val startMeridiem = view.findViewById<android.widget.NumberPicker>(R.id.startMeridiem)
+        val endHour = view.findViewById<android.widget.NumberPicker>(R.id.endHour)
+        val endMinute = view.findViewById<android.widget.NumberPicker>(R.id.endMinute)
+        val endMeridiem = view.findViewById<android.widget.NumberPicker>(R.id.endMeridiem)
+        val summary = view.findViewById<android.widget.TextView>(R.id.timeRangeSummary)
 
-            val clash = Schedules.clashOf(activity, item)
-            if (clash != null) {
-                AlertDialog.Builder(activity)
-                    .setTitle(R.string.record_clash_title)
-                    .setMessage(activity.getString(R.string.record_clash_message, clash.title))
-                    .setPositiveButton(R.string.record_anyway) { _, _ -> save(activity, item, onDone) }
-                    .setNegativeButton(R.string.cancel, null)
-                    .show()
-                return@showOptions
-            }
-            save(activity, item, onDone)
+        val minutes = Array(60) { String.format(Locale.getDefault(), "%02d", it) }
+        val meridiems = arrayOf("AM", "PM")
+
+        for (picker in listOf(startHour, endHour)) {
+            picker.minValue = 1
+            picker.maxValue = 12
+            picker.wrapSelectorWheel = true
         }
+        for (picker in listOf(startMinute, endMinute)) {
+            picker.minValue = 0
+            picker.maxValue = 59
+            picker.displayedValues = minutes
+            picker.wrapSelectorWheel = true
+        }
+        for (picker in listOf(startMeridiem, endMeridiem)) {
+            picker.minValue = 0
+            picker.maxValue = 1
+            picker.displayedValues = meridiems
+            picker.wrapSelectorWheel = false
+        }
+
+        // Opens at the next round five minutes, running an hour - which is what
+        // somebody setting a recording usually wants before they change it.
+        val now = Calendar.getInstance()
+        now.add(Calendar.MINUTE, 5 - (now.get(Calendar.MINUTE) % 5))
+        val later = Calendar.getInstance()
+        later.timeInMillis = now.timeInMillis + 60L * 60_000L
+
+        fun set(hour: android.widget.NumberPicker, minute: android.widget.NumberPicker,
+                meridiem: android.widget.NumberPicker, from: Calendar) {
+            val h = from.get(Calendar.HOUR)
+            hour.value = if (h == 0) 12 else h
+            minute.value = from.get(Calendar.MINUTE)
+            meridiem.value = from.get(Calendar.AM_PM)
+        }
+        set(startHour, startMinute, startMeridiem, now)
+        set(endHour, endMinute, endMeridiem, later)
+
+        fun at(hour: Int, minute: Int, meridiem: Int, afterMidnight: Boolean): Calendar {
+            val time = Calendar.getInstance()
+            time.set(Calendar.HOUR, if (hour == 12) 0 else hour)
+            time.set(Calendar.MINUTE, minute)
+            time.set(Calendar.AM_PM, meridiem)
+            time.set(Calendar.SECOND, 0)
+            time.set(Calendar.MILLISECOND, 0)
+            if (afterMidnight) time.add(Calendar.DAY_OF_YEAR, 1)
+            return time
+        }
+
+        fun refresh() {
+            var startAt = at(startHour.value, startMinute.value, startMeridiem.value, false)
+            if (startAt.timeInMillis < System.currentTimeMillis() - 60_000L) {
+                startAt = at(startHour.value, startMinute.value, startMeridiem.value, true)
+            }
+            var endAt = at(endHour.value, endMinute.value, endMeridiem.value, false)
+            if (endAt.timeInMillis <= startAt.timeInMillis) {
+                endAt = at(endHour.value, endMinute.value, endMeridiem.value, true)
+            }
+            val length = ((endAt.timeInMillis - startAt.timeInMillis) / 60_000L).toInt()
+            summary.text = activity.getString(R.string.record_by_time_summary, channel.name, length)
+        }
+
+        val watch = android.widget.NumberPicker.OnValueChangeListener { _, _, _ -> refresh() }
+        for (picker in listOf(
+            startHour, startMinute, startMeridiem, endHour, endMinute, endMeridiem
+        )) picker.setOnValueChangedListener(watch)
+        refresh()
+
+        AlertDialog.Builder(activity)
+            .setTitle(R.string.record_by_time)
+            .setView(view)
+            .setPositiveButton(R.string.record_this) { _, _ ->
+                var startAt = at(startHour.value, startMinute.value, startMeridiem.value, false)
+                if (startAt.timeInMillis < System.currentTimeMillis() - 60_000L) {
+                    startAt = at(startHour.value, startMinute.value, startMeridiem.value, true)
+                }
+                var endAt = at(endHour.value, endMinute.value, endMeridiem.value, false)
+                if (endAt.timeInMillis <= startAt.timeInMillis) {
+                    endAt = at(endHour.value, endMinute.value, endMeridiem.value, true)
+                }
+
+                val item = Scheduled(
+                    id = "t" + System.currentTimeMillis(),
+                    title = channel.name,
+                    channel = channel.name,
+                    streamId = channel.streamId,
+                    startAt = startAt.timeInMillis,
+                    endAt = endAt.timeInMillis,
+                    // No listings means no warning if things run late, so this
+                    // gets more room at both ends than a guide recording would.
+                    padStartMs = 2L * 60_000L,
+                    padEndMs = 10L * 60_000L,
+                    series = false
+                )
+
+                val clash = Schedules.clashOf(activity, item)
+                if (clash != null) {
+                    AlertDialog.Builder(activity)
+                        .setTitle(R.string.record_clash_title)
+                        .setMessage(activity.getString(R.string.record_clash_message, clash.title))
+                        .setPositiveButton(R.string.record_anyway) { _, _ -> save(activity, item, onDone) }
+                        .setNegativeButton(R.string.cancel, null)
+                        .show()
+                } else {
+                    save(activity, item, onDone)
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     private fun save(activity: Activity, item: Scheduled, onDone: () -> Unit) {

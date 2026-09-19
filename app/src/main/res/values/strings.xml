@@ -210,8 +210,9 @@
     <string name="record_by_time_search_hint">Type part of the channel name</string>
     <string name="record_by_time_find">Find</string>
     <string name="record_by_time_none">No channel found matching \"%1$s\".</string>
-    <string name="record_by_time_how_long">How long?</string>
-    <string name="record_by_time_minutes">%1$d minutes</string>
+    <string name="record_by_time_starts">Starts at</string>
+    <string name="record_by_time_stops">Stops at</string>
+    <string name="record_by_time_summary">%1$s · %2$d minutes</string>
     <string name="record_by_time_no_channels">The channel list has not loaded yet.</string>
     <string name="record_by_time_set">%1$s — starts %2$s, runs %3$d minutes.\n\nIt starts 2 minutes early and runs 10 minutes over, because a channel with no guide gives no warning if things run late.</string>
 </resources>
