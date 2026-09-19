@@ -82,7 +82,9 @@ class Timeline(context: Context, hoursShown: Int = 12) {
 /** The channel names down the left. Same row height as the grid so the two scroll together. */
 class ChannelColumnAdapter(
     private val timeline: Timeline,
-    private val onPlay: (StreamItem) -> Unit = {}
+    private val onPlay: (StreamItem) -> Unit = {},
+    /** OK held on the channel's name: set a recording by time. */
+    private val onRecordByTime: (StreamItem) -> Unit = {}
 ) : RecyclerView.Adapter<ChannelColumnAdapter.VH>() {
 
     private val items = ArrayList<StreamItem>()
@@ -158,6 +160,7 @@ class ChannelColumnAdapter(
         holder.name.text = item.name
         holder.number.text = item.num
         holder.itemView.isActivated = item.streamId == selectedId
+        holder.itemView.setOnLongClickListener { onRecordByTime(item); true }
         val logoUrl = IconMemory.artFor(item.streamId, item.name, item.icon)
         holder.logo.load(logoUrl.ifBlank { null }) {
             crossfade(false)
@@ -185,6 +188,8 @@ class EpgRowAdapter(
     private val onPlay: (StreamItem) -> Unit,
     /** OK held down on a programme: record it. */
     private val onRecord: (StreamItem, Programme) -> Unit = { _, _ -> },
+    /** OK held on a channel with no listings: record it by time instead. */
+    private val onRecordByTime: (StreamItem) -> Unit = { },
     /**
      * Whether this programme is being recorded right now (2), set to be (1), or
      * neither (0) - drawn as a red dot in front of the title, the way every
@@ -375,6 +380,11 @@ class EpgRowAdapter(
             nowPlaying = false
         )
         label.setOnClickListener { onPlay(channel) }
+        // Holding OK on a channel with no listings is exactly where somebody
+        // wants to set a recording - PPV and event channels have empty rows,
+        // and they are the ones worth recording to the minute. Nothing to press
+        // meant nothing to record, which is no use on fight night.
+        label.setOnLongClickListener { onRecordByTime(channel); true }
         label.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) onFocused(channel, blank) }
         label.setOnKeyListener { _, keyCode, event ->
             if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false

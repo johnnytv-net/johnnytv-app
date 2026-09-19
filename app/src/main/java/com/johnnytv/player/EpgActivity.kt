@@ -146,7 +146,11 @@ class EpgActivity : AppCompatActivity() {
         pinGridWidth()
         positionNowLine()
 
-        channelAdapter = ChannelColumnAdapter(timeline, onPlay = { channel -> play(channel) })
+        channelAdapter = ChannelColumnAdapter(
+            timeline,
+            onPlay = { channel -> play(channel) },
+            onRecordByTime = { channel -> RecordByTime.forChannel(this, channel) { refreshRecordMarks() } }
+        )
         rowAdapter = EpgRowAdapter(
             timeline = timeline,
             programmesFor = { channel -> EpgCache.cached(channel.streamId) },
@@ -157,6 +161,7 @@ class EpgActivity : AppCompatActivity() {
             onRecord = { channel, programme ->
                 RecordDialog.show(this, channel, programme) { refreshRecordMarks() }
             },
+            onRecordByTime = { channel -> RecordByTime.forChannel(this, channel) { refreshRecordMarks() } },
             recordState = { channel, programme -> recordStateFor(channel, programme) },
             onLeftEdge = { focusCategoryRow() },
             onTopEdge = { focusCategoryRow() }

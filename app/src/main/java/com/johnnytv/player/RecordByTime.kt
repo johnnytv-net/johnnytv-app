@@ -64,6 +64,18 @@ object RecordByTime {
             .show()
     }
 
+    /**
+     * Straight to the time, for a channel already in hand.
+     *
+     * Reached by holding OK on a channel in the guide, which is where somebody
+     * setting a pay-per-view recording actually is - they are looking at the
+     * channel. Asking them to go to another screen and type its name again was
+     * a worse answer to the same question.
+     */
+    fun forChannel(activity: Activity, channel: StreamItem, onDone: () -> Unit = {}) {
+        pickStart(activity, channel, onDone)
+    }
+
     private fun pickChannel(activity: Activity, matches: List<StreamItem>, onDone: () -> Unit) {
         activity.showOptions(
             activity.getString(R.string.record_by_time_which_channel),
