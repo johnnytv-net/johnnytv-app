@@ -283,6 +283,32 @@ class RecordingsActivity : AppCompatActivity() {
             actions.add { showReport(recording) }
         }
 
+        // Clearing a dozen test recordings one at a time is its own small
+        // misery. Anything marked Keep survives it, and so does anything still
+        // recording - the point is to empty a list, not to lose something.
+        val deletable = RecordingStore.all(this).filter { !it.keep && !it.isRecording }
+        if (deletable.size > 1) {
+            options.add(getString(R.string.recordings_delete_all, deletable.size))
+            actions.add {
+                val gigabytes = deletable.sumOf { it.bytes } / (1024.0 * 1024.0 * 1024.0)
+                AlertDialog.Builder(this)
+                    .setTitle(getString(R.string.recordings_delete_all, deletable.size))
+                    .setMessage(
+                        getString(
+                            R.string.recordings_delete_all_confirm,
+                            deletable.size,
+                            String.format(Locale.getDefault(), "%.1f", gigabytes)
+                        )
+                    )
+                    .setPositiveButton(R.string.recordings_delete) { _, _ ->
+                        for (old in deletable) RecordingStore.delete(this, old.id)
+                        draw()
+                    }
+                    .setNegativeButton(R.string.cancel, null)
+                    .show()
+            }
+        }
+
         options.add(getString(R.string.recordings_delete))
         actions.add {
             AlertDialog.Builder(this)

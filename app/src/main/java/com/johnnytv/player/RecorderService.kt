@@ -1022,10 +1022,24 @@ class RecorderService : Service() {
             it.bytes = total
             it.endedAt = finishedAt
             it.state = if (wrote) STATE_DONE else STATE_FAILED
-            // Always written, not only when a lot went missing. "Nothing was
-            // dropped" and "the portal only sent us forty seconds" look
-            // identical from the outside, and they need opposite fixes.
-            it.note = "Recorded over " + wall + "s: the feed delivered " +
+            /*
+             * What the report says.
+             *
+             * The counters keep running either way - they cost nothing and they
+             * answered in one line what a day of guessing could not. They are
+             * simply not shown, because "repeats 3461 MB, clock 111320 MB" is a
+             * sentence for whoever wrote the recorder and nobody else.
+             *
+             * Turn SHOW_WORKINGS on and the whole accounting comes back, which
+             * is one line to change when a customer reports a bad recording.
+             */
+            it.note = if (!SHOW_WORKINGS) {
+                if (arrived - total > arrived / 4) {
+                    "Part of this programme never arrived from the server."
+                } else {
+                    ""
+                }
+            } else "Recorded over " + wall + "s: the feed delivered " +
                 String.format(java.util.Locale.US, "%.0f", content) + "s of video in " +
                 mb(arrived) + " across " + opened + " connection(s) and " + fetched +
                 " piece(s), reading for " +
@@ -1410,6 +1424,9 @@ class RecorderService : Service() {
 
         /** The playlist written beside the pieces, which is what gets played. */
         const val PLAYLIST_NAME = "recording.m3u8"
+
+        /** Put the recorder's own accounting into the report, for diagnosis. */
+        private const val SHOW_WORKINGS = false
 
         private const val NOTIFICATION_ID = 4711
         private const val CHANNEL_ID = "johnnytv-recording"

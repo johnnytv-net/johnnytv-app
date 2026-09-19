@@ -162,6 +162,8 @@
     <string name="recordings_stop">Stop recording</string>
     <string name="recordings_delete">Delete</string>
     <string name="recordings_delete_confirm">Delete %1$s? The video file goes with it.</string>
+    <string name="recordings_delete_all">Delete all (%1$d)</string>
+    <string name="recordings_delete_all_confirm">Delete %1$d recordings and free %2$s GB?\n\nAnything marked Keep is left alone.</string>
     <string name="recordings_report">Recording report</string>
     <string name="recordings_report_clean">No gaps. The feed never dropped.</string>
     <string name="recordings_report_gap">Gap at %1$s — %2$d seconds, reconnected on its own.</string>
