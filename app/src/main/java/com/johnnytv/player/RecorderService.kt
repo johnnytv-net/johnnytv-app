@@ -752,14 +752,27 @@ class RecorderService : Service() {
         // A new connection: throw away everything up to the first PAT, so the
         // chunk starts where a player can start.
         if (needPat) {
+            // Both, and in this order: the table of contents so the player knows
+            // what the streams are, and then a keyframe so it has a picture to
+            // start from. Either alone gives a part that opens to a black screen.
             val pat = findPat(data, start, start + whole)
-            if (pat < 0) {
+            val key = if (pat >= 0) findKeyframe(data, pat, start + whole) else -1
+            if (pat < 0 || key < 0) {
                 bytesSkippedNoPat += whole
                 carry = data.copyOfRange(start + whole, data.size)
                 return
             }
-            bytesSkippedNoPat += pat - start
-            start = pat
+            // Back up to the table of contents nearest before that keyframe.
+            var begin = pat
+            var scan = pat
+            while (scan < key) {
+                val nextPat = findPat(data, scan, key)
+                if (nextPat < 0) break
+                begin = nextPat
+                scan = nextPat + TS_PACKET
+            }
+            bytesSkippedNoPat += begin - start
+            start = begin
             needPat = false
             whole = ((data.size - start) / TS_PACKET) * TS_PACKET
             if (whole <= 0) {
@@ -1245,6 +1258,56 @@ class RecorderService : Service() {
          * did catch up. After this long the material is taken as it comes.
          */
         private const val SKIP_TIME_LIMIT_MS = 8_000L
+
+        /**
+         * The first packet of a picture a decoder can start from.
+         *
+         * A table of contents tells a player which streams are in the file; it
+         * does not give it a picture. For that it needs a keyframe - a complete
+         * image rather than a description of how the last one changed - and
+         * those are seconds apart rather than several a second.
+         *
+         * Start a part anywhere else and the decoder has nothing to build on:
+         * the sound plays, the screen stays black, and it stays that way until
+         * the next keyframe happens along. So a new part begins here or not at
+         * all.
+         *
+         * Found by looking for the picture parameters (a sequence parameter set)
+         * or the keyframe itself at the start of a video packet.
+         */
+        private fun findKeyframe(data: ByteArray, from: Int, until: Int): Int {
+            var i = from
+            while (i + TS_PACKET <= until) {
+                if (data[i] == SYNC_BYTE && (data[i + 1].toInt() and 0x40) != 0) {
+                    val adaptation = (data[i + 3].toInt() shr 4) and 0x03
+                    var p = i + 4
+                    if (adaptation == 3) p += (data[i + 4].toInt() and 0xFF) + 1
+                    if (adaptation != 2 && p + 20 < i + TS_PACKET) {
+                        // Step over the PES header to the video itself.
+                        if (data[p].toInt() == 0 && data[p + 1].toInt() == 0 &&
+                            data[p + 2].toInt() == 1 && (data[p + 3].toInt() and 0xFF) in 0xE0..0xEF
+                        ) {
+                            p += 9 + (data[p + 8].toInt() and 0xFF)
+                        }
+                        var q = p
+                        while (q + 4 < i + TS_PACKET) {
+                            if (data[q].toInt() == 0 && data[q + 1].toInt() == 0 &&
+                                data[q + 2].toInt() == 1
+                            ) {
+                                val nal = data[q + 3].toInt() and 0x1F
+                                // 7 is the picture parameters, 5 the keyframe.
+                                if (nal == 7 || nal == 5) return i
+                                q += 3
+                            } else {
+                                q++
+                            }
+                        }
+                    }
+                }
+                i += TS_PACKET
+            }
+            return -1
+        }
 
         /** The first timestamp in a run of packets. */
         private fun firstPts(data: ByteArray, from: Int, until: Int): Long {
