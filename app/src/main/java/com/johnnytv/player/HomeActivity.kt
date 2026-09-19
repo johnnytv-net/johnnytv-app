@@ -36,6 +36,86 @@ class HomeActivity : AppCompatActivity() {
      * customer with a portal but no general internet access still gets an app
      * that works rather than one that sits waiting on a weather service.
      */
+    /**
+     * THE NEWSPAPER, BEHIND EVERYTHING.
+     *
+     * The same page the website signs people in with, shown here rather than
+     * rebuilt: the saucer bobbing, the beam breathing, the lights going round,
+     * people riding it up. Every one of those timelines was written once, for
+     * the site, and this way the two cannot drift apart.
+     *
+     * Bundled inside the app rather than fetched, so it is there before anyone
+     * signs in and on a box with no internet beyond the portal.
+     *
+     * A plain picture of the front page goes up first and stays underneath. If
+     * the animated one arrives it covers it; if it never does, nobody sees a
+     * failure, they see a newspaper.
+     */
+    private fun showBackdrop() {
+        val prefs = Prefs(this)
+        val backdrop = findViewById<android.webkit.WebView>(R.id.homeBackdrop)
+        val still = findViewById<android.widget.ImageView>(R.id.homeBackdropStill)
+        val scrim = findViewById<View>(R.id.homeScrim)
+
+        if (!prefs.newspaperBackground) {
+            backdrop.visibility = View.GONE
+            still.visibility = View.GONE
+            scrim.visibility = View.GONE
+            return
+        }
+
+        still.visibility = View.VISIBLE
+        scrim.visibility = View.VISIBLE
+
+        backdrop.settings.javaScriptEnabled = true
+        backdrop.settings.domStorageEnabled = true
+        backdrop.settings.allowFileAccess = true
+        backdrop.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        backdrop.isFocusable = false
+        backdrop.isFocusableInTouchMode = false
+        backdrop.setOnTouchListener { _, _ -> true }
+        backdrop.overScrollMode = View.OVER_SCROLL_NEVER
+        backdrop.isVerticalScrollBarEnabled = false
+        backdrop.isHorizontalScrollBarEnabled = false
+
+        backdrop.webViewClient = object : android.webkit.WebViewClient() {
+            override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+                // Hide the sign-in box and let the scene fill the screen, done
+                // here rather than by editing the page - so the file stays the
+                // one the website itself serves.
+                view?.evaluateJavascript(
+                    "(function(){var s=document.createElement('style');" +
+                        "s.textContent='#modal{display:none!important}" +
+                        "html,body{overflow:hidden!important}" +
+                        ".paper{height:100vh!important;max-width:none!important}';" +
+                        "document.head.appendChild(s);})();",
+                    null
+                )
+                backdrop.visibility = View.VISIBLE
+            }
+
+            override fun onReceivedError(
+                view: android.webkit.WebView?,
+                request: android.webkit.WebResourceRequest?,
+                error: android.webkit.WebResourceError?
+            ) {
+                backdrop.visibility = View.GONE
+            }
+        }
+
+        runCatching { backdrop.loadUrl("file:///android_asset/newspaper.html") }
+            .onFailure { backdrop.visibility = View.GONE }
+
+        // A box with no usable web view can sit loading for ever. Five seconds
+        // is fair to a Firestick and short enough that nobody wonders what
+        // went wrong - the still is already there either way.
+        handler.postDelayed({
+            if (!isFinishing && backdrop.visibility != View.VISIBLE) {
+                backdrop.visibility = View.GONE
+            }
+        }, 5_000L)
+    }
+
     private fun showWeather() {
         val cached = Weather.lastKnown()
         if (cached != null) {
@@ -119,6 +199,7 @@ class HomeActivity : AppCompatActivity() {
         }
 
         setContentView(R.layout.activity_home)
+        showBackdrop()
         showWeather()
         showExpiry()
         clock = findViewById(R.id.homeClock)
