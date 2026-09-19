@@ -46,6 +46,10 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.storageRow).setOnClickListener { chooseStorage(storageState) }
         findViewById<View>(R.id.checkRow).setOnClickListener { showDeviceCheck() }
 
+        val weatherState = findViewById<TextView>(R.id.weatherState)
+        showWeatherState(weatherState)
+        findViewById<View>(R.id.weatherRow).setOnClickListener { askForTown(weatherState) }
+
         findViewById<View>(R.id.clearSearchRow).setOnClickListener {
             prefs.clearRecentSearches()
             Toast.makeText(this, R.string.searches_cleared, Toast.LENGTH_SHORT).show()
@@ -129,6 +133,61 @@ class SettingsActivity : AppCompatActivity() {
             .setTitle(R.string.check_device)
             .setMessage(DeviceCheck.report(this))
             .setPositiveButton(R.string.close, null)
+            .show()
+    }
+
+    private fun showWeatherState(label: TextView) {
+        val town = prefs.weatherTown
+        label.text = if (town.isBlank()) getString(R.string.weather_town_automatic) else town
+    }
+
+    /**
+     * Putting the weather's town right.
+     *
+     * Only ever needed by somebody the address lookup placed wrongly - a VPN,
+     * usually - so it is a quiet row rather than a question anybody is asked.
+     * Emptying it hands the job back to the lookup.
+     */
+    private fun askForTown(label: TextView) {
+        val input = android.widget.EditText(this)
+        input.setHint(R.string.weather_town_hint)
+        input.setSingleLine(true)
+        input.setText(prefs.weatherTown)
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.weather_town_row)
+            .setMessage(R.string.weather_town_prompt)
+            .setView(input)
+            .setPositiveButton(R.string.save) { _, _ ->
+                val typed = input.text.toString().trim()
+                if (typed.isBlank()) {
+                    prefs.weatherTown = ""
+                    prefs.weatherLatitude = 0.0
+                    prefs.weatherLongitude = 0.0
+                    Weather.forget()
+                    showWeatherState(label)
+                    return@setPositiveButton
+                }
+                kotlin.concurrent.thread {
+                    val found = runCatching { Weather.findTown(typed) }.getOrNull()
+                    runOnUiThread {
+                        if (found == null) {
+                            AlertDialog.Builder(this)
+                                .setTitle(R.string.weather_town_row)
+                                .setMessage(R.string.weather_town_not_found)
+                                .setPositiveButton(R.string.close, null)
+                                .show()
+                        } else {
+                            prefs.weatherTown = found.first
+                            prefs.weatherLatitude = found.second
+                            prefs.weatherLongitude = found.third
+                            Weather.forget()
+                            showWeatherState(label)
+                        }
+                    }
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
             .show()
     }
 

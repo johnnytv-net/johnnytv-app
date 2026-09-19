@@ -215,4 +215,12 @@
     <string name="record_by_time_summary">%1$s · %2$d minutes</string>
     <string name="record_by_time_no_channels">The channel list has not loaded yet.</string>
     <string name="record_by_time_set">%1$s — starts %2$s, runs %3$d minutes.\n\nIt starts 2 minutes early and runs 10 minutes over, because a channel with no guide gives no warning if things run late.</string>
+    <string name="save">Save</string>
+    <string name="home_expires">Expires %1$s</string>
+    <string name="weather_degrees">%1$d°</string>
+    <string name="weather_town_row">Weather location</string>
+    <string name="weather_town_automatic">Worked out from your connection</string>
+    <string name="weather_town_prompt">Type your town, or leave it empty to work it out from your connection.</string>
+    <string name="weather_town_hint">Town or city</string>
+    <string name="weather_town_not_found">Could not find that town. Check the spelling, or leave it empty.</string>
 </resources>

@@ -24,6 +24,11 @@
             android:contentDescription="@string/app_name"
             android:src="@drawable/logo" />
 
+        <!--
+            Date, time, weather and city, together in the middle. They answer
+            the same sort of question - what is it now, where am I - so they
+            read as one line rather than four scattered facts.
+        -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -42,15 +47,56 @@
                 android:id="@+id/homeClock"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="28dp"
+                android:layout_marginStart="22dp"
                 android:textColor="@color/text_primary"
                 android:textSize="18sp"
                 android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/homeWeatherIcon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="22dp"
+                android:textColor="@color/text_primary"
+                android:textSize="17sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/homeWeatherNow"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="7dp"
+                android:textColor="@color/text_primary"
+                android:textSize="17sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/homeWeatherTown"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp"
+                android:visibility="gone" />
         </LinearLayout>
 
-        <View
-            android:layout_width="90dp"
-            android:layout_height="1dp" />
+        <!--
+            The renewal date, alone at the far right in yellow. Nothing competes
+            with it there, and a customer who sees it for a fortnight renews
+            instead of ringing on the night it lapses.
+        -->
+        <TextView
+            android:id="@+id/homeExpiry"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:minWidth="90dp"
+            android:gravity="end"
+            android:textColor="@color/warning"
+            android:textSize="14sp"
+            android:visibility="gone" />
     </LinearLayout>
 
     <!--

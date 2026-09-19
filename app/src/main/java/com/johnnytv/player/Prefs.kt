@@ -104,6 +104,23 @@ class Prefs(context: Context) {
      * Which drive recordings go to, remembered as the volume's own path so a
      * stick plugged back in later is recognised as the same one.
      */
+    /**
+     * The town for the weather, when the address lookup got it wrong.
+     *
+     * Blank means "work it out", which is the case for nearly everybody.
+     */
+    var weatherTown: String
+        get() = sp.getString(KEY_WEATHER_TOWN, "") ?: ""
+        set(value) = sp.edit().putString(KEY_WEATHER_TOWN, value).apply()
+
+    var weatherLatitude: Double
+        get() = java.lang.Double.longBitsToDouble(sp.getLong(KEY_WEATHER_LAT, 0L))
+        set(value) = sp.edit().putLong(KEY_WEATHER_LAT, java.lang.Double.doubleToRawLongBits(value)).apply()
+
+    var weatherLongitude: Double
+        get() = java.lang.Double.longBitsToDouble(sp.getLong(KEY_WEATHER_LON, 0L))
+        set(value) = sp.edit().putLong(KEY_WEATHER_LON, java.lang.Double.doubleToRawLongBits(value)).apply()
+
     var recordingVolume: String
         get() = sp.getString(KEY_REC_VOLUME, "") ?: ""
         set(value) = sp.edit().putString(KEY_REC_VOLUME, value).apply()
@@ -249,6 +266,9 @@ class Prefs(context: Context) {
         const val KEY_CONTINUE = "continue_watching"
         const val KEY_SEARCHES = "recent_searches"
         const val KEY_REC_VOLUME = "recording_volume"
+        const val KEY_WEATHER_TOWN = "weather_town"
+        const val KEY_WEATHER_LAT = "weather_lat"
+        const val KEY_WEATHER_LON = "weather_lon"
         const val KEY_JUMPY = "jumpy_channels"
 
         /** How many stalls before a channel gets the deeper buffer for good. */
