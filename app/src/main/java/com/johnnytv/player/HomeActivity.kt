@@ -165,6 +165,7 @@ class HomeActivity : AppCompatActivity() {
         handler.post(castWatch)
         showMessage()
         checkExpiry()
+        runCatching { findViewById<android.webkit.WebView>(R.id.homeBackdrop).onResume() }
     }
 
     /** Puts on whatever the phone asked for, if this television knows the channel. */
@@ -328,6 +329,8 @@ class HomeActivity : AppCompatActivity() {
         super.onStop()
         handler.removeCallbacks(tick)
         handler.removeCallbacks(castWatch)
+        // Nothing animates while somebody is watching television.
+        runCatching { findViewById<android.webkit.WebView>(R.id.homeBackdrop).onPause() }
     }
 
     // ---------- artwork ----------

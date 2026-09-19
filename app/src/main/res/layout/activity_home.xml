@@ -1,10 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+    The home screen, over the newspaper.
+
+    The background is the same page johnnytv.net signs people in with - the
+    saucer bobbing, the beam breathing, people riding it up - shown here in a
+    web view rather than rebuilt, so the app and the website cannot drift apart.
+    It is bundled inside the app, so it is there before anyone signs in and
+    works with no internet at all.
+
+    It takes no presses: the view is not focusable and passes nothing on, so the
+    remote behaves exactly as it did. A scrim sits over it to keep the tiles and
+    the text readable, and the whole thing can be switched off in Settings.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg_base"
-    android:orientation="vertical"
-    android:padding="10dp">
+    android:background="@color/bg_base">
+
+    <WebView
+        android:id="@+id/homeBackdrop"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <View
+        android:id="@+id/homeScrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_backdrop_scrim"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="10dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -465,3 +495,4 @@
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>
+</FrameLayout>
