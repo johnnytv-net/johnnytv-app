@@ -272,6 +272,11 @@ class EpgRowAdapter(
             // Tagged so the screen can drop the remote straight onto what is on
             // now when focus arrives from the headings above.
             if (onAir) block.tag = TAG_ON_AIR
+            // What time this block covers. Up and down use it to land on the
+            // programme showing at the same moment rather than on whatever
+            // block happens to overlap on screen.
+            block.setTag(R.id.epg_block_start, programme.start)
+            block.setTag(R.id.epg_block_end, programme.end)
             block.typeface = Typeface.create(
                 if (onAir) "sans-serif-medium" else "sans-serif", Typeface.NORMAL
             )

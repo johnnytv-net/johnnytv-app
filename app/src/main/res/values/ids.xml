@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Names for things hung on a view rather than stored beside it. The guide
+    marks each programme block with the span of time it covers, so moving up or
+    down can land on whatever is showing at that same moment.
+-->
+<resources>
+    <item name="epg_block_start" type="id" />
+    <item name="epg_block_end" type="id" />
+</resources>

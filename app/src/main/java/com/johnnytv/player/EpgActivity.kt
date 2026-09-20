@@ -665,6 +665,85 @@ class EpgActivity : AppCompatActivity() {
      * Returns false when the row has no listings yet, so the press falls through
      * and behaves the way it always did.
      */
+    /**
+     * UP AND DOWN KEEP THE TIME.
+     *
+     * A guide is a picture of time: the same moment is the same place on every
+     * row. Left to itself the remote does not know that - it moves to whichever
+     * block happens to overlap the one you are on, and on a channel showing a
+     * three hour film that is a block starting an hour later. Two rows down and
+     * you are somewhere else entirely without having asked to be.
+     *
+     * So the time is carried instead of the position: the moment at the middle
+     * of the block you are on, matched against the blocks in the row you are
+     * moving to. What is showing at nine o'clock stays what is showing at nine
+     * o'clock, all the way down the list.
+     */
+    /**
+     * Up and down in the grid are taken here first, so they can keep the time
+     * rather than letting Android pick by position.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            val focused = currentFocus
+            val onABlock = focused?.getTag(R.id.epg_block_start) != null
+            if (onABlock) {
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_DOWN -> if (moveRowKeepingTime(true)) return true
+                    KeyEvent.KEYCODE_DPAD_UP -> if (moveRowKeepingTime(false)) return true
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun moveRowKeepingTime(down: Boolean): Boolean {
+        val focused = currentFocus ?: return false
+        val start = focused.getTag(R.id.epg_block_start) as? Long ?: return false
+        val end = focused.getTag(R.id.epg_block_end) as? Long ?: return false
+        val moment = start + (end - start) / 2
+
+        val manager = gridRows.layoutManager as? LinearLayoutManager ?: return false
+        val row = focused.parent as? ViewGroup ?: return false
+        val holder = gridRows.findContainingViewHolder(row.parent as? View ?: row) ?: return false
+        val next = holder.bindingAdapterPosition + if (down) 1 else -1
+        if (next < 0 || next >= (gridRows.adapter?.itemCount ?: 0)) return false
+
+        // The row may not be built yet if it is just off screen; bring it in
+        // and try again on the next pass rather than refusing to move.
+        val target = gridRows.findViewHolderForAdapterPosition(next)?.itemView
+        if (target == null) {
+            manager.scrollToPosition(next)
+            gridRows.post { moveRowKeepingTime(down) }
+            return true
+        }
+
+        val blocks = ArrayList<View>()
+        collectBlocks(target, blocks)
+        if (blocks.isEmpty()) return false
+
+        val covering = blocks.firstOrNull {
+            val from = it.getTag(R.id.epg_block_start) as? Long ?: return@firstOrNull false
+            val to = it.getTag(R.id.epg_block_end) as? Long ?: return@firstOrNull false
+            moment in from until to
+        }
+        val landing = covering ?: blocks.minByOrNull {
+            val from = it.getTag(R.id.epg_block_start) as? Long ?: Long.MAX_VALUE
+            Math.abs(from - moment)
+        }
+        return landing?.requestFocus() ?: false
+    }
+
+    private fun collectBlocks(view: View, into: MutableList<View>) {
+        if (view.getTag(R.id.epg_block_start) != null && view.isFocusable) {
+            into.add(view)
+            return
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) collectBlocks(view.getChildAt(i), into)
+        }
+    }
+
     private fun focusWhatsOnNow(): Boolean {
         val manager = gridRows.layoutManager as? LinearLayoutManager ?: return false
         val first = manager.findFirstVisibleItemPosition()
