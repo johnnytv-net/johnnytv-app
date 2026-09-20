@@ -214,7 +214,7 @@ data class Recording(
                         .mapNotNull { it.groupValues[1].toDoubleOrNull() }.sum()
                     val bytesPerSecond = if (knownSeconds > 0) known / knownSeconds else 0.0
                     if (bytesPerSecond > 0) {
-                        val added = StringBuilder(if (text.endsWith("\n")) "" else "\n")
+                        val added = StringBuilder()
                         for (part in missing) {
                             val seconds = part.length() / bytesPerSecond
                             if (seconds < 1.0) continue
@@ -223,8 +223,24 @@ data class Recording(
                                 .append(",\n").append(part.name).append("\n")
                         }
                         if (added.isNotEmpty()) {
-                            file.appendText(added.toString())
-                            text = file.readText()
+                            /*
+                             * Before the end marker, never after it.
+                             *
+                             * A playlist that has already been closed off says
+                             * so on its last line, and anything written past
+                             * that point makes the whole file invalid - the
+                             * player does not stumble at the end, it refuses
+                             * the recording outright. Which is a worse failure
+                             * than the missing minutes this was meant to fix.
+                             */
+                            val closed = text.indexOf("#EXT-X-ENDLIST")
+                            val rebuilt = if (closed >= 0) {
+                                text.substring(0, closed) + added + text.substring(closed)
+                            } else {
+                                (if (text.endsWith("\n")) text else text + "\n") + added
+                            }
+                            file.writeText(rebuilt)
+                            text = rebuilt
                         }
                     }
                 }
