@@ -196,6 +196,7 @@ class BrowseActivity : AppCompatActivity() {
         channelList.layoutManager = LinearLayoutManager(this)
         channelList.adapter = rowAdapter
         channelList.itemAnimator = null
+        channelList.setItemViewCacheSize(20)
         // Rows are recycled out from under the remote on a fast scroll, and focus
         // has to land somewhere - by default it escapes sideways into the category
         // column. Put it back on the channel it was on once the list settles.
@@ -244,7 +245,27 @@ class BrowseActivity : AppCompatActivity() {
         categoryList.layoutManager = LinearLayoutManager(this)
         categoryList.adapter = categoryAdapter
 
-        tileGrid.layoutManager = GridLayoutManager(this, spanCount())
+        /*
+         * SCROLLING A CATEGORY WITH THREE THOUSAND THINGS IN IT.
+         *
+         * The list itself is cheap; the artwork is not. Every row that scrolls
+         * into view asks for a picture, decodes it, and throws away the one
+         * that just left - and on a long run down Sports that is hundreds of
+         * decodes a second, which is what the stutter is.
+         *
+         * Three changes, none of them clever. Keep more rows in hand so a
+         * flick back up does not re-fetch everything; ask the layout to build
+         * the next rows before they are needed rather than at the moment they
+         * are; and stop animating rows in and out, which is invisible at this
+         * speed and costs a frame each time.
+         */
+        val grid = GridLayoutManager(this, spanCount())
+        grid.isItemPrefetchEnabled = true
+        grid.initialPrefetchItemCount = spanCount() * 2
+        tileGrid.layoutManager = grid
+        tileGrid.itemAnimator = null
+        tileGrid.setItemViewCacheSize(spanCount() * 4)
+        tileGrid.recycledViewPool.setMaxRecycledViews(0, spanCount() * 6)
         tileGrid.adapter = tileAdapter
         tileGrid.setHasFixedSize(true)
 
