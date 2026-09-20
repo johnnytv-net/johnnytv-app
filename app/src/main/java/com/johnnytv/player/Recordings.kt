@@ -185,7 +185,50 @@ data class Recording(
         val stillRunning = RecorderService.isRecording && RecorderService.activeId == id
         if (!stillRunning) {
             runCatching {
-                val text = file.readText()
+                var text = file.readText()
+
+                /*
+                 * A RECORDING THAT ENDED BADLY, PUT RIGHT.
+                 *
+                 * When the system takes the recorder away mid-stop, the last
+                 * part is written to the drive but never makes it into the
+                 * playlist - so the final minutes exist and cannot be played,
+                 * and nobody would ever guess why. Any part file sitting beside
+                 * the playlist and missing from it is added back on the way in.
+                 *
+                 * Length is measured from the file rather than guessed: at the
+                 * rate the rest of the recording ran, a part of this size is
+                 * about this long. A little out is harmless; claiming more than
+                 * the file holds is what stops playback dead.
+                 */
+                val folder = File(dirPath)
+                val listed = Regex("part\\d+\\.ts").findAll(text).map { it.value }.toSet()
+                val onDisk = folder.listFiles { f -> f.name.matches(Regex("part\\d+\\.ts")) }
+                    ?.sortedBy { it.name }
+                    .orEmpty()
+                val missing = onDisk.filter { it.name !in listed && it.length() > 1_000_000L }
+
+                if (missing.isNotEmpty() && listed.isNotEmpty()) {
+                    val known = onDisk.filter { it.name in listed }.sumOf { it.length() }
+                    val knownSeconds = Regex("#EXTINF:([\\d.]+)").findAll(text)
+                        .mapNotNull { it.groupValues[1].toDoubleOrNull() }.sum()
+                    val bytesPerSecond = if (knownSeconds > 0) known / knownSeconds else 0.0
+                    if (bytesPerSecond > 0) {
+                        val added = StringBuilder(if (text.endsWith("\n")) "" else "\n")
+                        for (part in missing) {
+                            val seconds = part.length() / bytesPerSecond
+                            if (seconds < 1.0) continue
+                            added.append("#EXTINF:")
+                                .append(String.format(java.util.Locale.US, "%.3f", seconds))
+                                .append(",\n").append(part.name).append("\n")
+                        }
+                        if (added.isNotEmpty()) {
+                            file.appendText(added.toString())
+                            text = file.readText()
+                        }
+                    }
+                }
+
                 if (!text.contains("#EXT-X-ENDLIST")) {
                     val ending = if (text.endsWith("\n")) "" else "\n"
                     file.appendText(ending + "#EXT-X-ENDLIST\n")

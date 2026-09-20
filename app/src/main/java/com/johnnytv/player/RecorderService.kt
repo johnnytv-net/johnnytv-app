@@ -667,6 +667,22 @@ class RecorderService : Service() {
         all.retainAll { (it.second > 0.0) && File(folder, it.first).length() > 0L }
         if (all.isEmpty()) return
 
+        /*
+         * A PART THAT CLAIMS MORE THAN IT HOLDS STOPS THE RECORDING DEAD.
+         *
+         * One part in a four hour recording said eighteen seconds and held
+         * seven tenths of one. A player reaching it waits for the rest, and
+         * there is no rest - so a perfectly good evening stops there.
+         *
+         * Two guards. Anything under a second is dropped from the playlist
+         * altogether: it is a fragment from a reconnect, it contributes nothing
+         * anybody would miss, and every one of them is a chance to stall. And
+         * no part is ever announced as longer than the file actually is, which
+         * is the mistake itself.
+         */
+        all.removeAll { it.second < 1.0 }
+        if (all.isEmpty()) return
+
         val longest = all.maxOf { it.second }
         val text = StringBuilder()
         text.append("#EXTM3U\n")
