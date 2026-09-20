@@ -104,6 +104,11 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Goes and looks in the letterbox for recordings set from a phone. -->
+        <receiver
+            android:name=".PostmanReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".RecordAlarmReceiver"
             android:exported="false" />

@@ -165,6 +165,9 @@ class HomeActivity : AppCompatActivity() {
         handler.post(castWatch)
         showMessage()
         checkExpiry()
+        // Somebody setting a recording from the car park should find it already
+        // on the list when they walk in, rather than up to five minutes later.
+        kotlin.concurrent.thread { runCatching { Postman.collect(this@HomeActivity) } }
     }
 
     /** Puts on whatever the phone asked for, if this television knows the channel. */

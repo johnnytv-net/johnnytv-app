@@ -60,6 +60,16 @@ object CastLink {
 
     data class Command(val id: String, val name: String, val seq: Long)
 
+    /** A recording somebody set from their phone, waiting to be collected. */
+    data class RecordRequest(
+        val rid: String,
+        val streamId: String,
+        val channel: String,
+        val title: String,
+        val startAt: Long,
+        val endAt: Long
+    )
+
     private fun ready(prefs: Prefs) = prefs.username.isNotBlank() && prefs.password.isNotBlank()
 
     /** Blocking. Whatever is waiting, or null - including on any failure. */
@@ -99,6 +109,76 @@ object CastLink {
                 .add("action", "status")
                 .add("id", streamId)
                 .add("name", name.take(80))
+        )
+    }
+
+    /**
+     * RECORDINGS LEFT BY A PHONE.
+     *
+     * Collected here and scheduled exactly as though somebody had set them with
+     * the remote - same alarms, same padding, same check against the line's one
+     * connection. Nothing about a recording cares where the instruction came
+     * from.
+     *
+     * Returns an empty list on any failure at all, which is the right answer:
+     * a letterbox that cannot be reached is not a reason for anything on the
+     * television to behave differently.
+     */
+    fun pendingRecordings(prefs: Prefs): List<RecordRequest> {
+        if (!ready(prefs)) return emptyList()
+        return try {
+            val url = URL + "?peek=" + enc(prefs.username) +
+                "&t=" + token(prefs.username, prefs.password)
+            val request = Request.Builder().url(url)
+                .header("User-Agent", Config.USER_AGENT)
+                .build()
+            http.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val json = org.json.JSONObject(body)
+                val waiting = json.optJSONArray("recs") ?: return emptyList()
+                val out = ArrayList<RecordRequest>(waiting.length())
+                for (i in 0 until waiting.length()) {
+                    val item = waiting.optJSONObject(i) ?: continue
+                    val streamId = item.optString("id", "")
+                    val start = item.optLong("start", 0L) * 1000L
+                    val end = item.optLong("end", 0L) * 1000L
+                    if (streamId.isBlank() || end <= start) continue
+                    out.add(
+                        RecordRequest(
+                            rid = item.optString("rid", ""),
+                            streamId = streamId,
+                            channel = item.optString("name", ""),
+                            title = item.optString("title", item.optString("name", "")),
+                            startAt = start,
+                            endAt = end
+                        )
+                    )
+                }
+                out
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Tells the letterbox which requests are now on the television's list. */
+    fun confirmRecordings(prefs: Prefs, rids: List<String>) {
+        if (rids.isEmpty()) return
+        post(
+            prefs,
+            FormBody.Builder()
+                .add("action", "recack")
+                .add("rids", rids.joinToString(","))
+        )
+    }
+
+    /** What the television has scheduled, so the phone can show it back. */
+    fun reportScheduled(prefs: Prefs, text: String) {
+        post(
+            prefs,
+            FormBody.Builder()
+                .add("action", "recdone")
+                .add("text", text.take(400))
         )
     }
 

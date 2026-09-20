@@ -17,6 +17,8 @@ class JohnnyTvApp : Application(), ImageLoaderFactory {
         // recording somebody set for tonight has to happen tonight - so they are
         // all set again from the file every time the app starts.
         runCatching { RecordScheduler.armAll(this) }
+        // And go looking for anything set from a phone while this box was off.
+        runCatching { Postman.start(this) }
     }
 
     /**

@@ -249,5 +249,6 @@ class BootReceiver : BroadcastReceiver() {
             action != "android.intent.action.QUICKBOOT_POWERON"
         ) return
         RecordScheduler.armAll(context.applicationContext)
+        Postman.start(context.applicationContext)
     }
 }
