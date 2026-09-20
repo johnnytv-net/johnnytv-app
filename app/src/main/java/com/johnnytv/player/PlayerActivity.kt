@@ -123,7 +123,7 @@ class PlayerActivity : AppCompatActivity() {
         if (kind == Kind.LIVE && RecorderService.isRecording) {
             val recording = RecordingStore.all(this).firstOrNull { it.isRecording }
             if (recording != null && recording.streamId == contentId) {
-                val parts = recording.files().map { android.net.Uri.fromFile(it).toString() }
+                val parts = recording.files(this).map { android.net.Uri.fromFile(it).toString() }
                 if (parts.isNotEmpty()) {
                     urls = parts
                     playlist = true
@@ -424,7 +424,7 @@ class PlayerActivity : AppCompatActivity() {
         val id = pendingRecordingId
         if (id.isBlank() || isFinishing) return@Runnable
         val recording = RecordingStore.find(this, id)
-        val files = recording?.playableFiles().orEmpty()
+        val files = recording?.playableFiles(this).orEmpty()
         if (files.size > urls.size) {
             // Something new has finished being written. Continue from it.
             val fresh = files.drop(urls.size).map { android.net.Uri.fromFile(it).toString() }
@@ -466,7 +466,7 @@ class PlayerActivity : AppCompatActivity() {
                 val recording = RecordingStore.all(this@PlayerActivity)
                     .firstOrNull { it.isRecording }
                 val sameChannel = RecorderService.activeStreamId == contentId
-                val fromDisk = recording?.playlistFile()
+                val fromDisk = recording?.playlistFile(this@PlayerActivity)
                 if (sameChannel && fromDisk != null) {
                     android.widget.Toast.makeText(
                         this@PlayerActivity,
@@ -867,8 +867,9 @@ class PlayerActivity : AppCompatActivity() {
             if (kind == Kind.LIVE && RecorderService.isRecording) {
                 if (contentId.isNotBlank() && contentId == RecorderService.activeStreamId) {
                     val live = RecordingStore.all(context).firstOrNull { it.isRecording }
-                    val running = live?.playlistFile()
-                    val parts = if (running != null) listOf(running) else live?.playableFiles().orEmpty()
+                    val running = live?.playlistFile(context)
+                    val parts = if (running != null) listOf(running)
+                        else live?.playableFiles(context).orEmpty()
                     if (parts.isNotEmpty()) {
                         android.widget.Toast.makeText(
                             context,

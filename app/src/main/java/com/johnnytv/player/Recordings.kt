@@ -155,14 +155,50 @@ data class Recording(
     fun lostSeconds(): Int = gaps.sumOf { it.seconds }
 
     /**
+     * WHERE THIS RECORDING ACTUALLY IS.
+     *
+     * The path written when it started is a guess by the time anybody plays it.
+     * A drive pulled out mid-recording sends the rest to the box and moves the
+     * path with it; a stick plugged into a different socket comes back under
+     * another name. Either way the app ends up looking in a folder that exists
+     * and is empty, says there is nothing to play, and nobody would ever guess
+     * that four hours of television is sitting on the drive under the same name.
+     *
+     * So the folder is found rather than remembered: every drive is asked
+     * whether it has this recording, and whichever copy holds the most video
+     * wins. The stored path is tried first and is usually right.
+     */
+    fun folderOnDisk(context: Context): File {
+        val here = File(dirPath)
+        val candidates = ArrayList<File>()
+        if (dirPath.isNotBlank()) candidates.add(here)
+        for (target in Storage.targets(context)) candidates.add(File(target.dir, id))
+        candidates.add(File(File(context.filesDir, Storage.FOLDER), id))
+
+        var best = here
+        var bestBytes = -1L
+        for (folder in candidates.distinctBy { it.absolutePath }) {
+            val bytes = runCatching {
+                folder.listFiles { f -> f.name.startsWith("part") && f.name.endsWith(".ts") }
+                    ?.sumOf { it.length() } ?: 0L
+            }.getOrDefault(0L)
+            if (bytes > bestBytes) {
+                bestBytes = bytes
+                best = folder
+            }
+        }
+        return best
+    }
+
+    /**
      * The playlist written beside the pieces, when there is one.
      *
      * This is what should be played: one file that names the pieces in order and
      * marks every join, so the player treats the recording as a single
      * programme rather than a folder of fragments.
      */
-    fun playlistFile(): File? {
-        val file = File(File(dirPath), RecorderService.PLAYLIST_NAME)
+    fun playlistFile(context: Context): File? {
+        val file = File(folderOnDisk(context), RecorderService.PLAYLIST_NAME)
         if (!file.exists() || file.length() <= 0L) return null
 
         /*
@@ -201,7 +237,7 @@ data class Recording(
                  * about this long. A little out is harmless; claiming more than
                  * the file holds is what stops playback dead.
                  */
-                val folder = File(dirPath)
+                val folder = file.parentFile ?: File(dirPath)
                 val listed = Regex("part\\d+\\.ts").findAll(text).map { it.value }.toSet()
                 val onDisk = folder.listFiles { f -> f.name.matches(Regex("part\\d+\\.ts")) }
                     ?.sortedBy { it.name }
@@ -262,14 +298,14 @@ data class Recording(
      * moving, which stalls on the last frame. Everything before it is finished
      * and complete, so that is what gets played.
      */
-    fun playableFiles(): List<File> {
-        val all = files()
+    fun playableFiles(context: Context): List<File> {
+        val all = files(context)
         return if (isRecording && all.size > 1) all.dropLast(1) else all
     }
 
     /** The chunk files in order, as the player wants them. */
-    fun files(): List<File> {
-        val dir = File(dirPath)
+    fun files(context: Context): List<File> {
+        val dir = folderOnDisk(context)
         return parts.map { File(dir, it) }.filter { it.exists() && it.length() > 0L }
     }
 

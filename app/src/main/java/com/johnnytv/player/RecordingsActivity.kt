@@ -216,7 +216,7 @@ class RecordingsActivity : AppCompatActivity() {
     // ---------- what a press does ----------
 
     private fun play(recording: Recording) {
-        val playlist = recording.playlistFile()
+        val playlist = recording.playlistFile(this)
         if (playlist != null) {
             RecordingStore.update(this, recording.id) { it.watched = true }
             PlayerActivity.startPlaylist(
@@ -228,7 +228,7 @@ class RecordingsActivity : AppCompatActivity() {
             return
         }
 
-        val files = recording.playableFiles()
+        val files = recording.playableFiles(this)
         if (files.isEmpty()) {
             AlertDialog.Builder(this)
                 .setTitle(R.string.recordings_nothing_title)
@@ -345,7 +345,8 @@ class RecordingsActivity : AppCompatActivity() {
      * the old one had got itself into stops mattering.
      */
     private fun repair(recording: Recording) {
-        val folder = java.io.File(recording.dirPath)
+        // Wherever it really is, which is not always where it says it is.
+        val folder = recording.folderOnDisk(this)
         val parts = folder.listFiles { f -> f.name.matches(Regex("part\\d+\\.ts")) }
             ?.sortedBy { it.name }
             .orEmpty()
@@ -357,7 +358,7 @@ class RecordingsActivity : AppCompatActivity() {
                 .setMessage(
                     getString(
                         R.string.recordings_repair_nothing,
-                        recording.dirPath,
+                        folder.absolutePath,
                         if (folder.exists()) "yes" else "no"
                     )
                 )
@@ -417,7 +418,7 @@ class RecordingsActivity : AppCompatActivity() {
                     parts.size,
                     (lengths.sumOf { it.second } / 60).toInt(),
                     if (written) "written" else "COULD NOT WRITE",
-                    recording.dirPath
+                    folder.absolutePath
                 )
             )
             .setPositiveButton(R.string.close, null)
