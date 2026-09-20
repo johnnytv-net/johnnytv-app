@@ -266,9 +266,6 @@ class RecordingsActivity : AppCompatActivity() {
             // way to tell a recording that is going well from one that is not.
             options.add(getString(R.string.recordings_report))
             actions.add { showReport(recording) }
-
-            options.add(getString(R.string.recordings_repair))
-            actions.add { repair(recording) }
         } else {
             options.add(getString(R.string.recordings_play))
             actions.add { play(recording) }
@@ -284,6 +281,11 @@ class RecordingsActivity : AppCompatActivity() {
 
             options.add(getString(R.string.recordings_report))
             actions.add { showReport(recording) }
+
+            // Only useful once a recording has finished: while one is still
+            // being written, its playlist is meant to be incomplete.
+            options.add(getString(R.string.recordings_repair))
+            actions.add { repair(recording) }
         }
 
         // Clearing a dozen test recordings one at a time is its own small
