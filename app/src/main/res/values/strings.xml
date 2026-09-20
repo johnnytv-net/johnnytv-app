@@ -199,6 +199,8 @@
     <string name="recordings_report_run">%1$s to %2$s — %3$d short drops, %4$d seconds lost in total, each one reconnected on its own.</string>
     <string name="record_busy_watching">Recording in progress. Your line allows one connection, so this channel has to stay on until it finishes.</string>
 
+    <string name="phone_recordings">Check for phone recordings</string>
+    <string name="phone_recordings_looking">Looking in the letterbox…</string>
     <string name="check_device">Check my device</string>
     <string name="check_no_drive">No USB drive is plugged in. Recordings will be saved on the box itself, which has far less room.</string>
     <string name="check_drive_found">%1$s is plugged in and ready.</string>

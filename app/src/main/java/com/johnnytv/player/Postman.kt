@@ -68,6 +68,17 @@ object Postman {
      * with no signal, a website having a moment, a box with the internet
      * unplugged - none of those should produce anything a customer sees.
      */
+    /** Collects, and describes what happened - for the row in Settings. */
+    fun collectAndDescribe(context: Context): String {
+        val app = context.applicationContext
+        val prefs = Prefs(app)
+        val look = CastLink.describeLetterbox(prefs)
+        val before = Schedules.upcoming(app).size
+        runCatching { collect(app) }
+        val after = Schedules.upcoming(app).size
+        return look + "\n\nScheduled before: " + before + "\nScheduled now: " + after
+    }
+
     fun collect(context: Context) {
         val app = context.applicationContext
         val prefs = Prefs(app)

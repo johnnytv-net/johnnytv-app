@@ -139,6 +139,19 @@
         </LinearLayout>
 
         <TextView
+            android:id="@+id/phoneRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_row"
+            android:clickable="true"
+            android:focusable="true"
+            android:padding="16dp"
+            android:text="@string/phone_recordings"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp" />
+
+        <TextView
             android:id="@+id/checkRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

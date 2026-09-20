@@ -161,6 +161,41 @@ object CastLink {
         }
     }
 
+    /**
+     * The same look in the letterbox, but saying what it found.
+     *
+     * The quiet version above is right for the every-five-minutes round: a
+     * letterbox that cannot be reached is not worth mentioning to anybody
+     * watching television. It is hopeless for working out why nothing is
+     * arriving, which is what this is for.
+     */
+    fun describeLetterbox(prefs: Prefs): String {
+        if (!ready(prefs)) return "Not signed in."
+        return try {
+            val url = URL + "?peek=" + enc(prefs.username) +
+                "&t=" + token(prefs.username, prefs.password)
+            val request = Request.Builder().url(url)
+                .header("User-Agent", Config.USER_AGENT)
+                .build()
+            http.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) return "Letterbox replied " + response.code
+                val json = org.json.JSONObject(body)
+                if (!json.optBoolean("ok", false)) {
+                    return "Letterbox refused us: " + json.optString("error", "?") +
+                        "\n\nUser: " + prefs.username +
+                        "\nLatch: " + token(prefs.username, prefs.password).take(8) + "…"
+                }
+                val waiting = json.optJSONArray("recs")
+                "User: " + prefs.username +
+                    "\nLatch: " + token(prefs.username, prefs.password).take(8) + "…" +
+                    "\nWaiting: " + (waiting?.length() ?: 0)
+            }
+        } catch (e: Exception) {
+            "Could not reach the letterbox: " + (e.message ?: e.javaClass.simpleName)
+        }
+    }
+
     /** Tells the letterbox which requests are now on the television's list. */
     fun confirmRecordings(prefs: Prefs, rids: List<String>) {
         if (rids.isEmpty()) return

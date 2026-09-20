@@ -45,6 +45,7 @@ class SettingsActivity : AppCompatActivity() {
         showStorageState(storageState)
         findViewById<View>(R.id.storageRow).setOnClickListener { chooseStorage(storageState) }
         findViewById<View>(R.id.checkRow).setOnClickListener { showDeviceCheck() }
+        findViewById<View>(R.id.phoneRow).setOnClickListener { checkPhoneRecordings() }
 
         val weatherState = findViewById<TextView>(R.id.weatherState)
         showWeatherState(weatherState)
@@ -125,6 +126,34 @@ class SettingsActivity : AppCompatActivity() {
         showOptions(getString(R.string.recording_storage_row), names.toList()) { which ->
             prefs.recordingVolume = targets[which].id
             showStorageState(label)
+        }
+    }
+
+    /**
+     * Looking in the letterbox, in front of somebody.
+     *
+     * The five-minute round is deliberately silent, which is right until
+     * nothing is arriving and nobody can say why. This does the same work and
+     * shows its workings: who it thinks it is, whether the letterbox let it in,
+     * how many recordings were waiting, and whether the list grew.
+     */
+    private fun checkPhoneRecordings() {
+        val waiting = AlertDialog.Builder(this)
+            .setTitle(R.string.phone_recordings)
+            .setMessage(R.string.phone_recordings_looking)
+            .create()
+        waiting.show()
+        kotlin.concurrent.thread {
+            val text = runCatching { Postman.collectAndDescribe(this) }
+                .getOrElse { "Failed: " + (it.message ?: it.javaClass.simpleName) }
+            runOnUiThread {
+                waiting.dismiss()
+                AlertDialog.Builder(this)
+                    .setTitle(R.string.phone_recordings)
+                    .setMessage(text)
+                    .setPositiveButton(R.string.close, null)
+                    .show()
+            }
         }
     }
 
