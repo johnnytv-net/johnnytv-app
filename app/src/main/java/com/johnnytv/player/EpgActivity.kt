@@ -704,8 +704,9 @@ class EpgActivity : AppCompatActivity() {
         val moment = start + (end - start) / 2
 
         val manager = gridRows.layoutManager as? LinearLayoutManager ?: return false
-        val row = focused.parent as? ViewGroup ?: return false
-        val holder = gridRows.findContainingViewHolder(row.parent as? View ?: row) ?: return false
+        // Straight from the focused block: the list resolves which row owns it
+        // however deep it sits, which guessing at the parent did not.
+        val holder = gridRows.findContainingViewHolder(focused) ?: return false
         val next = holder.bindingAdapterPosition + if (down) 1 else -1
         if (next < 0 || next >= (gridRows.adapter?.itemCount ?: 0)) return false
 
@@ -727,10 +728,14 @@ class EpgActivity : AppCompatActivity() {
             val to = it.getTag(R.id.epg_block_end) as? Long ?: return@firstOrNull false
             moment in from until to
         }
-        val landing = covering ?: blocks.minByOrNull {
-            val from = it.getTag(R.id.epg_block_start) as? Long ?: Long.MAX_VALUE
-            Math.abs(from - moment)
-        }
+        // Nothing covers that moment - a row whose listings stop early, or a
+        // gap the portal never filled. Take the nearest thing that has not
+        // already finished, rather than the nearest of any kind, which is how
+        // the highlight used to end up an hour in the past.
+        val landing = covering ?: blocks
+            .filter { (it.getTag(R.id.epg_block_end) as? Long ?: 0L) > moment }
+            .minByOrNull { (it.getTag(R.id.epg_block_start) as? Long ?: Long.MAX_VALUE) }
+            ?: blocks.lastOrNull()
         return landing?.requestFocus() ?: false
     }
 
