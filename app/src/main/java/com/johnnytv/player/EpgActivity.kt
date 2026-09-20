@@ -685,24 +685,11 @@ class EpgActivity : AppCompatActivity() {
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN) {
-            val focused = currentFocus
-            val onABlock = focused?.getTag(R.id.epg_block_start) != null
+            val onABlock = currentFocus?.getTag(R.id.epg_block_start) != null
             if (onABlock) {
                 when (event.keyCode) {
                     KeyEvent.KEYCODE_DPAD_DOWN -> if (moveRowKeepingTime(true)) return true
                     KeyEvent.KEYCODE_DPAD_UP -> if (moveRowKeepingTime(false)) return true
-                    // Moving along a row is the only thing that changes which
-                    // moment you are looking at, so it is the only thing that
-                    // moves the cursor. Taken after the move, from wherever the
-                    // remote actually landed.
-                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                        val handled = super.dispatchKeyEvent(event)
-                        gridRows.post {
-                            val now = currentFocus?.getTag(R.id.epg_block_start) as? Long
-                            if (now != null) cursorTime = now
-                        }
-                        return handled
-                    }
                 }
             }
         }
@@ -710,65 +697,28 @@ class EpgActivity : AppCompatActivity() {
     }
 
     /**
-     * The moment the remote is looking at.
+     * UP AND DOWN FOLLOW THE BLUE LINE.
      *
-     * Carried rather than worked out, because working it out was wrong: taking
-     * the middle of the block you are on means that on a three hour film you
-     * are "looking at" half past the hour two hours from now, and the row below
-     * lands on whatever is showing then - two programmes to the right of where
-     * anybody thought they were.
+     * The line down the guide is now. Moving between channels should keep the
+     * highlight on it: down a channel, and you are on whatever that channel is
+     * showing at this minute, the same as the one above.
      *
-     * Left and right move it. Up and down read it and leave it alone, so a run
-     * down forty channels stays on the same minute from first to last.
+     * Left to itself the remote moves to whichever block happens to overlap on
+     * screen, which after any sideways scrolling is a programme at some other
+     * time entirely - and the highlight wanders further from the line with
+     * every press.
      */
-    private var cursorTime: Long = 0L
-
-    /** Temporary: prove whether the up/down handler is running at all. */
-    private val SHOW_GUIDE_WORKINGS = true
-
     private fun moveRowKeepingTime(down: Boolean): Boolean {
         val focused = currentFocus ?: return false
-        val start = focused.getTag(R.id.epg_block_start) as? Long ?: return false
-        val end = focused.getTag(R.id.epg_block_end) as? Long ?: return false
-
-        // Whatever the cursor says, as long as the block under it still covers
-        // that moment. If it does not - the guide moved on, or the highlight
-        // was put somewhere by something other than the remote - it is taken
-        // from the start of the block, which is where the eye is anyway.
-        val moment = if (cursorTime in start until end) cursorTime else start
-        cursorTime = moment
-
-        /*
-         * Saying so out loud, for now.
-         *
-         * Twice I have changed how this lands and twice it has behaved exactly
-         * as it did before, which usually means the change is not running at
-         * all rather than running and being wrong. A line in the corner settles
-         * that in one press: if it appears, this code has the key and the
-         * fault is in where it puts the highlight; if it never appears, the key
-         * is going somewhere else entirely and everything I have written here
-         * is beside the point.
-         *
-         * Out again once it is proved.
-         */
-        if (SHOW_GUIDE_WORKINGS) {
-            val clock = java.text.SimpleDateFormat("h:mm", java.util.Locale.getDefault())
-            android.widget.Toast.makeText(
-                this,
-                "keeping " + clock.format(java.util.Date(moment)),
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-        }
+        if (focused.getTag(R.id.epg_block_start) == null) return false
 
         val manager = gridRows.layoutManager as? LinearLayoutManager ?: return false
-        // Straight from the focused block: the list resolves which row owns it
-        // however deep it sits, which guessing at the parent did not.
         val holder = gridRows.findContainingViewHolder(focused) ?: return false
         val next = holder.bindingAdapterPosition + if (down) 1 else -1
         if (next < 0 || next >= (gridRows.adapter?.itemCount ?: 0)) return false
 
-        // The row may not be built yet if it is just off screen; bring it in
-        // and try again on the next pass rather than refusing to move.
+        // Just off screen: bring it in and land on the next pass rather than
+        // refusing to move.
         val target = gridRows.findViewHolderForAdapterPosition(next)?.itemView
         if (target == null) {
             manager.scrollToPosition(next)
@@ -780,19 +730,21 @@ class EpgActivity : AppCompatActivity() {
         collectBlocks(target, blocks)
         if (blocks.isEmpty()) return false
 
-        val covering = blocks.firstOrNull {
+        val now = System.currentTimeMillis()
+        val onNow = blocks.firstOrNull {
             val from = it.getTag(R.id.epg_block_start) as? Long ?: return@firstOrNull false
             val to = it.getTag(R.id.epg_block_end) as? Long ?: return@firstOrNull false
-            moment in from until to
+            now in from until to
         }
-        // Nothing covers that moment - a row whose listings stop early, or a
-        // gap the portal never filled. Take the nearest thing that has not
-        // already finished, rather than the nearest of any kind, which is how
-        // the highlight used to end up an hour in the past.
-        val landing = covering ?: blocks
-            .filter { (it.getTag(R.id.epg_block_end) as? Long ?: 0L) > moment }
+
+        // A row with no listings for right now - the portal keeps none for that
+        // channel, or they have not arrived yet. Take the next thing due rather
+        // than something that finished hours ago.
+        val landing = onNow ?: blocks
+            .filter { (it.getTag(R.id.epg_block_end) as? Long ?: 0L) > now }
             .minByOrNull { (it.getTag(R.id.epg_block_start) as? Long ?: Long.MAX_VALUE) }
-            ?: blocks.lastOrNull()
+            ?: blocks.firstOrNull()
+
         return landing?.requestFocus() ?: false
     }
 
