@@ -164,6 +164,9 @@
     <string name="recordings_delete_confirm">Delete %1$s? The video file goes with it.</string>
     <string name="recordings_delete_all">Delete all (%1$d)</string>
     <string name="recordings_delete_all_confirm">Delete %1$d recordings and free %2$s GB?\n\nAnything marked Keep is left alone.</string>
+    <string name="recordings_repair">Repair this recording</string>
+    <string name="recordings_repair_nothing">No part files found.\n\nFolder: %1$s\nFolder exists: %2$s</string>
+    <string name="recordings_repair_done">Rebuilt from %1$d parts — about %2$d minutes.\n\nPlaylist: %3$s\nFolder: %4$s</string>
     <string name="recordings_report">Recording report</string>
     <string name="recordings_report_clean">No gaps. The feed never dropped.</string>
     <string name="recordings_report_gap">Gap at %1$s — %2$d seconds, reconnected on its own.</string>

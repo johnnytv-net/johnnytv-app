@@ -266,6 +266,9 @@ class RecordingsActivity : AppCompatActivity() {
             // way to tell a recording that is going well from one that is not.
             options.add(getString(R.string.recordings_report))
             actions.add { showReport(recording) }
+
+            options.add(getString(R.string.recordings_repair))
+            actions.add { repair(recording) }
         } else {
             options.add(getString(R.string.recordings_play))
             actions.add { play(recording) }
@@ -324,6 +327,99 @@ class RecordingsActivity : AppCompatActivity() {
         }
 
         showOptions(recording.title, options) { which -> actions[which]() }
+    }
+
+    /**
+     * REBUILDING A RECORDING'S PLAYLIST, IN FRONT OF SOMEBODY.
+     *
+     * The automatic repair runs quietly and, when it fails, fails quietly - and
+     * a quiet failure is how a four hour recording can sit there refusing to
+     * play while every fix appears to have been applied. This one says what it
+     * found: the folder it looked in, the parts on the drive, the entries it
+     * wrote. If the answer is "nought files in a folder that does not exist",
+     * that is worth far more than another guess.
+     *
+     * The playlist is rebuilt from scratch rather than patched. Whatever state
+     * the old one had got itself into stops mattering.
+     */
+    private fun repair(recording: Recording) {
+        val folder = java.io.File(recording.dirPath)
+        val parts = folder.listFiles { f -> f.name.matches(Regex("part\\d+\\.ts")) }
+            ?.sortedBy { it.name }
+            .orEmpty()
+            .filter { it.length() > 100_000L }
+
+        if (parts.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.recordings_repair)
+                .setMessage(
+                    getString(
+                        R.string.recordings_repair_nothing,
+                        recording.dirPath,
+                        if (folder.exists()) "yes" else "no"
+                    )
+                )
+                .setPositiveButton(R.string.close, null)
+                .show()
+            return
+        }
+
+        // Lengths from the old playlist where it had them and they look sane;
+        // from the file's own size against the rest of the recording where it
+        // did not. A part announced as longer than it is stops playback dead,
+        // so an estimate always errs short.
+        val old = runCatching { java.io.File(folder, RecorderService.PLAYLIST_NAME).readText() }
+            .getOrDefault("")
+        val known = HashMap<String, Double>()
+        val entries = Regex("#EXTINF:([\\d.]+),\\s*\\n(part\\d+\\.ts)").findAll(old)
+        for (entry in entries) {
+            val seconds = entry.groupValues[1].toDoubleOrNull() ?: continue
+            if (seconds >= 1.0) known[entry.groupValues[2]] = seconds
+        }
+        val measured = parts.filter { known.containsKey(it.name) }
+        val bytesPerSecond = if (measured.isNotEmpty()) {
+            measured.sumOf { it.length() }.toDouble() /
+                measured.sumOf { known[it.name] ?: 0.0 }.coerceAtLeast(1.0)
+        } else {
+            400_000.0
+        }
+
+        val lengths = parts.map { part ->
+            val seconds = known[part.name] ?: (part.length() / bytesPerSecond * 0.97)
+            part.name to seconds.coerceAtLeast(1.0)
+        }
+
+        val text = StringBuilder()
+        text.append("#EXTM3U\n#EXT-X-VERSION:3\n")
+        text.append("#EXT-X-TARGETDURATION:")
+            .append(Math.ceil(lengths.maxOf { it.second }).toInt()).append("\n")
+        text.append("#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n")
+        for ((index, part) in lengths.withIndex()) {
+            if (index > 0) text.append("#EXT-X-DISCONTINUITY\n")
+            text.append("#EXTINF:")
+                .append(String.format(Locale.US, "%.3f", part.second))
+                .append(",\n").append(part.first).append("\n")
+        }
+        text.append("#EXT-X-ENDLIST\n")
+
+        val written = runCatching {
+            java.io.File(folder, RecorderService.PLAYLIST_NAME).writeText(text.toString())
+            true
+        }.getOrDefault(false)
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.recordings_repair)
+            .setMessage(
+                getString(
+                    R.string.recordings_repair_done,
+                    parts.size,
+                    (lengths.sumOf { it.second } / 60).toInt(),
+                    if (written) "written" else "COULD NOT WRITE",
+                    recording.dirPath
+                )
+            )
+            .setPositiveButton(R.string.close, null)
+            .show()
     }
 
     private fun showReport(recording: Recording) {
