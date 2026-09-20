@@ -691,17 +691,74 @@ class EpgActivity : AppCompatActivity() {
                 when (event.keyCode) {
                     KeyEvent.KEYCODE_DPAD_DOWN -> if (moveRowKeepingTime(true)) return true
                     KeyEvent.KEYCODE_DPAD_UP -> if (moveRowKeepingTime(false)) return true
+                    // Moving along a row is the only thing that changes which
+                    // moment you are looking at, so it is the only thing that
+                    // moves the cursor. Taken after the move, from wherever the
+                    // remote actually landed.
+                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        val handled = super.dispatchKeyEvent(event)
+                        gridRows.post {
+                            val now = currentFocus?.getTag(R.id.epg_block_start) as? Long
+                            if (now != null) cursorTime = now
+                        }
+                        return handled
+                    }
                 }
             }
         }
         return super.dispatchKeyEvent(event)
     }
 
+    /**
+     * The moment the remote is looking at.
+     *
+     * Carried rather than worked out, because working it out was wrong: taking
+     * the middle of the block you are on means that on a three hour film you
+     * are "looking at" half past the hour two hours from now, and the row below
+     * lands on whatever is showing then - two programmes to the right of where
+     * anybody thought they were.
+     *
+     * Left and right move it. Up and down read it and leave it alone, so a run
+     * down forty channels stays on the same minute from first to last.
+     */
+    private var cursorTime: Long = 0L
+
+    /** Temporary: prove whether the up/down handler is running at all. */
+    private val SHOW_GUIDE_WORKINGS = true
+
     private fun moveRowKeepingTime(down: Boolean): Boolean {
         val focused = currentFocus ?: return false
         val start = focused.getTag(R.id.epg_block_start) as? Long ?: return false
         val end = focused.getTag(R.id.epg_block_end) as? Long ?: return false
-        val moment = start + (end - start) / 2
+
+        // Whatever the cursor says, as long as the block under it still covers
+        // that moment. If it does not - the guide moved on, or the highlight
+        // was put somewhere by something other than the remote - it is taken
+        // from the start of the block, which is where the eye is anyway.
+        val moment = if (cursorTime in start until end) cursorTime else start
+        cursorTime = moment
+
+        /*
+         * Saying so out loud, for now.
+         *
+         * Twice I have changed how this lands and twice it has behaved exactly
+         * as it did before, which usually means the change is not running at
+         * all rather than running and being wrong. A line in the corner settles
+         * that in one press: if it appears, this code has the key and the
+         * fault is in where it puts the highlight; if it never appears, the key
+         * is going somewhere else entirely and everything I have written here
+         * is beside the point.
+         *
+         * Out again once it is proved.
+         */
+        if (SHOW_GUIDE_WORKINGS) {
+            val clock = java.text.SimpleDateFormat("h:mm", java.util.Locale.getDefault())
+            android.widget.Toast.makeText(
+                this,
+                "keeping " + clock.format(java.util.Date(moment)),
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
 
         val manager = gridRows.layoutManager as? LinearLayoutManager ?: return false
         // Straight from the focused block: the list resolves which row owns it
