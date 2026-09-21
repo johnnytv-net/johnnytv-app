@@ -1480,13 +1480,15 @@ class RecorderService : Service() {
             context: Context,
             title: String,
             channel: StreamItem,
-            endAt: Long
+            endAt: Long,
+            /** A particular line to record through; the one in use when null. */
+            through: XtreamClient? = null
         ): String? {
             if (isRecording) return null
             val app = context.applicationContext
             val prefs = Prefs(app)
             val id = "r" + System.currentTimeMillis()
-            val urls = prefs.client().liveUrls(channel.streamId)
+            val urls = (through ?: prefs.client()).liveUrls(channel.streamId)
 
             RecordingStore.put(
                 app,

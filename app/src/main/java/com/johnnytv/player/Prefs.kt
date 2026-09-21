@@ -36,6 +36,9 @@ class Prefs(context: Context) {
             .putString(KEY_USER, username)
             .putString(KEY_PASS, password)
             .apply()
+        // Every line signed into joins the list, so a recording set on it from a
+        // phone is still collected after the box moves to another one.
+        rememberCurrentAccount()
     }
 
     /** Signs the customer out but keeps the server, so they only re-enter user + password. */
@@ -44,6 +47,56 @@ class Prefs(context: Context) {
     }
 
     fun client(): XtreamClient = XtreamClient(server, username, password)
+
+    /** One line this box has been signed into. */
+    data class Account(val server: String, val username: String, val password: String) {
+        fun client(): XtreamClient = XtreamClient(server, username, password)
+    }
+
+    /**
+     * EVERY LINE THIS BOX HAS KNOWN.
+     *
+     * A recording belongs to the line that asked for it, not to whichever one
+     * the television happens to be showing. Set a recording on the Dino line
+     * from work while the house watches Edge, and the box has to know Dino's
+     * details to collect it and to record it - so it keeps them, on the box,
+     * exactly where it already kept the one it is using.
+     *
+     * Nothing leaves the device. This is the same information the sign-in
+     * screen stored; there is simply more than one of it.
+     */
+    fun knownAccounts(): List<Account> {
+        val out = ArrayList<Account>()
+        runCatching {
+            val array = org.json.JSONArray(sp.getString(KEY_ACCOUNTS, "[]") ?: "[]")
+            for (i in 0 until array.length()) {
+                val o = array.optJSONObject(i) ?: continue
+                val u = o.optString("u", "")
+                if (u.isBlank()) continue
+                out.add(Account(o.optString("s", ""), u, o.optString("p", "")))
+            }
+        }
+        // The one in use is always among them, even before it has been saved.
+        if (username.isNotBlank() && out.none { it.username.equals(username, true) }) {
+            out.add(0, Account(server, username, password))
+        }
+        return out
+    }
+
+    /** Adds, or refreshes, the account in use now. */
+    fun rememberCurrentAccount() {
+        if (username.isBlank()) return
+        val list = knownAccounts().filter { !it.username.equals(username, true) }.toMutableList()
+        list.add(0, Account(server, username, password))
+        val array = org.json.JSONArray()
+        for (a in list.take(MAX_ACCOUNTS)) {
+            array.put(org.json.JSONObject().put("s", a.server).put("u", a.username).put("p", a.password))
+        }
+        sp.edit().putString(KEY_ACCOUNTS, array.toString()).apply()
+    }
+
+    fun accountNamed(user: String): Account? =
+        knownAccounts().firstOrNull { it.username.equals(user, true) }
 
     // ---------- catalogue ----------
 
@@ -267,6 +320,10 @@ class Prefs(context: Context) {
         const val KEY_SEARCHES = "recent_searches"
         const val KEY_REC_VOLUME = "recording_volume"
         const val KEY_WEATHER_TOWN = "weather_town"
+        const val KEY_ACCOUNTS = "known_accounts"
+
+        /** More lines than anyone has; a list that can never grow for ever. */
+        const val MAX_ACCOUNTS = 6
         const val KEY_WEATHER_LAT = "weather_lat"
         const val KEY_WEATHER_LON = "weather_lon"
         const val KEY_JUMPY = "jumpy_channels"

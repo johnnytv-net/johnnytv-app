@@ -36,7 +36,14 @@ data class Scheduled(
     var padStartMs: Long = 60_000L,
     var padEndMs: Long = 5L * 60_000L,
     /** Catch every airing of this title on this channel, not just this one. */
-    var series: Boolean = false
+    var series: Boolean = false,
+    /**
+     * Which line to record through. Blank means the one in use when it fires,
+     * which is what every recording set on the box itself wants. One set from a
+     * phone names its own, because channel numbers belong to a line and the
+     * television may well be on a different one by the time it starts.
+     */
+    var account: String = ""
 ) {
     val recordFrom: Long get() = startAt - padStartMs
     val recordUntil: Long get() = endAt + padEndMs
@@ -51,6 +58,7 @@ data class Scheduled(
         .put("ps", padStartMs)
         .put("pe", padEndMs)
         .put("sr", series)
+        .put("ac", account)
 
     companion object {
         fun fromJson(o: JSONObject): Scheduled = Scheduled(
@@ -62,7 +70,8 @@ data class Scheduled(
             endAt = o.optLong("e", 0L),
             padStartMs = o.optLong("ps", 60_000L),
             padEndMs = o.optLong("pe", 5L * 60_000L),
-            series = o.optBoolean("sr", false)
+            series = o.optBoolean("sr", false),
+            account = o.optString("ac", "")
         )
     }
 }
@@ -204,7 +213,10 @@ class RecordAlarmReceiver : BroadcastReceiver() {
                 kind = Kind.LIVE
             )
 
-        RecorderService.start(app, item.title, channel, item.recordUntil)
+        val prefs = Prefs(app)
+        val through = if (item.account.isBlank()) null
+            else prefs.accountNamed(item.account)?.client()
+        RecorderService.start(app, item.title, channel, item.recordUntil, through)
 
         if (item.series) {
             // Look for the next airing of the same title on the same channel and

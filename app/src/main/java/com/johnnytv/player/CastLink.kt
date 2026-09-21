@@ -124,11 +124,15 @@ object CastLink {
      * a letterbox that cannot be reached is not a reason for anything on the
      * television to behave differently.
      */
-    fun pendingRecordings(prefs: Prefs): List<RecordRequest> {
-        if (!ready(prefs)) return emptyList()
+    fun pendingRecordings(prefs: Prefs): List<RecordRequest> =
+        pendingRecordings(prefs.username, prefs.password)
+
+    /** The same, for a particular line rather than the one in use. */
+    fun pendingRecordings(user: String, pass: String): List<RecordRequest> {
+        if (user.isBlank() || pass.isBlank()) return emptyList()
         return try {
-            val url = URL + "?peek=" + enc(prefs.username) +
-                "&t=" + token(prefs.username, prefs.password)
+            val url = URL + "?peek=" + enc(user) +
+                "&t=" + token(user, pass)
             val request = Request.Builder().url(url)
                 .header("User-Agent", Config.USER_AGENT)
                 .build()
@@ -197,10 +201,13 @@ object CastLink {
     }
 
     /** Tells the letterbox which requests are now on the television's list. */
-    fun confirmRecordings(prefs: Prefs, rids: List<String>) {
+    fun confirmRecordings(prefs: Prefs, rids: List<String>) =
+        confirmRecordings(prefs.username, prefs.password, rids)
+
+    fun confirmRecordings(user: String, pass: String, rids: List<String>) {
         if (rids.isEmpty()) return
-        post(
-            prefs,
+        postAs(
+            user, pass,
             FormBody.Builder()
                 .add("action", "recack")
                 .add("rids", rids.joinToString(","))
@@ -208,13 +215,33 @@ object CastLink {
     }
 
     /** What the television has scheduled, so the phone can show it back. */
-    fun reportScheduled(prefs: Prefs, text: String) {
-        post(
-            prefs,
+    fun reportScheduled(prefs: Prefs, text: String) =
+        reportScheduled(prefs.username, prefs.password, text)
+
+    fun reportScheduled(user: String, pass: String, text: String) {
+        postAs(
+            user, pass,
             FormBody.Builder()
                 .add("action", "recdone")
                 .add("text", text.take(400))
         )
+    }
+
+    private fun postAs(user: String, pass: String, builder: FormBody.Builder) {
+        if (user.isBlank() || pass.isBlank()) return
+        try {
+            val form = builder
+                .add("user", user)
+                .add("t", token(user, pass))
+                .build()
+            val request = Request.Builder().url(URL)
+                .post(form)
+                .header("User-Agent", Config.USER_AGENT)
+                .build()
+            http.newCall(request).execute().use { /* the answer is of no interest */ }
+        } catch (e: Exception) {
+            // The letterbox being unreachable must never affect television.
+        }
     }
 
     private fun post(prefs: Prefs, builder: FormBody.Builder) {

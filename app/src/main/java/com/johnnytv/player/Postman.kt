@@ -72,17 +72,41 @@ object Postman {
     fun collectAndDescribe(context: Context): String {
         val app = context.applicationContext
         val prefs = Prefs(app)
-        val look = CastLink.describeLetterbox(prefs)
+        prefs.rememberCurrentAccount()
+        val lines = prefs.knownAccounts().joinToString("\n") { account ->
+            val waiting = CastLink.pendingRecordings(account.username, account.password).size
+            account.username + " — waiting: " + waiting
+        }
         val before = Schedules.upcoming(app).size
         runCatching { collect(app) }
         val after = Schedules.upcoming(app).size
-        return look + "\n\nScheduled before: " + before + "\nScheduled now: " + after
+        return "Lines this box knows:\n" + lines +
+            "\n\nScheduled before: " + before + "\nScheduled now: " + after
     }
 
     fun collect(context: Context) {
         val app = context.applicationContext
         val prefs = Prefs(app)
-        val waiting = CastLink.pendingRecordings(prefs)
+        // Whatever line the box is on now joins the list, so the next time it
+        // is switched to another one this line is still looked after.
+        prefs.rememberCurrentAccount()
+
+        /*
+         * EVERY LINE'S LETTERBOX, NOT ONLY THE ONE ON SCREEN.
+         *
+         * Each line has its own box in the letterbox, because the note is filed
+         * under the username that sent it. Looking only in the box of the line
+         * the television is showing meant a recording set on Dino, while the
+         * house watched Edge, was never collected at all - it sat there until it
+         * expired, and nothing said why.
+         */
+        for (account in prefs.knownAccounts()) {
+            collectFor(app, account)
+        }
+    }
+
+    private fun collectFor(app: Context, account: Prefs.Account) {
+        val waiting = CastLink.pendingRecordings(account.username, account.password)
         if (waiting.isEmpty()) return
 
         val taken = ArrayList<String>()
@@ -97,6 +121,18 @@ object Postman {
                 continue
             }
 
+            // A second note for the same channel on the same day is somebody
+            // changing their mind, not asking for two recordings. The newest
+            // wins; the one it replaces is taken off the list.
+            val sameDay = 12L * 60L * 60L * 1000L
+            for (old in Schedules.all(app)) {
+                val clash = old.streamId == request.streamId &&
+                    old.account.equals(account.username, true) &&
+                    Math.abs(old.startAt - request.startAt) < sameDay &&
+                    old.id.startsWith("p")
+                if (clash) Schedules.remove(app, old.id)
+            }
+
             val item = Scheduled(
                 id = "p" + request.rid,
                 title = request.title.ifBlank { request.channel },
@@ -108,18 +144,22 @@ object Postman {
                 // it, so the same generous padding as recording by time.
                 padStartMs = 2L * 60_000L,
                 padEndMs = 10L * 60_000L,
-                series = false
+                series = false,
+                account = account.username
             )
             Schedules.put(app, item)
             taken.add(request.rid)
         }
 
-        CastLink.confirmRecordings(prefs, taken)
+        CastLink.confirmRecordings(account.username, account.password, taken)
 
-        // And tell the phone what the list looks like now, so somebody at work
-        // sees their recording confirmed rather than wondering all afternoon.
+        // Tell the phone what the list looks like now, so somebody at work sees
+        // their recording confirmed rather than wondering all afternoon.
         val clock = SimpleDateFormat("EEE h:mm a", Locale.getDefault())
-        val upcoming = Schedules.upcoming(app).sortedBy { it.startAt }.take(3)
+        val upcoming = Schedules.upcoming(app)
+            .filter { it.account.isBlank() || it.account.equals(account.username, true) }
+            .sortedBy { it.startAt }
+            .take(3)
         val text = if (upcoming.isEmpty()) {
             "Nothing scheduled"
         } else {
@@ -127,7 +167,7 @@ object Postman {
                 it.title.take(28) + " " + clock.format(Date(it.startAt))
             }
         }
-        CastLink.reportScheduled(prefs, text)
+        CastLink.reportScheduled(account.username, account.password, text)
     }
 }
 
