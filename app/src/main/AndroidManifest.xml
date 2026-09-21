@@ -104,6 +104,12 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Offers this box's recordings to the other televisions in the house. -->
+        <service
+            android:name=".ShareService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <!-- Goes and looks in the letterbox for recordings set from a phone. -->
         <receiver
             android:name=".PostmanReceiver"

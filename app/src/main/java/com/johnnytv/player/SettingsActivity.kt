@@ -47,6 +47,14 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.checkRow).setOnClickListener { showDeviceCheck() }
         findViewById<View>(R.id.phoneRow).setOnClickListener { checkPhoneRecordings() }
 
+        val shareState = findViewById<TextView>(R.id.shareState)
+        shareState.setText(if (prefs.shareRecordings) R.string.share_on else R.string.share_off)
+        findViewById<View>(R.id.shareRow).setOnClickListener {
+            prefs.shareRecordings = !prefs.shareRecordings
+            ShareService.apply(this)
+            shareState.setText(if (prefs.shareRecordings) R.string.share_on else R.string.share_off)
+        }
+
         val weatherState = findViewById<TextView>(R.id.weatherState)
         showWeatherState(weatherState)
         findViewById<View>(R.id.weatherRow).setOnClickListener { askForTown(weatherState) }

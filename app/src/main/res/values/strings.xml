@@ -199,6 +199,11 @@
     <string name="recordings_report_run">%1$s to %2$s — %3$d short drops, %4$d seconds lost in total, each one reconnected on its own.</string>
     <string name="record_busy_watching">Recording in progress. Your line allows one connection, so this channel has to stay on until it finishes.</string>
 
+    <string name="share_row">Share recordings with other TVs</string>
+    <string name="share_on">On — other TVs in the house can watch this box\'s recordings</string>
+    <string name="share_off">Off</string>
+    <string name="from_other_tv">From %1$s</string>
+    <string name="from_other_tv_line">%1$s · %2$s · %3$d min</string>
     <string name="phone_recordings">Check for phone recordings</string>
     <string name="phone_recordings_looking">Looking in the letterbox…</string>
     <string name="check_device">Check my device</string>

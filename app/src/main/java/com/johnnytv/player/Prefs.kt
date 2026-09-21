@@ -162,6 +162,15 @@ class Prefs(context: Context) {
      *
      * Blank means "work it out", which is the case for nearly everybody.
      */
+    /**
+     * Whether this box offers its recordings to the other televisions in the
+     * house. Off unless somebody switches it on: a box with nothing to share
+     * has no business listening on the network.
+     */
+    var shareRecordings: Boolean
+        get() = sp.getBoolean(KEY_SHARE, false)
+        set(value) = sp.edit().putBoolean(KEY_SHARE, value).apply()
+
     var weatherTown: String
         get() = sp.getString(KEY_WEATHER_TOWN, "") ?: ""
         set(value) = sp.edit().putString(KEY_WEATHER_TOWN, value).apply()
@@ -321,6 +330,7 @@ class Prefs(context: Context) {
         const val KEY_REC_VOLUME = "recording_volume"
         const val KEY_WEATHER_TOWN = "weather_town"
         const val KEY_ACCOUNTS = "known_accounts"
+        const val KEY_SHARE = "share_recordings"
 
         /** More lines than anyone has; a list that can never grow for ever. */
         const val MAX_ACCOUNTS = 6

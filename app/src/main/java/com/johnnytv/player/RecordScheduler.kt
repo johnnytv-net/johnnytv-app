@@ -262,5 +262,6 @@ class BootReceiver : BroadcastReceiver() {
         ) return
         RecordScheduler.armAll(context.applicationContext)
         Postman.start(context.applicationContext)
+        ShareService.apply(context.applicationContext)
     }
 }

@@ -58,6 +58,53 @@ class RecordingsActivity : AppCompatActivity() {
         super.onStart()
         draw()
         handler.post(refresh)
+        lookAroundTheHouse()
+    }
+
+    /*
+     * RECORDINGS ON THE OTHER TELEVISIONS.
+     *
+     * Looked for once each time this screen opens, in the background, and drawn
+     * under this box's own list when they arrive. A few seconds' search is not
+     * worth anybody waiting for, so the screen is complete without it and the
+     * section simply appears if a Shield answers.
+     */
+    private var elsewhere: List<ShareClient.Remote> = emptyList()
+
+    private fun lookAroundTheHouse() {
+        kotlin.concurrent.thread {
+            val found = runCatching { ShareClient.everything(this) }.getOrDefault(emptyList())
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                elsewhere = found
+                draw()
+            }
+        }
+    }
+
+    private fun rowFor(remote: ShareClient.Remote): View {
+        val row = LayoutInflater.from(this).inflate(R.layout.item_recording, column, false)
+        row.tag = "remote:" + remote.box.host + ":" + remote.id
+        val clock = SimpleDateFormat("EEE d MMM, h:mm a", Locale.getDefault())
+        row.findViewById<TextView>(R.id.recTitle).text = remote.title
+        row.findViewById<TextView>(R.id.recDetail).text = getString(
+            R.string.from_other_tv_line,
+            remote.channel,
+            clock.format(Date(remote.at)),
+            remote.minutes
+        )
+        row.findViewById<TextView>(R.id.recBadge).visibility = View.GONE
+        row.setOnClickListener {
+            // Played straight off the other box's drive, through its playlist,
+            // exactly as that box would play it itself.
+            PlayerActivity.startPlaylist(
+                this,
+                urls = listOf(remote.playlistUrl()),
+                title = remote.title,
+                contentId = "remote:" + remote.id
+            )
+        }
+        return row
     }
 
     override fun onStop() {
@@ -104,13 +151,21 @@ class RecordingsActivity : AppCompatActivity() {
         column.addView(recordByTimeRow())
 
         emptyLine.visibility =
-            if (recordings.isEmpty() && scheduled.isEmpty()) View.VISIBLE else View.GONE
+            if (recordings.isEmpty() && scheduled.isEmpty() && elsewhere.isEmpty()) View.VISIBLE
+            else View.GONE
 
         for (recording in recordings) column.addView(rowFor(recording))
 
         if (scheduled.isNotEmpty()) {
             column.addView(heading(getString(R.string.recordings_scheduled, scheduled.size)))
             for (item in scheduled) column.addView(rowFor(item))
+        }
+
+        // Whatever the other televisions in the house have recorded, grouped
+        // under the box it lives on.
+        for ((boxName, group) in elsewhere.groupBy { it.box.name }) {
+            column.addView(heading(getString(R.string.from_other_tv, boxName)))
+            for (remote in group) column.addView(rowFor(remote))
         }
 
         // Put the remote back where it was, so a refresh under someone's hands

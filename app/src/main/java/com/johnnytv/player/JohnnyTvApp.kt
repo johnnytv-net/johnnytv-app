@@ -19,6 +19,8 @@ class JohnnyTvApp : Application(), ImageLoaderFactory {
         runCatching { RecordScheduler.armAll(this) }
         // And go looking for anything set from a phone while this box was off.
         runCatching { Postman.start(this) }
+        // Sharing, if it is switched on, comes back with the app.
+        runCatching { ShareService.apply(this) }
     }
 
     /**
