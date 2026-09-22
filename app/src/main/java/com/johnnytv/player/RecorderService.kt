@@ -1383,8 +1383,22 @@ class RecorderService : Service() {
             return -1
         }
 
-        /** Ten minutes per chunk: small enough to lose nothing, few enough to play. */
-        private const val PART_LENGTH_MS = 10L * 60L * 1000L
+        /**
+         * HOW LONG A PART SHOULD BE.
+         *
+         * Ten minutes seemed sensible - few files, little lost to a power cut.
+         * It is far too long for the format the recordings are played back
+         * through, which expects pieces of a few seconds: a player cannot show
+         * anything until it has pulled a whole piece, so a four hour recording
+         * in ten minute pieces sat there for five minutes before starting, and
+         * seeking into the third hour was worse.
+         *
+         * Half a minute is what the rest of the world uses, give or take. An
+         * evening becomes a few hundred small files instead of twenty huge
+         * ones, which costs nothing on a drive and turns a five minute wait
+         * into a second or two.
+         */
+        private const val PART_LENGTH_MS = 30L * 1000L
 
         /** Silence from the portal for this long counts as the feed having dropped. */
         private const val SILENCE_IS_A_DROP_MS = 5_000L
@@ -1403,7 +1417,7 @@ class RecorderService : Service() {
          * rather than the rest of the recording, long enough that an hour is
          * thirty files and not three hundred.
          */
-        private const val SEGMENT_PART_MS = 2L * 60L * 1000L
+        private const val SEGMENT_PART_MS = 30L * 1000L
 
         /** How long to wait before asking a segmented channel what is new. */
         private const val POLL_WAIT_MS = 4_000L
