@@ -32,6 +32,10 @@ internal fun ImageView.loadArtwork(
 ) {
     load(url.ifBlank { null }) {
         crossfade(false)
+        // Half the memory per picture, and on a logo or a poster at tile size
+        // nobody has ever seen the difference. Memory is what decides how much
+        // artwork survives a scroll before it has to be fetched again.
+        bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
         placeholder(placeholderRes)
         error(placeholderRes)
         fallback(placeholderRes)

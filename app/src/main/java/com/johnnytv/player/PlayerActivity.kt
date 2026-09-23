@@ -6,7 +6,6 @@ import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
 import android.widget.TextView
-import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -16,6 +15,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
@@ -59,6 +59,18 @@ class PlayerActivity : AppCompatActivity() {
     /** Where a held-down button has walked to, before it settles and tunes. */
     private var pendingIndex = -1
 
+    /** The recording being watched while it is still being written. */
+    private var pendingRecordingId = ""
+
+    /** This channel has stalled on this line before, so hold more in hand. */
+    private var deeperBuffer = false
+
+    /** A recording being played back: a list of chunk files, not a live stream. */
+    private var playlist = false
+
+    /** When the picture last stopped moving, so a stall can be caught early. */
+    private var stalledSince = 0L
+
     private var resumeFrom: Long = 0L
     private var hasSeeked = false
     private var retriesOnCurrentUrl = 0
@@ -73,23 +85,6 @@ class PlayerActivity : AppCompatActivity() {
      */
     private var controlsUp = false
 
-    /** The red dot, on while this box is keeping something. */
-    private lateinit var recordingBadge: TextView
-
-    /**
-     * A long press on OK has already been acted on, so the release that follows
-     * must not also reach the player and open its controls.
-     */
-    private var swallowCenterUp = false
-
-    /** Redraws the badge whenever a recording starts or finishes, from anywhere. */
-    private val recordingWatcher: () -> Unit = {
-        runOnUiThread { if (!isFinishing) showRecordingState() }
-    }
-
-    /** What the guide says is on right now, so a recording gets a proper name. */
-    private var currentProgramme: String = ""
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
@@ -100,9 +95,9 @@ class PlayerActivity : AppCompatActivity() {
         nowPlayingLabel = findViewById(R.id.playerNowPlaying)
         channelLabel = findViewById(R.id.playerChannel)
         loadingView = findViewById(R.id.playerLoading)
-        recordingBadge = findViewById(R.id.playerRecording)
 
         urls = intent.getStringArrayListExtra(EXTRA_URLS) ?: emptyList()
+        playlist = intent.getBooleanExtra(EXTRA_PLAYLIST, false)
         title = intent.getStringExtra(EXTRA_TITLE) ?: ""
         contentId = intent.getStringExtra(EXTRA_CONTENT_ID) ?: ""
         kind = runCatching { Kind.valueOf(intent.getStringExtra(EXTRA_KIND) ?: Kind.LIVE.name) }
@@ -112,6 +107,38 @@ class PlayerActivity : AppCompatActivity() {
         if (urls.isEmpty()) {
             showStatus(getString(R.string.nothing_to_play))
             return
+        }
+
+        // ONE CONNECTION, AND A RECORDING ALREADY HOLDING IT.
+        //
+        // Opening a live stream now means two connections on a line that allows
+        // one: the portal drops one of them, and what the viewer actually sees
+        // is endless buffering or "could not play" while their recording quietly
+        // suffers. Neither is a thing anybody can diagnose from the sofa.
+        //
+        // So it is handled instead of risked. The channel being recorded is
+        // played from the file being written - a few seconds behind live, no
+        // second connection, and the recording is untouched. Any other channel
+        // says plainly why it cannot open.
+        if (kind == Kind.LIVE && RecorderService.isRecording) {
+            val recording = RecordingStore.all(this).firstOrNull { it.isRecording }
+            if (recording != null && recording.streamId == contentId) {
+                val parts = recording.files(this).map { android.net.Uri.fromFile(it).toString() }
+                if (parts.isNotEmpty()) {
+                    urls = parts
+                    playlist = true
+                    kind = Kind.VOD
+                    title = recording.title
+                    nowPlayingLabel.text = getString(R.string.record_watching_recording)
+                    nowPlayingLabel.visibility = View.VISIBLE
+                    nowPlayingLabel.removeCallbacks(hideNowPlaying)
+                    nowPlayingLabel.postDelayed(hideNowPlaying, 8_000L)
+                }
+            } else {
+                showStatus(getString(R.string.record_busy_watching))
+                urls = emptyList()
+                return
+            }
         }
 
         resumeFrom = if (kind == Kind.LIVE) 0L else prefs.position(kind, contentId)
@@ -171,14 +198,12 @@ class PlayerActivity : AppCompatActivity() {
         super.onStart()
         if (urls.isNotEmpty()) startPlayback()
         if (kind == Kind.LIVE) playerView.post(castWatch)
-        RecordingService.watch(recordingWatcher)
-        showRecordingState()
-        offerRecordingHint()
+        if (kind == Kind.LIVE && !playlist) playerView.postDelayed(stallWatch, STALL_CHECK_MS)
+        if (kind == Kind.LIVE && !playlist) playerView.postDelayed(recordingWatch, RECORDING_CHECK_MS)
     }
 
     override fun onStop() {
         super.onStop()
-        RecordingService.unwatch(recordingWatcher)
         rememberPosition()
         cancelPendingRetry()
         playerView.removeCallbacks(applyChannelStep)
@@ -188,6 +213,10 @@ class PlayerActivity : AppCompatActivity() {
         channelLabel.removeCallbacks(hideChannelLabel)
         channelLabel.visibility = View.GONE
         playerView.removeCallbacks(castWatch)
+        playerView.removeCallbacks(stallWatch)
+        playerView.removeCallbacks(waitForChunk)
+        playerView.removeCallbacks(recordingWatch)
+        stalledSince = 0L
         castAsk?.dismiss()
         castAsk = null
         releasePlayer()
@@ -269,8 +298,16 @@ class PlayerActivity : AppCompatActivity() {
      * controls, which would otherwise take the press for seeking.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (handleRecordKey(event)) return true
-
+        // The record button on a remote that has one. Nothing else on this
+        // screen wants it, so it can be taken straight.
+        if (event.action == KeyEvent.ACTION_DOWN &&
+            event.keyCode == KeyEvent.KEYCODE_MEDIA_RECORD &&
+            kind == Kind.LIVE
+        ) {
+            val channel = Catalog.live.firstOrNull { it.streamId == contentId }
+            if (channel != null) RecordDialog.showForLive(this, channel)
+            return true
+        }
         val step = stepFor(event.keyCode)
         // Only while the player's own controls are hidden. With them showing, the
         // remote belongs to them - that is how you reach the subtitles button.
@@ -288,99 +325,6 @@ class PlayerActivity : AppCompatActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
-    }
-
-    // ---------- recording ----------
-
-    /**
-     * Holding OK starts and stops recording.
-     *
-     * There is no record button on a Firestick remote and no room for a new one
-     * on screen without pushing something else off, so the gesture goes where
-     * nothing else lives: a press and hold of the button already under the
-     * thumb. A short press still opens the controls exactly as before, and the
-     * hint shown the first time somebody opens a channel explains it once.
-     *
-     * A remote that does have a record button works too, for the boxes that
-     * have one.
-     */
-    private fun handleRecordKey(event: KeyEvent): Boolean {
-        if (kind != Kind.LIVE || contentId.isBlank()) return false
-
-        if (event.keyCode == KeyEvent.KEYCODE_MEDIA_RECORD) {
-            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) toggleRecording()
-            return true
-        }
-
-        val isOk = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-            event.keyCode == KeyEvent.KEYCODE_ENTER ||
-            event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
-        if (!isOk) return false
-
-        when (event.action) {
-            KeyEvent.ACTION_DOWN -> {
-                // repeatCount reaches 1 at about half a second held, which is
-                // long enough to be deliberate and short enough not to feel stuck.
-                if (event.repeatCount == 1) {
-                    swallowCenterUp = true
-                    toggleRecording()
-                    return true
-                }
-                // Later repeats belong to the same hold and must not stack up.
-                if (event.repeatCount > 1 && swallowCenterUp) return true
-            }
-            KeyEvent.ACTION_UP -> {
-                if (swallowCenterUp) {
-                    swallowCenterUp = false
-                    return true
-                }
-            }
-        }
-        return false
-    }
-
-    private fun toggleRecording() {
-        val running = RecordingService.state
-        if (running != null) {
-            // Whatever is recording, this stops it - including a recording of a
-            // channel the viewer has since left.
-            RecordingService.stop(this)
-            flash(getString(R.string.recording_stopped, running.channelName))
-            return
-        }
-
-        if (Recordings.freeSpace(this) < Recordings.FREE_SPACE_FLOOR) {
-            flash(getString(R.string.recording_no_space))
-            return
-        }
-
-        RecordingService.start(
-            this,
-            urls = client.liveUrls(contentId),
-            channelId = contentId,
-            channelName = title,
-            programme = currentProgramme
-        )
-        flash(getString(R.string.recording_started, title))
-        showRecordingState()
-    }
-
-    private fun showRecordingState() {
-        recordingBadge.visibility =
-            if (RecordingService.state != null) View.VISIBLE else View.GONE
-    }
-
-    /**
-     * Said once, the first time somebody opens a channel on this box after the
-     * update, and never again. A feature nobody is told about is a feature
-     * nobody has.
-     */
-    private fun offerRecordingHint() {
-        if (kind != Kind.LIVE || prefs.recordHintSeen) return
-        prefs.recordHintSeen = true
-        playerView.postDelayed({
-            if (!isFinishing) flash(getString(R.string.recording_hint))
-        }, 2_500L)
     }
 
     private fun stepFor(keyCode: Int): Int = when (keyCode) {
@@ -421,6 +365,12 @@ class PlayerActivity : AppCompatActivity() {
 
     /** Switches to [next] and starts it playing. */
     private fun tune(next: StreamItem) {
+        // Same rule as every other way into a channel, applied here too
+        // because surfing with up and down never leaves this screen.
+        if (RecorderService.isRecording && RecorderService.activeStreamId != next.streamId) {
+            android.widget.Toast.makeText(this, R.string.record_busy_watching, android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
         // Anything still pending belongs to the channel we are leaving.
         cancelPendingRetry()
         guideJob?.cancel()
@@ -452,6 +402,142 @@ class PlayerActivity : AppCompatActivity() {
     private val hideChannelLabel = Runnable { channelLabel.visibility = View.GONE }
     private val hideNowPlaying = Runnable { nowPlayingLabel.visibility = View.GONE }
 
+    /**
+     * Sitting at the live edge of a recording in progress.
+     *
+     * Checks every few seconds for a chunk that has finished since, and picks up
+     * from there. The status line says what is happening, because a still
+     * picture with no explanation reads as broken.
+     */
+    private fun waitForMoreRecording() {
+        val recordingId = contentId.removePrefix("rec:")
+        showStatus(getString(R.string.recording_catching_up))
+        playerView.removeCallbacks(waitForChunk)
+        playerView.postDelayed(waitForChunk, CHUNK_WAIT_MS)
+        pendingRecordingId = recordingId
+    }
+
+    // The type is written out because this reschedules itself, and without it
+    // the compiler is working out the type of a thing from a body that mentions
+    // that same thing.
+    private val waitForChunk: Runnable = Runnable {
+        val id = pendingRecordingId
+        if (id.isBlank() || isFinishing) return@Runnable
+        val recording = RecordingStore.find(this, id)
+        val files = recording?.playableFiles(this).orEmpty()
+        if (files.size > urls.size) {
+            // Something new has finished being written. Continue from it.
+            val fresh = files.drop(urls.size).map { android.net.Uri.fromFile(it).toString() }
+            urls = urls + fresh
+            hideStatus()
+            val active = player
+            if (active != null) {
+                for (url in fresh) active.addMediaItem(MediaItem.fromUri(url))
+                active.prepare()
+                active.playWhenReady = true
+            } else {
+                startPlayback()
+            }
+        } else if (recording?.isRecording == true) {
+            playerView.postDelayed(waitForChunk, CHUNK_WAIT_MS)
+        } else {
+            // The recording has finished and there is nothing more coming.
+            finish()
+        }
+    }
+
+    /**
+     * A RECORDING STARTING UNDERNEATH THE PICTURE.
+     *
+     * Opening a channel while something records is already refused. What was
+     * missing is the other order of events: watching a channel, then starting a
+     * recording from the very screen you are watching on. Both then want the
+     * line's one connection, the portal picks one, and the viewer is told their
+     * channel is offline - which it is not.
+     *
+     * So the player gets out of the way. On the channel being recorded it
+     * switches to playing the recording, which costs no connection at all and
+     * is a few seconds behind live. On any other channel it says why and stops.
+     */
+    private val recordingWatch = object : Runnable {
+        override fun run() {
+            if (isFinishing) return
+            if (kind == Kind.LIVE && !playlist && RecorderService.isRecording) {
+                val recording = RecordingStore.all(this@PlayerActivity)
+                    .firstOrNull { it.isRecording }
+                val sameChannel = RecorderService.activeStreamId == contentId
+                val fromDisk = recording?.playlistFile(this@PlayerActivity)
+                if (sameChannel && fromDisk != null) {
+                    android.widget.Toast.makeText(
+                        this@PlayerActivity,
+                        R.string.record_watching_recording,
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                    startPlaylist(
+                        this@PlayerActivity,
+                        urls = listOf(android.net.Uri.fromFile(fromDisk).toString()),
+                        title = title,
+                        contentId = "rec:" + recording.id
+                    )
+                    finish()
+                    return
+                }
+                if (!sameChannel) {
+                    android.widget.Toast.makeText(
+                        this@PlayerActivity,
+                        R.string.record_busy_watching,
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                    finish()
+                    return
+                }
+            }
+            playerView.postDelayed(this, RECORDING_CHECK_MS)
+        }
+    }
+
+    // ---------- fixing itself ----------
+
+    /**
+     * THE STALL WATCHDOG.
+     *
+     * ExoPlayer reports an error when a stream breaks, and reconnecting from
+     * that is old behaviour. What it does not report is the far commoner
+     * failure: the portal keeps the socket open and simply stops sending. The
+     * player sits in BUFFERING for ever, perfectly happy, showing a spinner,
+     * and nothing in the code below ever fires.
+     *
+     * So the picture is watched rather than the player. Three seconds of
+     * nothing moving is not a wobble, it is a feed that has gone away, and the
+     * cure is the one that already exists - throw the connection away and open
+     * it again. A viewer who would have sat looking at a spinner gets a couple
+     * of seconds of frozen picture instead.
+     *
+     * Twice on the same channel and it is not luck: that channel is noted, and
+     * from then on it starts with a much deeper buffer on this line.
+     */
+    private val stallWatch = object : Runnable {
+        override fun run() {
+            val active = player
+            if (active != null && !isFinishing) {
+                val stuck = active.playbackState == Player.STATE_BUFFERING && active.playWhenReady
+                if (stuck) {
+                    val now = System.currentTimeMillis()
+                    if (stalledSince == 0L) {
+                        stalledSince = now
+                    } else if (now - stalledSince >= STALL_MS) {
+                        stalledSince = 0L
+                        if (prefs.noteStall(contentId)) deeperBuffer = true
+                        recover()
+                    }
+                } else {
+                    stalledSince = 0L
+                }
+            }
+            playerView.postDelayed(this, STALL_CHECK_MS)
+        }
+    }
+
     // ---------- playback ----------
 
     private fun startPlayback() {
@@ -470,12 +556,16 @@ class PlayerActivity : AppCompatActivity() {
         // IPTV portals are less steady than a commercial video service, so hold a
         // deeper buffer than the ExoPlayer defaults: start playing quickly, then keep
         // up to a minute in hand to ride out a wobbly feed.
+        // A channel that has stalled here before starts with a cushion instead
+        // of the usual quick start: a second and a half of extra wait once beats
+        // a freeze every few minutes.
+        val jumpy = deeperBuffer || prefs.isJumpy(contentId)
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                Config.MIN_BUFFER_MS,
+                if (jumpy) Config.MIN_BUFFER_MS * 2 else Config.MIN_BUFFER_MS,
                 Config.MAX_BUFFER_MS,
-                Config.BUFFER_FOR_PLAYBACK_MS,
-                Config.BUFFER_AFTER_REBUFFER_MS
+                if (jumpy) Config.BUFFER_FOR_PLAYBACK_DEEP_MS else Config.BUFFER_FOR_PLAYBACK_MS,
+                if (jumpy) Config.BUFFER_AFTER_REBUFFER_MS * 2 else Config.BUFFER_AFTER_REBUFFER_MS
             )
             .setBackBuffer(30_000, true)
             // Start on a duration of video rather than a number of bytes, so a
@@ -483,8 +573,16 @@ class PlayerActivity : AppCompatActivity() {
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
+        // Http alone was enough while everything played came off a portal. A
+        // recording is a file on a drive, and a player that only knows how to
+        // open http:// simply refuses it - which is why a recording that had
+        // written perfectly would not play back. DefaultDataSource opens files,
+        // content and assets as well, and hands anything network-shaped to the
+        // same http factory as before.
+        val sourceFactory = DefaultDataSource.Factory(this, httpFactory)
+
         val exo = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(sourceFactory))
             .setLoadControl(loadControl)
             .setAudioAttributes(AudioAttributes.DEFAULT, /* handleAudioFocus= */ true)
             .build()
@@ -494,6 +592,10 @@ class PlayerActivity : AppCompatActivity() {
                 // Late word from a player we have already moved on from - a
                 // channel change tearing one down often ends in an error.
                 if (player !== exo) return
+                if (playlist) {
+                    showStatus(getString(R.string.could_not_play, title))
+                    return
+                }
                 // A wobbly feed is not a dead feed. Try the same stream again a couple
                 // of times, then fall through to the other container (.m3u8 vs .ts),
                 // and only give up once nothing is left.
@@ -514,6 +616,17 @@ class PlayerActivity : AppCompatActivity() {
                         }
                     }
                     Player.STATE_ENDED -> {
+                        if (playlist && contentId.startsWith("rec:") &&
+                            RecorderService.isRecording
+                        ) {
+                            // Caught up with a recording that is still being
+                            // written. The end of the file is not the end of the
+                            // programme - wait for the next chunk to finish and
+                            // carry on, rather than dropping the viewer back to
+                            // the guide mid-match.
+                            waitForMoreRecording()
+                            return
+                        }
                         if (kind == Kind.LIVE) {
                             // A live channel never really "ends" - the feed dropped.
                             // Reconnect instead of closing the player.
@@ -530,7 +643,14 @@ class PlayerActivity : AppCompatActivity() {
 
         playerView.player = exo
         player = exo
-        exo.setMediaItem(MediaItem.fromUri(urls[urlIndex]))
+        if (playlist) {
+            // A recording: every chunk handed over at once, so it plays through
+            // as one programme rather than stopping at the end of each ten
+            // minutes.
+            exo.setMediaItems(urls.map { MediaItem.fromUri(it) })
+        } else {
+            exo.setMediaItem(MediaItem.fromUri(urls[urlIndex]))
+        }
         exo.prepare()
         exo.playWhenReady = true
 
@@ -626,9 +746,6 @@ class PlayerActivity : AppCompatActivity() {
                 ?: listings.firstOrNull()
                 ?: return@launch
 
-            // Kept so a recording started from here can be filed under the
-            // programme's name rather than just the channel's.
-            currentProgramme = current.title
             nowPlayingLabel.text = getString(R.string.now_playing_label, current.title)
             nowPlayingLabel.visibility = View.VISIBLE
             nowPlayingLabel.removeCallbacks(hideNowPlaying)
@@ -641,18 +758,6 @@ class PlayerActivity : AppCompatActivity() {
         // them away from under someone reaching for the subtitles button.
         loadingView.visibility = View.VISIBLE
         statusLabel.visibility = View.GONE
-    }
-
-    /**
-     * A message that goes away by itself.
-     *
-     * The status panel in the middle is for things that have gone wrong and
-     * stays until something changes. Telling somebody a recording has started is
-     * not that, and leaving it sitting over the picture would be worse than not
-     * saying anything.
-     */
-    private fun flash(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
     private fun showStatus(message: String) {
@@ -687,7 +792,18 @@ class PlayerActivity : AppCompatActivity() {
         /** How long the question waits for somebody who may not be there. */
         private const val CAST_ASK_MS = 20_000L
 
+        /** How long the picture may sit still before it counts as a stall. */
+        /** How often to look for another finished chunk of a live recording. */
+        private const val CHUNK_WAIT_MS = 4_000L
+
+        /** How often to look for a recording having started underneath us. */
+        private const val RECORDING_CHECK_MS = 2_000L
+
+        private const val STALL_MS = 3_000L
+        private const val STALL_CHECK_MS = 1_000L
+
         private const val EXTRA_URLS = "extra_urls"
+        private const val EXTRA_PLAYLIST = "extra_playlist"
         private const val EXTRA_TITLE = "extra_title"
         private const val EXTRA_KIND = "extra_kind"
         private const val EXTRA_CONTENT_ID = "extra_content_id"
@@ -705,6 +821,23 @@ class PlayerActivity : AppCompatActivity() {
             return id
         }
 
+        /** Plays a recording: its chunks, in order, as one programme. */
+        fun startPlaylist(
+            context: Context,
+            urls: List<String>,
+            title: String,
+            contentId: String
+        ) {
+            context.startActivity(
+                Intent(context, PlayerActivity::class.java)
+                    .putStringArrayListExtra(EXTRA_URLS, ArrayList(urls))
+                    .putExtra(EXTRA_TITLE, title)
+                    .putExtra(EXTRA_KIND, Kind.VOD.name)
+                    .putExtra(EXTRA_CONTENT_ID, contentId)
+                    .putExtra(EXTRA_PLAYLIST, true)
+            )
+        }
+
         fun start(
             context: Context,
             urls: List<String>,
@@ -714,6 +847,52 @@ class PlayerActivity : AppCompatActivity() {
             /** Which Live TV category this came from, so up and down can change channel. */
             category: String = ""
         ) {
+            /*
+             * THE ONE CONNECTION, GUARDED IN ONE PLACE.
+             *
+             * This check used to live inside the player, where it caught the
+             * up/down channel change and nothing else - so the guide, the
+             * channel list, search and the phone all walked straight past it
+             * and opened a second stream. On a one-connection line that means
+             * the portal throws one of them off, and the two spend the evening
+             * knocking each other over: the viewer sees a channel buffering
+             * every ten seconds and the recording fills up with one-second
+             * holes.
+             *
+             * Every route into a channel comes through here, so here is where
+             * it belongs. Same channel as the recording: watch what is already
+             * being written to the drive, which costs no connection at all.
+             * Different channel: say why, and leave the recording alone.
+             */
+            if (kind == Kind.LIVE && RecorderService.isRecording) {
+                if (contentId.isNotBlank() && contentId == RecorderService.activeStreamId) {
+                    val live = RecordingStore.all(context).firstOrNull { it.isRecording }
+                    val running = live?.playlistFile(context)
+                    val parts = if (running != null) listOf(running)
+                        else live?.playableFiles(context).orEmpty()
+                    if (parts.isNotEmpty()) {
+                        android.widget.Toast.makeText(
+                            context,
+                            R.string.record_watching_recording,
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                        startPlaylist(
+                            context,
+                            urls = parts.map { android.net.Uri.fromFile(it).toString() },
+                            title = title,
+                            contentId = "rec:" + (live?.id ?: "")
+                        )
+                        return
+                    }
+                }
+                android.widget.Toast.makeText(
+                    context,
+                    R.string.record_busy_watching,
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+                return
+            }
+
             context.startActivity(
                 Intent(context, PlayerActivity::class.java)
                     .putStringArrayListExtra(EXTRA_URLS, ArrayList(urls))

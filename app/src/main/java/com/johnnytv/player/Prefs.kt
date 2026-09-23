@@ -36,6 +36,9 @@ class Prefs(context: Context) {
             .putString(KEY_USER, username)
             .putString(KEY_PASS, password)
             .apply()
+        // Every line signed into joins the list, so a recording set on it from a
+        // phone is still collected after the box moves to another one.
+        rememberCurrentAccount()
     }
 
     /** Signs the customer out but keeps the server, so they only re-enter user + password. */
@@ -43,19 +46,19 @@ class Prefs(context: Context) {
         sp.edit().remove(KEY_USER).remove(KEY_PASS).apply()
     }
 
+    fun client(): XtreamClient = XtreamClient(server, username, password)
+
     // ---------- remembered logins ----------
 
     /**
      * ONE LINE, ONE TAP, NEXT TIME.
      *
-     * Every login that has ever worked on this box is kept here, so signing out
-     * is no longer a punishment: the name comes back as a button on the sign-in
-     * screen and the password comes with it.
-     *
-     * This is the same box the account is already signed in on, and the password
-     * for the line being watched was already stored here to keep the session
-     * alive - so nothing is exposed that was not exposed a moment ago. It never
-     * leaves the device.
+     * Every login that has worked on this box is kept here, so signing out is no
+     * longer a punishment: the name comes back as a button on the sign-in screen
+     * and the password comes with it. Nothing is ever drawn on screen but the
+     * name, and none of it leaves the device - the password for the line being
+     * watched was already stored here to keep the session alive, so nothing is
+     * exposed that was not exposed a moment ago.
      */
     data class SavedLogin(val server: String, val username: String, val password: String)
 
@@ -74,7 +77,7 @@ class Prefs(context: Context) {
             emptyList()
         }
 
-    /** Newest first, one entry per username, and a short list - this is a TV, not a vault. */
+    /** Newest first, one entry per username, and a short list - this is a television, not a vault. */
     fun rememberLogin(server: String, username: String, password: String) {
         if (username.isBlank() || password.isBlank()) return
         val list = ArrayList(savedLogins.filter { !it.username.equals(username, true) })
@@ -100,7 +103,56 @@ class Prefs(context: Context) {
         sp.edit().putString(KEY_LOGINS, array.toString()).apply()
     }
 
-    fun client(): XtreamClient = XtreamClient(server, username, password)
+
+    /** One line this box has been signed into. */
+    data class Account(val server: String, val username: String, val password: String) {
+        fun client(): XtreamClient = XtreamClient(server, username, password)
+    }
+
+    /**
+     * EVERY LINE THIS BOX HAS KNOWN.
+     *
+     * A recording belongs to the line that asked for it, not to whichever one
+     * the television happens to be showing. Set a recording on the Dino line
+     * from work while the house watches Edge, and the box has to know Dino's
+     * details to collect it and to record it - so it keeps them, on the box,
+     * exactly where it already kept the one it is using.
+     *
+     * Nothing leaves the device. This is the same information the sign-in
+     * screen stored; there is simply more than one of it.
+     */
+    fun knownAccounts(): List<Account> {
+        val out = ArrayList<Account>()
+        runCatching {
+            val array = org.json.JSONArray(sp.getString(KEY_ACCOUNTS, "[]") ?: "[]")
+            for (i in 0 until array.length()) {
+                val o = array.optJSONObject(i) ?: continue
+                val u = o.optString("u", "")
+                if (u.isBlank()) continue
+                out.add(Account(o.optString("s", ""), u, o.optString("p", "")))
+            }
+        }
+        // The one in use is always among them, even before it has been saved.
+        if (username.isNotBlank() && out.none { it.username.equals(username, true) }) {
+            out.add(0, Account(server, username, password))
+        }
+        return out
+    }
+
+    /** Adds, or refreshes, the account in use now. */
+    fun rememberCurrentAccount() {
+        if (username.isBlank()) return
+        val list = knownAccounts().filter { !it.username.equals(username, true) }.toMutableList()
+        list.add(0, Account(server, username, password))
+        val array = org.json.JSONArray()
+        for (a in list.take(MAX_ACCOUNTS)) {
+            array.put(org.json.JSONObject().put("s", a.server).put("u", a.username).put("p", a.password))
+        }
+        sp.edit().putString(KEY_ACCOUNTS, array.toString()).apply()
+    }
+
+    fun accountNamed(user: String): Account? =
+        knownAccounts().firstOrNull { it.username.equals(user, true) }
 
     // ---------- catalogue ----------
 
@@ -113,16 +165,6 @@ class Prefs(context: Context) {
     var liveListView: Boolean
         get() = sp.getBoolean(KEY_LIST_VIEW, false)
         set(value) = sp.edit().putBoolean(KEY_LIST_VIEW, value).apply()
-
-    /**
-     * Whether this box has been told once that holding OK records.
-     *
-     * A gesture nobody can see has to be said out loud, and saying it more than
-     * once turns help into nagging.
-     */
-    var recordHintSeen: Boolean
-        get() = sp.getBoolean(KEY_RECORD_HINT, false)
-        set(value) = sp.edit().putBoolean(KEY_RECORD_HINT, value).apply()
 
     /**
      * Whether the highlighted channel plays silently in list view. On by default,
@@ -166,6 +208,65 @@ class Prefs(context: Context) {
     var message: String
         get() = sp.getString(KEY_MESSAGE, "") ?: ""
         set(value) = sp.edit().putString(KEY_MESSAGE, value).apply()
+
+    /**
+     * Which drive recordings go to, remembered as the volume's own path so a
+     * stick plugged back in later is recognised as the same one.
+     */
+    /**
+     * The town for the weather, when the address lookup got it wrong.
+     *
+     * Blank means "work it out", which is the case for nearly everybody.
+     */
+    /**
+     * Whether this box offers its recordings to the other televisions in the
+     * house. Off unless somebody switches it on: a box with nothing to share
+     * has no business listening on the network.
+     */
+    var shareRecordings: Boolean
+        get() = sp.getBoolean(KEY_SHARE, false)
+        set(value) = sp.edit().putBoolean(KEY_SHARE, value).apply()
+
+    var weatherTown: String
+        get() = sp.getString(KEY_WEATHER_TOWN, "") ?: ""
+        set(value) = sp.edit().putString(KEY_WEATHER_TOWN, value).apply()
+
+    var weatherLatitude: Double
+        get() = java.lang.Double.longBitsToDouble(sp.getLong(KEY_WEATHER_LAT, 0L))
+        set(value) = sp.edit().putLong(KEY_WEATHER_LAT, java.lang.Double.doubleToRawLongBits(value)).apply()
+
+    var weatherLongitude: Double
+        get() = java.lang.Double.longBitsToDouble(sp.getLong(KEY_WEATHER_LON, 0L))
+        set(value) = sp.edit().putLong(KEY_WEATHER_LON, java.lang.Double.doubleToRawLongBits(value)).apply()
+
+    var recordingVolume: String
+        get() = sp.getString(KEY_REC_VOLUME, "") ?: ""
+        set(value) = sp.edit().putString(KEY_REC_VOLUME, value).apply()
+
+    /**
+     * Channels that have stalled on this line before.
+     *
+     * A channel that buffers once is bad luck; one that buffers twice is a
+     * channel this connection cannot keep up with at the normal settings, so it
+     * is given a deeper head start from then on. Remembered rather than
+     * re-learned every time, because the second stall is the one the viewer
+     * notices and there is no reason to make them sit through it twice.
+     */
+    fun isJumpy(streamId: String): Boolean = jumpySet().contains(streamId)
+
+    fun noteStall(streamId: String): Boolean {
+        if (streamId.isBlank()) return false
+        val counted = sp.getInt(stallKey(streamId), 0) + 1
+        sp.edit().putInt(stallKey(streamId), counted).apply()
+        if (counted < STALLS_BEFORE_DEEPER_BUFFER) return false
+        val set = HashSet(jumpySet())
+        if (set.add(streamId)) sp.edit().putStringSet(KEY_JUMPY, set).apply()
+        return true
+    }
+
+    private fun stallKey(streamId: String) = "stalls:" + streamId
+
+    private fun jumpySet(): Set<String> = sp.getStringSet(KEY_JUMPY, emptySet()) ?: emptySet()
 
     var lastSync: Long
         get() = sp.getLong(KEY_LAST_SYNC, 0L)
@@ -277,7 +378,6 @@ class Prefs(context: Context) {
         const val KEY_MESSAGE_READ = "message_read"
         const val KEY_LOGOS = "logo_pack"
         const val KEY_LIST_VIEW = "live_list_view"
-        const val KEY_RECORD_HINT = "record_hint_seen"
         const val KEY_PREVIEW = "channel_preview"
         const val KEY_FAVS = "favourites"
         const val KEY_POSITIONS = "positions"
@@ -285,5 +385,18 @@ class Prefs(context: Context) {
         const val KEY_SEARCHES = "recent_searches"
         const val KEY_LOGINS = "saved_logins"
         const val MAX_LOGINS = 8
+        const val KEY_REC_VOLUME = "recording_volume"
+        const val KEY_WEATHER_TOWN = "weather_town"
+        const val KEY_ACCOUNTS = "known_accounts"
+        const val KEY_SHARE = "share_recordings"
+
+        /** More lines than anyone has; a list that can never grow for ever. */
+        const val MAX_ACCOUNTS = 6
+        const val KEY_WEATHER_LAT = "weather_lat"
+        const val KEY_WEATHER_LON = "weather_lon"
+        const val KEY_JUMPY = "jumpy_channels"
+
+        /** How many stalls before a channel gets the deeper buffer for good. */
+        const val STALLS_BEFORE_DEEPER_BUFFER = 2
     }
 }

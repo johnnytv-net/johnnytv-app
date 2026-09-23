@@ -1,421 +1,82 @@
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@color/bg_base"
-    android:orientation="vertical"
-    android:padding="10dp">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@drawable/bg_topbar"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="18dp"
-        android:paddingEnd="18dp"
-        android:paddingTop="12dp"
-        android:paddingBottom="12dp">
-
-        <ImageView
-            android:layout_width="wrap_content"
-            android:layout_height="40dp"
-            android:adjustViewBounds="true"
-            android:contentDescription="@string/app_name"
-            android:src="@drawable/logo" />
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/homeDate"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="@color/text_primary"
-                android:textSize="18sp" />
-
-            <TextView
-                android:id="@+id/homeClock"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="28dp"
-                android:textColor="@color/text_primary"
-                android:textSize="18sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-
-        <View
-            android:layout_width="90dp"
-            android:layout_height="1dp" />
-    </LinearLayout>
-
-    <!--
-        A message from JohnnyTV, set in config.json and shown until it is read.
-        Hidden entirely when there is nothing to say, so the home screen is not
-        carrying an empty box around the rest of the time.
+<?xml version="1.0" ?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@color/bg_base" android:orientation="vertical" android:padding="10dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:background="@drawable/bg_topbar" android:gravity="center_vertical" android:orientation="horizontal" android:paddingStart="18dp" android:paddingEnd="18dp" android:paddingTop="12dp" android:paddingBottom="12dp">
+        <ImageView android:layout_width="wrap_content" android:layout_height="40dp" android:adjustViewBounds="true" android:contentDescription="@string/app_name" android:src="@drawable/logo"/>
+        <!--
+        Date, time, weather and city, together in the middle. They answer
+        the same sort of question - what is it now, where am I - so they
+        read as one line rather than four scattered facts.
     -->
-    <LinearLayout
-        android:id="@+id/homeMessage"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:background="@drawable/bg_message"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="14dp"
-        android:paddingEnd="14dp"
-        android:paddingTop="14dp"
-        android:paddingBottom="14dp"
-        android:visibility="gone">
-
-        <View
-            android:layout_width="4dp"
-            android:layout_height="match_parent"
-            android:layout_marginEnd="16dp"
-            android:minHeight="34dp"
-            android:background="@drawable/bg_message_accent" />
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <!--
-                The headline. Sized to be read from a sofa rather than a desk -
-                this is the one thing on the screen the customer has not seen
-                before, so it is allowed to be the largest text on it.
-            -->
-            <TextView
-                android:id="@+id/homeMessageText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="2"
-                android:textColor="@color/text_primary"
-                android:textSize="19sp"
-                android:textStyle="bold" />
-
-            <!-- The rest of the sentence, when there is one. -->
-            <TextView
-                android:id="@+id/homeMessageDetail"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:ellipsize="end"
-                android:maxLines="2"
-                android:textColor="@color/text_secondary"
-                android:textSize="14sp"
-                android:visibility="gone" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:orientation="horizontal">
+            <TextView android:id="@+id/homeDate" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/text_primary" android:textSize="18sp"/>
+            <TextView android:id="@+id/homeClock" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="22dp" android:textColor="@color/text_primary" android:textSize="18sp" android:textStyle="bold"/>
+            <TextView android:id="@+id/homeWeatherIcon" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="22dp" android:textColor="@color/text_primary" android:textSize="17sp" android:visibility="gone"/>
+            <TextView android:id="@+id/homeWeatherNow" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="7dp" android:textColor="@color/text_primary" android:textSize="17sp" android:visibility="gone"/>
+            <TextView android:id="@+id/homeWeatherTown" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="12dp" android:ellipsize="end" android:maxLines="1" android:textColor="@color/text_secondary" android:textSize="14sp" android:visibility="gone"/>
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/homeMessageDismiss"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="18dp"
-            android:background="@drawable/bg_message_button"
-            android:focusable="true"
-            android:nextFocusDown="@id/tileLive"
-            android:nextFocusRight="@id/homeMessageDismiss"
-            android:paddingStart="18dp"
-            android:paddingEnd="18dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:text="@string/message_got_it"
-            android:textColor="@color/text_primary"
-            android:textSize="14sp" />
+        <!--
+        The renewal date, alone at the far right in yellow. Nothing competes
+        with it there, and a customer who sees it for a fortnight renews
+        instead of ringing on the night it lapses.
+    -->
+        <TextView android:id="@+id/homeExpiry" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:minWidth="90dp" android:gravity="end" android:textColor="@color/warning" android:textSize="14sp" android:visibility="gone"/>
     </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_marginTop="10dp"
-        android:layout_weight="1"
-        android:background="@drawable/bg_panel"
-        android:orientation="vertical"
-        android:padding="18dp">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="58"
-            android:orientation="horizontal">
-
-        <FrameLayout
-            android:id="@+id/tileLive"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="@drawable/bg_poster_card"
-            android:clickable="true"
-            android:focusable="true"
-            android:foreground="@drawable/fg_card_press">
-
-            <ImageView
-                android:id="@+id/liveArt"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:contentDescription="@string/live_tv"
-                android:scaleType="centerCrop" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom"
-                android:background="@drawable/bg_card_label"
-                android:orientation="vertical"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:paddingTop="30dp"
-                android:paddingBottom="14dp">
-
-                <ImageView
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:contentDescription="@string/live_tv"
-                    android:src="@drawable/ic_live" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:breakStrategy="simple"
-                    android:ellipsize="end"
-                    android:hyphenationFrequency="none"
-                    android:letterSpacing="0.05"
-                    android:maxLines="1"
-                    android:text="@string/live_tv"
-                    android:textAllCaps="true"
-                    android:textColor="#FFFFFFFF"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-        </FrameLayout>
-        <FrameLayout
-            android:id="@+id/tileSeries"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_marginStart="14dp"
-            android:layout_weight="1"
-            android:background="@drawable/bg_poster_card"
-            android:clickable="true"
-            android:focusable="true"
-            android:foreground="@drawable/fg_card_press">
-
-            <ImageView
-                android:id="@+id/seriesArt"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:contentDescription="@string/series"
-                android:scaleType="centerCrop" />
-
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom"
-                android:background="@drawable/bg_card_label"
-                android:orientation="vertical"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:paddingTop="30dp"
-                android:paddingBottom="14dp">
-
-                <ImageView
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:contentDescription="@string/series"
-                    android:src="@drawable/ic_series" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:breakStrategy="simple"
-                    android:ellipsize="end"
-                    android:hyphenationFrequency="none"
-                    android:letterSpacing="0.05"
-                    android:maxLines="1"
-                    android:text="@string/series"
-                    android:textAllCaps="true"
-                    android:textColor="#FFFFFFFF"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-        </FrameLayout>
-        <FrameLayout
-            android:id="@+id/tileMovies"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_marginStart="14dp"
-            android:layout_weight="1"
-            android:background="@drawable/bg_poster_card"
-            android:clickable="true"
-            android:focusable="true"
-            android:foreground="@drawable/fg_card_press">
-
-            <ImageView
-                android:id="@+id/moviesArt"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:contentDescription="@string/movies"
-                android:scaleType="centerCrop" />
-
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom"
-                android:background="@drawable/bg_card_label"
-                android:orientation="vertical"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:paddingTop="30dp"
-                android:paddingBottom="14dp">
-
-                <ImageView
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:contentDescription="@string/movies"
-                    android:src="@drawable/ic_movies" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:breakStrategy="simple"
-                    android:ellipsize="end"
-                    android:hyphenationFrequency="none"
-                    android:letterSpacing="0.05"
-                    android:maxLines="1"
-                    android:text="@string/movies"
-                    android:textAllCaps="true"
-                    android:textColor="#FFFFFFFF"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-        </FrameLayout>
-            <FrameLayout
-                android:id="@+id/featuredPanel"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_marginStart="18dp"
-                android:layout_weight="4.2"
-                android:background="@drawable/bg_poster_card"
-                android:clickable="true"
-                android:focusable="true"
-                android:foreground="@drawable/fg_card_press">
-
-                <ImageView
-                    android:id="@+id/featuredArt"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:contentDescription="@string/featured"
-                    android:scaleType="centerCrop" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="bottom"
-                    android:background="@drawable/bg_card_label"
-                    android:orientation="vertical"
-                    android:paddingStart="20dp"
-                    android:paddingEnd="20dp"
-                    android:paddingTop="46dp"
-                    android:paddingBottom="14dp">
-
-                    <TextView
-                        android:id="@+id/featuredTitle"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:breakStrategy="simple"
-                        android:ellipsize="end"
-                        android:hyphenationFrequency="none"
-                        android:letterSpacing="0.08"
-                        android:maxLines="1"
-                        android:textColor="#FFFFFFFF"
-                        android:textSize="28sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/featuredMeta"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:ellipsize="end"
-                        android:maxLines="1"
-                        android:textColor="#FFE2E8EF"
-                        android:textSize="15sp" />
+    <!--
+    A message from JohnnyTV, set in config.json and shown until it is read.
+    Hidden entirely when there is nothing to say, so the home screen is not
+    carrying an empty box around the rest of the time.
+-->
+    <LinearLayout android:id="@+id/homeMessage" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:background="@drawable/bg_message" android:gravity="center_vertical" android:orientation="horizontal" android:paddingStart="14dp" android:paddingEnd="14dp" android:paddingTop="14dp" android:paddingBottom="14dp" android:visibility="gone">
+        <View android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginEnd="16dp" android:minHeight="34dp" android:background="@drawable/bg_message_accent"/>
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+            <!--
+            The headline. Sized to be read from a sofa rather than a desk -
+            this is the one thing on the screen the customer has not seen
+            before, so it is allowed to be the largest text on it.
+        -->
+            <TextView android:id="@+id/homeMessageText" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="2" android:textColor="@color/text_primary" android:textSize="19sp" android:textStyle="bold"/>
+            <!-- The rest of the sentence, when there is one. -->
+            <TextView android:id="@+id/homeMessageDetail" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:ellipsize="end" android:maxLines="2" android:textColor="@color/text_secondary" android:textSize="14sp" android:visibility="gone"/>
+        </LinearLayout>
+        <TextView android:id="@+id/homeMessageDismiss" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="18dp" android:background="@drawable/bg_message_button" android:focusable="true" android:nextFocusDown="@id/tileLive" android:nextFocusRight="@id/homeMessageDismiss" android:paddingStart="18dp" android:paddingEnd="18dp" android:paddingTop="8dp" android:paddingBottom="8dp" android:text="@string/message_got_it" android:textColor="@color/text_primary" android:textSize="14sp"/>
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_marginTop="10dp" android:layout_weight="1" android:background="@drawable/bg_panel" android:orientation="vertical" android:padding="18dp">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="58" android:orientation="horizontal">
+            <FrameLayout android:id="@+id/tileLive" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="@drawable/bg_poster_card" android:clickable="true" android:focusable="true" android:foreground="@drawable/fg_card_press">
+                <ImageView android:id="@+id/liveArt" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="@string/live_tv" android:scaleType="centerCrop"/>
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom" android:background="@drawable/bg_card_label" android:orientation="vertical" android:paddingStart="12dp" android:paddingEnd="12dp" android:paddingTop="30dp" android:paddingBottom="14dp">
+                    <ImageView android:layout_width="28dp" android:layout_height="28dp" android:contentDescription="@string/live_tv" android:src="@drawable/ic_live"/>
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:breakStrategy="simple" android:ellipsize="end" android:hyphenationFrequency="none" android:letterSpacing="0.05" android:maxLines="1" android:text="@string/live_tv" android:textAllCaps="true" android:textColor="#FFFFFFFF" android:textSize="16sp" android:textStyle="bold"/>
+                </LinearLayout>
+            </FrameLayout>
+            <FrameLayout android:id="@+id/tileSeries" android:layout_width="0dp" android:layout_height="match_parent" android:layout_marginStart="14dp" android:layout_weight="1" android:background="@drawable/bg_poster_card" android:clickable="true" android:focusable="true" android:foreground="@drawable/fg_card_press">
+                <ImageView android:id="@+id/seriesArt" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="@string/series" android:scaleType="centerCrop"/>
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom" android:background="@drawable/bg_card_label" android:orientation="vertical" android:paddingStart="12dp" android:paddingEnd="12dp" android:paddingTop="30dp" android:paddingBottom="14dp">
+                    <ImageView android:layout_width="28dp" android:layout_height="28dp" android:contentDescription="@string/series" android:src="@drawable/ic_series"/>
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:breakStrategy="simple" android:ellipsize="end" android:hyphenationFrequency="none" android:letterSpacing="0.05" android:maxLines="1" android:text="@string/series" android:textAllCaps="true" android:textColor="#FFFFFFFF" android:textSize="16sp" android:textStyle="bold"/>
+                </LinearLayout>
+            </FrameLayout>
+            <FrameLayout android:id="@+id/tileMovies" android:layout_width="0dp" android:layout_height="match_parent" android:layout_marginStart="14dp" android:layout_weight="1" android:background="@drawable/bg_poster_card" android:clickable="true" android:focusable="true" android:foreground="@drawable/fg_card_press">
+                <ImageView android:id="@+id/moviesArt" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="@string/movies" android:scaleType="centerCrop"/>
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom" android:background="@drawable/bg_card_label" android:orientation="vertical" android:paddingStart="12dp" android:paddingEnd="12dp" android:paddingTop="30dp" android:paddingBottom="14dp">
+                    <ImageView android:layout_width="28dp" android:layout_height="28dp" android:contentDescription="@string/movies" android:src="@drawable/ic_movies"/>
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:breakStrategy="simple" android:ellipsize="end" android:hyphenationFrequency="none" android:letterSpacing="0.05" android:maxLines="1" android:text="@string/movies" android:textAllCaps="true" android:textColor="#FFFFFFFF" android:textSize="16sp" android:textStyle="bold"/>
+                </LinearLayout>
+            </FrameLayout>
+            <FrameLayout android:id="@+id/featuredPanel" android:layout_width="0dp" android:layout_height="match_parent" android:layout_marginStart="18dp" android:layout_weight="4.2" android:background="@drawable/bg_poster_card" android:clickable="true" android:focusable="true" android:foreground="@drawable/fg_card_press">
+                <ImageView android:id="@+id/featuredArt" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="@string/featured" android:scaleType="centerCrop"/>
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom" android:background="@drawable/bg_card_label" android:orientation="vertical" android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingTop="46dp" android:paddingBottom="14dp">
+                    <TextView android:id="@+id/featuredTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:breakStrategy="simple" android:ellipsize="end" android:hyphenationFrequency="none" android:letterSpacing="0.08" android:maxLines="1" android:textColor="#FFFFFFFF" android:textSize="28sp" android:textStyle="bold"/>
+                    <TextView android:id="@+id/featuredMeta" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:ellipsize="end" android:maxLines="1" android:textColor="#FFE2E8EF" android:textSize="15sp"/>
                 </LinearLayout>
             </FrameLayout>
         </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="42"
-            android:gravity="center"
-            android:orientation="horizontal">
-
-        <ImageView
-            android:id="@+id/homeSearch"
-            android:layout_width="66dp"
-            android:layout_height="56dp"
-            android:background="@drawable/bg_action_button"
-            android:clickable="true"
-            android:contentDescription="@string/search_hint"
-            android:focusable="true"
-            android:padding="15dp"
-            android:src="@drawable/ic_search" />
-        <ImageView
-            android:id="@+id/homeEpg"
-            android:layout_width="66dp"
-            android:layout_height="56dp"
-            android:layout_marginStart="14dp"
-            android:background="@drawable/bg_action_button"
-            android:clickable="true"
-            android:contentDescription="@string/tv_guide"
-            android:focusable="true"
-            android:padding="15dp"
-            android:src="@drawable/ic_epg" />
-        <ImageView
-            android:id="@+id/homeRecordings"
-            android:layout_width="66dp"
-            android:layout_height="56dp"
-            android:layout_marginStart="14dp"
-            android:background="@drawable/bg_action_button"
-            android:clickable="true"
-            android:contentDescription="@string/recordings"
-            android:focusable="true"
-            android:padding="15dp"
-            android:src="@drawable/ic_recordings" />
-        <ImageView
-            android:id="@+id/homeRefresh"
-            android:layout_width="66dp"
-            android:layout_height="56dp"
-            android:layout_marginStart="14dp"
-            android:background="@drawable/bg_action_button"
-            android:clickable="true"
-            android:contentDescription="@string/refresh_content"
-            android:focusable="true"
-            android:padding="15dp"
-            android:src="@drawable/ic_refresh" />
-        <ImageView
-            android:id="@+id/homeSettings"
-            android:layout_width="66dp"
-            android:layout_height="56dp"
-            android:layout_marginStart="14dp"
-            android:background="@drawable/bg_action_button"
-            android:clickable="true"
-            android:contentDescription="@string/settings"
-            android:focusable="true"
-            android:padding="15dp"
-            android:src="@drawable/ic_settings" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="42" android:gravity="center" android:orientation="horizontal">
+            <ImageView android:id="@+id/homeSearch" android:layout_width="66dp" android:layout_height="56dp" android:background="@drawable/bg_action_button" android:clickable="true" android:contentDescription="@string/search_hint" android:focusable="true" android:padding="15dp" android:src="@drawable/ic_search"/>
+            <ImageView android:id="@+id/homeRecordings" android:layout_width="66dp" android:layout_height="56dp" android:layout_marginStart="14dp" android:background="@drawable/bg_action_button" android:clickable="true" android:contentDescription="@string/recordings" android:focusable="true" android:padding="15dp" android:src="@drawable/ic_record"/>
+            <ImageView android:id="@+id/homeEpg" android:layout_width="66dp" android:layout_height="56dp" android:layout_marginStart="14dp" android:background="@drawable/bg_action_button" android:clickable="true" android:contentDescription="@string/tv_guide" android:focusable="true" android:padding="15dp" android:src="@drawable/ic_epg"/>
+            <ImageView android:id="@+id/homeRefresh" android:layout_width="66dp" android:layout_height="56dp" android:layout_marginStart="14dp" android:background="@drawable/bg_action_button" android:clickable="true" android:contentDescription="@string/refresh_content" android:focusable="true" android:padding="15dp" android:src="@drawable/ic_refresh"/>
+            <ImageView android:id="@+id/homeSettings" android:layout_width="66dp" android:layout_height="56dp" android:layout_marginStart="14dp" android:background="@drawable/bg_action_button" android:clickable="true" android:contentDescription="@string/settings" android:focusable="true" android:padding="15dp" android:src="@drawable/ic_settings"/>
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

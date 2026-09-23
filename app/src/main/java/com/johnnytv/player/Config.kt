@@ -56,6 +56,17 @@ object Config {
     const val BUFFER_AFTER_REBUFFER_MS: Int = 2_500
 
     /**
+     * The head start given to a channel that has stalled on this line before.
+     *
+     * Three seconds of video in hand before the picture appears, rather than
+     * eight tenths. It costs a couple of seconds when the channel opens and it
+     * buys back every freeze that would otherwise have happened while watching,
+     * which is the trade anybody would take on a channel that has already
+     * misbehaved twice.
+     */
+    const val BUFFER_FOR_PLAYBACK_DEEP_MS: Int = 3_000
+
+    /**
      * Live streams are tried in this order until one plays.
      *
      * .ts is the portal's raw feed and starts almost immediately. .m3u8 wraps the
@@ -97,5 +108,5 @@ object Config {
     /** Last wherever it is found, so nobody lands on it by scrolling. */
     val CATEGORY_LAST: List<String> = listOf("ADULT", "XXX", "18+", "FOR ADULTS")
 
-    const val USER_AGENT: String = "JohnnyTV/5.9 (Android)"
+    const val USER_AGENT: String = "JohnnyTV/5.60 (Android)"
 }

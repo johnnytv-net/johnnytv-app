@@ -84,9 +84,9 @@ class LoginActivity : AppCompatActivity() {
     /**
      * The lines this box has signed in with before.
      *
-     * Kept deliberately plain: the username on a row, press to sign in, hold to
-     * forget. No passwords are ever drawn on screen - the point is that nobody
-     * has to know one to get back in on their own television.
+     * Deliberately plain: the username on a row, press to sign in, hold to
+     * forget. No password is ever drawn on screen - the point is only that
+     * nobody has to remember one to get back into their own television.
      */
     private fun showSavedLogins() {
         val saved = prefs.savedLogins
@@ -96,9 +96,8 @@ class LoginActivity : AppCompatActivity() {
         savedList.visibility = if (show) View.VISIBLE else View.GONE
         if (!show) return
 
-        val inflater = layoutInflater
         for (one in saved) {
-            val row = inflater.inflate(R.layout.item_saved_login, savedList, false)
+            val row = layoutInflater.inflate(R.layout.item_saved_login, savedList, false)
             row.findViewById<TextView>(R.id.savedName).text = one.username
             row.setOnClickListener {
                 usernameInput.setText(one.username)

@@ -17,17 +17,25 @@ class JohnnyTvApp : Application(), ImageLoaderFactory {
         /*
          * And then, quietly, the current ones.
          *
-         * Until now the logo pack was only fetched on the sign-in screen, which
-         * sounds reasonable until you remember that a customer signs in once and
-         * never again. Every correction made to the pack after that day never
-         * reached them. So it is fetched on every start as well: off the main
-         * thread, ignored if it fails, and it replaces nothing until it has
-         * arrived in full. Screens already drawn keep the old artwork until the
-         * next time they are opened, which is exactly how nobody notices.
+         * Until now the pack was only fetched on the sign-in screen, which sounds
+         * reasonable until you remember that a customer signs in once and never
+         * again: every correction made after that day never reached them. So it
+         * is fetched on every start as well - off the main thread, ignored if it
+         * fails, and it replaces nothing until it has arrived in full. Screens
+         * already drawn keep the old artwork until they are next opened, which is
+         * exactly how nobody notices.
          */
         Thread {
             runCatching { LogoPack.refresh(applicationContext, null) }
         }.apply { isDaemon = true; priority = Thread.MIN_PRIORITY }.start()
+        // Alarms do not survive an app being force-stopped or updated, and a
+        // recording somebody set for tonight has to happen tonight - so they are
+        // all set again from the file every time the app starts.
+        runCatching { RecordScheduler.armAll(this) }
+        // And go looking for anything set from a phone while this box was off.
+        runCatching { Postman.start(this) }
+        // Sharing, if it is switched on, comes back with the app.
+        runCatching { ShareService.apply(this) }
     }
 
     /**

@@ -30,6 +30,62 @@ class HomeActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
 
     /**
+     * The weather line, fetched in the background and drawn only if it arrives.
+     *
+     * Never blocks anything: the home screen is complete without it, and a
+     * customer with a portal but no general internet access still gets an app
+     * that works rather than one that sits waiting on a weather service.
+     */
+    private fun showWeather() {
+        val cached = Weather.lastKnown()
+        if (cached != null) {
+            drawWeather(cached)
+            return
+        }
+        kotlin.concurrent.thread {
+            val now = runCatching { Weather.fetch(this) }.getOrNull() ?: return@thread
+            handler.post { if (!isFinishing) drawWeather(now) }
+        }
+    }
+
+    /**
+     * When the line runs out, on the home screen.
+     *
+     * The one piece of account information worth a customer seeing without
+     * going to look for it - a line that lapses on a Friday night is a phone
+     * call either way, and a fortnight's warning turns it into a renewal
+     * instead. Shown as a date rather than a countdown, because "20 Dec" is
+     * something somebody can act on and "63 days" is not.
+     *
+     * Yellow throughout rather than only at the end: a renewal date is worth
+     * seeing every day, and a colour that appears in the last week is a colour
+     * nobody has learned to read by the time it matters.
+     */
+    private fun showExpiry() {
+        val label = findViewById<android.widget.TextView>(R.id.homeExpiry)
+        val expires = Prefs(this).expiresAt
+        if (expires <= 0L) {
+            label.visibility = View.GONE
+            return
+        }
+        val clock = java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault())
+        label.text = getString(R.string.home_expires, clock.format(java.util.Date(expires)))
+        label.visibility = View.VISIBLE
+    }
+
+    private fun drawWeather(now: Weather.Now) {
+        val icon = findViewById<android.widget.TextView>(R.id.homeWeatherIcon)
+        val degrees = findViewById<android.widget.TextView>(R.id.homeWeatherNow)
+        val town = findViewById<android.widget.TextView>(R.id.homeWeatherTown)
+        icon.text = now.icon
+        degrees.text = getString(R.string.weather_degrees, now.degrees)
+        town.text = now.town
+        icon.visibility = View.VISIBLE
+        degrees.visibility = View.VISIBLE
+        town.visibility = if (now.town.isBlank()) View.GONE else View.VISIBLE
+    }
+
+    /**
      * Checks whether the phone has asked for a channel.
      *
      * Only while the home screen is in front, which is exactly when the
@@ -63,6 +119,8 @@ class HomeActivity : AppCompatActivity() {
         }
 
         setContentView(R.layout.activity_home)
+        showWeather()
+        showExpiry()
         clock = findViewById(R.id.homeClock)
         today = findViewById(R.id.homeDate)
 
@@ -82,11 +140,11 @@ class HomeActivity : AppCompatActivity() {
                     .putExtra(BrowseActivity.EXTRA_SEARCH_ALL, true)
             )
         }
+        findViewById<View>(R.id.homeRecordings).setOnClickListener {
+            RecordingsActivity.open(this)
+        }
         findViewById<View>(R.id.homeEpg).setOnClickListener {
             startActivity(Intent(this, EpgActivity::class.java))
-        }
-        findViewById<View>(R.id.homeRecordings).setOnClickListener {
-            startActivity(Intent(this, RecordingsActivity::class.java))
         }
         findViewById<View>(R.id.homeRefresh).setOnClickListener {
             startActivity(
@@ -107,6 +165,9 @@ class HomeActivity : AppCompatActivity() {
         handler.post(castWatch)
         showMessage()
         checkExpiry()
+        // Somebody setting a recording from the car park should find it already
+        // on the list when they walk in, rather than up to five minutes later.
+        kotlin.concurrent.thread { runCatching { Postman.collect(this@HomeActivity) } }
     }
 
     /** Puts on whatever the phone asked for, if this television knows the channel. */

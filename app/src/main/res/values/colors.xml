@@ -38,4 +38,6 @@
 
     <color name="focus_fill">#FF2E7DF7</color>
     <color name="selected_fill">#552E7DF7</color>
+    <!-- A line about to lapse: noticed, but not alarming. -->
+    <color name="warning">#E8A33D</color>
 </resources>
