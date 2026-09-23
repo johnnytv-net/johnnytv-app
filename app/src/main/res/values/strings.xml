@@ -137,6 +137,7 @@
     <string name="sign_out">Sign out</string>
     <string name="sign_out_confirm">Your login stays saved on this box, so you can sign back in with one press.</string>
     <string name="cancel">Cancel</string>
+    <string name="refreshing_picture">Refreshing the picture…</string>
     <string name="saved_logins">Saved logins</string>
     <string name="tap_to_sign_in">Press to sign in</string>
     <string name="forget_login">Forget</string>
