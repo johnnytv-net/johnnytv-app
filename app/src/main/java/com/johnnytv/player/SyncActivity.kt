@@ -117,18 +117,10 @@ class SyncActivity : AppCompatActivity() {
     /** Only sections that have finished can be counted, which is when they are shown. */
     private fun countFor(section: String): String {
         val number = NumberFormat.getIntegerInstance()
-        // What the section itself reported on the way past, falling back to the
-        // catalogue for a sync that is already finished and loaded.
-        val found = Catalog.counted[section] ?: when (section) {
-            Catalog.SECTION_LIVE -> Catalog.live.size
-            Catalog.SECTION_VOD -> Catalog.vod.size
-            Catalog.SECTION_SERIES -> Catalog.series.size
-            else -> 0
-        }
         return when (section) {
-            Catalog.SECTION_LIVE -> getString(R.string.count_channels, number.format(found))
-            Catalog.SECTION_VOD -> getString(R.string.count_films, number.format(found))
-            Catalog.SECTION_SERIES -> getString(R.string.count_series, number.format(found))
+            Catalog.SECTION_LIVE -> getString(R.string.count_channels, number.format(Catalog.live.size))
+            Catalog.SECTION_VOD -> getString(R.string.count_films, number.format(Catalog.vod.size))
+            Catalog.SECTION_SERIES -> getString(R.string.count_series, number.format(Catalog.series.size))
             else -> ""
         }
     }

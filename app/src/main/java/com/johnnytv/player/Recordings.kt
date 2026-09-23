@@ -1,530 +1,159 @@
 package com.johnnytv.player
 
 import android.content.Context
-import android.os.Environment
-import org.json.JSONArray
+import android.os.StatFs
 import org.json.JSONObject
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
- * RECORDING - WHERE IT ALL LIVES
+ * WHAT HAS BEEN KEPT.
  *
- * A recording is a folder of ten-minute .ts chunks plus a line in an index kept
- * in the app's own storage. Two deliberate choices, both about what survives:
+ * A recording is two files sitting next to each other: the video itself, and a
+ * small note saying what it is. The note matters more than it looks - a folder
+ * of files called 1758153600.ts tells nobody anything, and a television has no
+ * file manager to go digging with. So every recording carries its own channel
+ * name, title and times, and the list on screen is built by reading those notes
+ * rather than by keeping a separate index that could drift out of step with
+ * what is actually on the disk.
  *
- *  - Chunks rather than one enormous file. A power cut, a drive pulled out of
- *    the back of the box, a battery-less Firestick unplugged at the wall: with
- *    one file all of that is a broken recording. With chunks you lose the few
- *    seconds that were in flight and keep the rest, and they play back as one
- *    continuous programme because the player is handed the list.
- *
- *  - The index lives on the device, not on the drive. Pull the stick out and
- *    the app still knows what it recorded and can say so, rather than showing
- *    an empty screen as though nothing ever happened.
- *
- * Everything is written to the app's own folder on whichever volume is chosen
- * (Android/data/com.johnnytv.player/files/...). That is the one place on
- * removable storage an app may write with no permission prompt at all, which
- * matters on a television where granting a permission means finding a settings
- * screen with a remote.
+ * Everything lives in the app's own folder on external storage. That needs no
+ * permission on any Android this app runs on, and it means an uninstall takes
+ * the recordings with it rather than leaving gigabytes behind on someone's
+ * television for ever.
  */
+object Recordings {
 
-/**
- * A list of choices the remote can reach.
- *
- * AlertDialog's own list is built for a finger: on a television it opens with
- * nothing highlighted, and a remote with no highlight to move has nowhere to
- * go - the box just sits there clicking. Giving the list focus and putting the
- * highlight on the first row turns it back into something you can drive from
- * the sofa.
- */
-fun androidx.appcompat.app.AlertDialog.showForRemote() {
-    setOnShowListener {
-        listView?.let { list ->
-            list.isFocusable = true
-            list.isFocusableInTouchMode = true
-            list.requestFocus()
-            list.setSelection(0)
-        }
-    }
-    show()
-}
+    /** Below this much free space we refuse to start, and stop if we reach it. */
+    const val FREE_SPACE_FLOOR = 300L * 1024 * 1024
 
-/**
- * A menu of choices, built out of buttons rather than a list.
- *
- * The list version could not be driven with a remote at all on the Shield: the
- * dialog opened, the options were there, and every press did nothing because
- * nothing inside it would take the highlight. These are ordinary focusable
- * rows, so the first one lights up on open and the remote walks them like any
- * other screen.
- */
-fun android.app.Activity.showOptions(
-    title: String,
-    options: List<String>,
-    onPick: (Int) -> Unit
-) {
-    val view = android.view.LayoutInflater.from(this)
-        .inflate(R.layout.dialog_options, null, false)
-    val column = view.findViewById<android.widget.LinearLayout>(R.id.optionsColumn)
+    /** Nothing runs longer than this unattended. A forgotten recording fills a disk. */
+    const val MAX_LENGTH_MS = 4L * 60 * 60 * 1000
 
-    val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
-        .setTitle(title)
-        .setView(view)
-        .create()
-
-    options.forEachIndexed { index, label ->
-        val row = android.view.LayoutInflater.from(this)
-            .inflate(R.layout.item_option, column, false) as android.widget.TextView
-        row.text = label
-        row.setOnClickListener {
-            dialog.dismiss()
-            onPick(index)
-        }
-        column.addView(row)
-    }
-
-    dialog.setOnShowListener { column.getChildAt(0)?.requestFocus() }
-    dialog.show()
-}
-
-/** A drive or card the app can record to. */
-data class StorageTarget(
-    val id: String,
-    val label: String,
-    val dir: File,
-    val removable: Boolean
-) {
-    /**
-     * How much room is left on this volume.
-     *
-     * Asked of the recordings folder itself this reads zero until the first
-     * recording creates it, because usableSpace on a path that does not exist
-     * has nothing to measure - which showed up as a drive with "0.0 GB free"
-     * and a threat to delete things to make room. So it walks up to the first
-     * folder that does exist and asks that instead; free space belongs to the
-     * volume, not to the folder.
-     */
-    val freeBytes: Long
-        get() = runCatching {
-            var probe: File? = dir
-            while (probe != null && !probe.exists()) probe = probe.parentFile
-            probe?.usableSpace ?: 0L
-        }.getOrDefault(0L)
-
-    /** Roughly how many hours of HD fit in what is left. */
-    val freeHours: Double
-        get() = freeBytes.toDouble() / BYTES_PER_HOUR
-
-    companion object {
-        /** About 3 GB an hour, which is a fair average for these portals' HD feeds. */
-        const val BYTES_PER_HOUR: Double = 3.0 * 1024 * 1024 * 1024
-    }
-}
-
-/** A hole in a recording: when it happened and how long the feed was away. */
-data class Gap(val at: Long, val seconds: Int)
-
-data class Recording(
-    val id: String,
-    var title: String,
-    var channel: String,
-    var streamId: String,
-    var startedAt: Long,
-    var plannedEnd: Long,
-    var endedAt: Long = 0L,
-    var dirPath: String = "",
-    var parts: MutableList<String> = ArrayList(),
-    var bytes: Long = 0L,
-    var gaps: MutableList<Gap> = ArrayList(),
-    var reconnects: Int = 0,
-    var keep: Boolean = false,
-    var watched: Boolean = false,
-    var state: String = STATE_RECORDING,
-    var note: String = ""
-) {
-
-    val isRecording: Boolean get() = state == STATE_RECORDING
-
-    /** How long was actually captured, in milliseconds. */
-    fun lengthMs(): Long {
-        val end = if (endedAt > 0L) endedAt else System.currentTimeMillis()
-        return (end - startedAt).coerceAtLeast(0L)
-    }
-
-    fun lostSeconds(): Int = gaps.sumOf { it.seconds }
-
-    /**
-     * WHERE THIS RECORDING ACTUALLY IS.
-     *
-     * The path written when it started is a guess by the time anybody plays it.
-     * A drive pulled out mid-recording sends the rest to the box and moves the
-     * path with it; a stick plugged into a different socket comes back under
-     * another name. Either way the app ends up looking in a folder that exists
-     * and is empty, says there is nothing to play, and nobody would ever guess
-     * that four hours of television is sitting on the drive under the same name.
-     *
-     * So the folder is found rather than remembered: every drive is asked
-     * whether it has this recording, and whichever copy holds the most video
-     * wins. The stored path is tried first and is usually right.
-     */
-    fun folderOnDisk(context: Context): File {
-        val here = File(dirPath)
-        val candidates = ArrayList<File>()
-        if (dirPath.isNotBlank()) candidates.add(here)
-        for (target in Storage.targets(context)) candidates.add(File(target.dir, id))
-        candidates.add(File(File(context.filesDir, Storage.FOLDER), id))
-
-        var best = here
-        var bestBytes = -1L
-        for (folder in candidates.distinctBy { it.absolutePath }) {
-            val bytes = runCatching {
-                folder.listFiles { f -> f.name.startsWith("part") && f.name.endsWith(".ts") }
-                    ?.sumOf { it.length() } ?: 0L
-            }.getOrDefault(0L)
-            if (bytes > bestBytes) {
-                bestBytes = bytes
-                best = folder
-            }
-        }
-        return best
+    fun folder(context: Context): File {
+        val base = context.getExternalFilesDir(null) ?: context.filesDir
+        val dir = File(base, "Recordings")
+        if (!dir.exists()) dir.mkdirs()
+        return dir
     }
 
     /**
-     * The playlist written beside the pieces, when there is one.
+     * A file name that cannot surprise anybody.
      *
-     * This is what should be played: one file that names the pieces in order and
-     * marks every join, so the player treats the recording as a single
-     * programme rather than a folder of fragments.
+     * Channel names arrive from the portal and contain whatever the provider felt
+     * like typing - colons, slashes, emoji. The date goes first so the folder
+     * sorts itself, and the name is only there to make the file recognisable if
+     * somebody does go looking with a USB cable.
      */
-    fun playlistFile(context: Context): File? {
-        val file = File(folderOnDisk(context), RecorderService.PLAYLIST_NAME)
-        if (!file.exists() || file.length() <= 0L) return null
+    fun newFile(context: Context, channelName: String): File {
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+        val safe = channelName
+            .replace(Regex("[^A-Za-z0-9 ._-]"), "")
+            .trim()
+            .replace(Regex("\\s+"), "-")
+            .take(40)
+            .ifBlank { "channel" }
+        return File(folder(context), "$stamp-$safe.ts")
+    }
 
-        /*
-         * A FINISHED RECORDING HAS TO SAY SO.
-         *
-         * Without its end marker a playlist means "still being written", and a
-         * player treats that as live television: it skips to the end, plays the
-         * last few seconds, runs out and stops. Which is a two minute recording
-         * that plays for fifteen seconds and drops you back to the list.
-         *
-         * The recorder writes that marker when it closes, but it is not always
-         * given the chance - the system can tear the service down first. So any
-         * recording that is no longer running gets its playlist finished here
-         * before it is played.
-         */
-        // "Not recording" has to mean the recorder is not running, not merely
-        // that the row says so. A recording whose state was left stuck reads as
-        // live for ever, and the player sits at the end waiting for a piece
-        // that is never coming.
-        val stillRunning = RecorderService.isRecording && RecorderService.activeId == id
-        if (!stillRunning) {
-            runCatching {
-                var text = file.readText()
+    fun freeSpace(context: Context): Long = try {
+        val stat = StatFs(folder(context).absolutePath)
+        stat.availableBlocksLong * stat.blockSizeLong
+    } catch (e: Exception) {
+        Long.MAX_VALUE   // Unknowable is not the same as full; let it try.
+    }
 
-                /*
-                 * A RECORDING THAT ENDED BADLY, PUT RIGHT.
-                 *
-                 * When the system takes the recorder away mid-stop, the last
-                 * part is written to the drive but never makes it into the
-                 * playlist - so the final minutes exist and cannot be played,
-                 * and nobody would ever guess why. Any part file sitting beside
-                 * the playlist and missing from it is added back on the way in.
-                 *
-                 * Length is measured from the file rather than guessed: at the
-                 * rate the rest of the recording ran, a part of this size is
-                 * about this long. A little out is harmless; claiming more than
-                 * the file holds is what stops playback dead.
-                 */
-                val folder = file.parentFile ?: File(dirPath)
-                val listed = Regex("part\\d+\\.ts").findAll(text).map { it.value }.toSet()
-                val onDisk = folder.listFiles { f -> f.name.matches(Regex("part\\d+\\.ts")) }
-                    ?.sortedBy { it.name }
-                    .orEmpty()
-                val missing = onDisk.filter { it.name !in listed && it.length() > 1_000_000L }
+    // ---------- the note beside each recording ----------
 
-                if (missing.isNotEmpty() && listed.isNotEmpty()) {
-                    val known = onDisk.filter { it.name in listed }.sumOf { it.length() }
-                    val knownSeconds = Regex("#EXTINF:([\\d.]+)").findAll(text)
-                        .mapNotNull { it.groupValues[1].toDoubleOrNull() }.sum()
-                    val bytesPerSecond = if (knownSeconds > 0) known / knownSeconds else 0.0
-                    if (bytesPerSecond > 0) {
-                        val added = StringBuilder()
-                        for (part in missing) {
-                            val seconds = part.length() / bytesPerSecond
-                            if (seconds < 1.0) continue
-                            added.append("#EXTINF:")
-                                .append(String.format(java.util.Locale.US, "%.3f", seconds))
-                                .append(",\n").append(part.name).append("\n")
-                        }
-                        if (added.isNotEmpty()) {
-                            /*
-                             * Before the end marker, never after it.
-                             *
-                             * A playlist that has already been closed off says
-                             * so on its last line, and anything written past
-                             * that point makes the whole file invalid - the
-                             * player does not stumble at the end, it refuses
-                             * the recording outright. Which is a worse failure
-                             * than the missing minutes this was meant to fix.
-                             */
-                            val closed = text.indexOf("#EXT-X-ENDLIST")
-                            val rebuilt = if (closed >= 0) {
-                                text.substring(0, closed) + added + text.substring(closed)
-                            } else {
-                                (if (text.endsWith("\n")) text else text + "\n") + added
-                            }
-                            file.writeText(rebuilt)
-                            text = rebuilt
-                        }
-                    }
-                }
+    private fun noteFor(video: File) = File(video.absolutePath + ".json")
 
-                if (!text.contains("#EXT-X-ENDLIST")) {
-                    val ending = if (text.endsWith("\n")) "" else "\n"
-                    file.appendText(ending + "#EXT-X-ENDLIST\n")
-                }
-            }
+    fun writeNote(
+        video: File,
+        channelName: String,
+        programme: String,
+        startedAt: Long,
+        endedAt: Long,
+        finished: Boolean
+    ) {
+        runCatching {
+            val json = JSONObject()
+                .put("channel", channelName)
+                .put("programme", programme)
+                .put("started", startedAt)
+                .put("ended", endedAt)
+                .put("finished", finished)
+            noteFor(video).writeText(json.toString())
         }
-        return file
+    }
+
+    data class Recording(
+        val file: File,
+        val channel: String,
+        val programme: String,
+        val startedAt: Long,
+        val endedAt: Long,
+        val finished: Boolean
+    ) {
+        val bytes: Long get() = file.length()
+
+        /** What to call it on screen: the programme if we knew one, else the channel. */
+        val title: String get() = if (programme.isNotBlank()) programme else channel
+
+        val lengthMs: Long get() = (endedAt - startedAt).coerceAtLeast(0L)
     }
 
     /**
-     * The chunks that are safe to play.
+     * Everything on the disk, newest first.
      *
-     * While a recording is running, its newest chunk is being written to this
-     * second - handing that to the player means playing a file whose end keeps
-     * moving, which stalls on the last frame. Everything before it is finished
-     * and complete, so that is what gets played.
+     * A video with no note still appears - it is somebody's recording and losing
+     * it silently would be worse than showing it under a plain name. A note with
+     * no video does not: that is leftovers from a recording that never wrote
+     * anything, and it gets cleared up here.
      */
-    fun playableFiles(context: Context): List<File> {
-        val all = files(context)
-        return if (isRecording && all.size > 1) all.dropLast(1) else all
-    }
+    fun list(context: Context): List<Recording> {
+        val dir = folder(context)
+        val files = dir.listFiles() ?: return emptyList()
 
-    /** The chunk files in order, as the player wants them. */
-    fun files(context: Context): List<File> {
-        val dir = folderOnDisk(context)
-        return parts.map { File(dir, it) }.filter { it.exists() && it.length() > 0L }
-    }
+        files.filter { it.name.endsWith(".json") }
+            .filter { !File(it.absolutePath.removeSuffix(".json")).exists() }
+            .forEach { runCatching { it.delete() } }
 
-    fun toJson(): JSONObject {
-        val gapArray = JSONArray()
-        for (gap in gaps) gapArray.put(JSONObject().put("at", gap.at).put("s", gap.seconds))
-        return JSONObject()
-            .put("id", id)
-            .put("t", title)
-            .put("c", channel)
-            .put("sid", streamId)
-            .put("s", startedAt)
-            .put("pe", plannedEnd)
-            .put("e", endedAt)
-            .put("d", dirPath)
-            .put("p", JSONArray(parts))
-            .put("b", bytes)
-            .put("g", gapArray)
-            .put("r", reconnects)
-            .put("k", keep)
-            .put("w", watched)
-            .put("st", state)
-            .put("n", note)
-    }
-
-    companion object {
-        fun fromJson(o: JSONObject): Recording {
-            val parts = ArrayList<String>()
-            val partArray = o.optJSONArray("p") ?: JSONArray()
-            for (i in 0 until partArray.length()) parts.add(partArray.optString(i, ""))
-
-            val gaps = ArrayList<Gap>()
-            val gapArray = o.optJSONArray("g") ?: JSONArray()
-            for (i in 0 until gapArray.length()) {
-                val g = gapArray.optJSONObject(i) ?: continue
-                gaps.add(Gap(g.optLong("at", 0L), g.optInt("s", 0)))
-            }
-
-            return Recording(
-                id = o.optString("id", ""),
-                title = o.optString("t", "Recording"),
-                channel = o.optString("c", ""),
-                streamId = o.optString("sid", ""),
-                startedAt = o.optLong("s", 0L),
-                plannedEnd = o.optLong("pe", 0L),
-                endedAt = o.optLong("e", 0L),
-                dirPath = o.optString("d", ""),
-                parts = parts.filter { it.isNotBlank() }.toMutableList(),
-                bytes = o.optLong("b", 0L),
-                gaps = gaps,
-                reconnects = o.optInt("r", 0),
-                keep = o.optBoolean("k", false),
-                watched = o.optBoolean("w", false),
-                state = o.optString("st", STATE_DONE),
-                note = o.optString("n", "")
-            )
-        }
-    }
-}
-
-const val STATE_RECORDING = "recording"
-const val STATE_DONE = "done"
-const val STATE_FAILED = "failed"
-
-/**
- * The list of recordings, kept as one small JSON file in the app's own storage.
- *
- * Every write goes through here on whatever thread is calling, so it is
- * synchronized: the recorder updates its row every few seconds from its own
- * thread while the screen may be reading the same file.
- */
-object RecordingStore {
-
-    private const val FILE = "recordings.json"
-
-    @Synchronized
-    fun all(context: Context): List<Recording> {
-        val file = File(context.filesDir, FILE)
-        if (!file.exists()) return emptyList()
-        return try {
-            val array = JSONArray(file.readText())
-            val out = ArrayList<Recording>(array.length())
-            for (i in 0 until array.length()) {
-                val o = array.optJSONObject(i) ?: continue
-                out.add(Recording.fromJson(o))
-            }
-            // Newest first, but anything still recording is pinned to the top -
-            // it is the one row somebody is actually waiting on.
-            out.sortedWith(compareByDescending<Recording> { it.isRecording }.thenByDescending { it.startedAt })
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    fun find(context: Context, id: String): Recording? = all(context).firstOrNull { it.id == id }
-
-    @Synchronized
-    fun put(context: Context, recording: Recording) {
-        val list = ArrayList(all(context).filter { it.id != recording.id })
-        list.add(recording)
-        write(context, list)
-    }
-
-    @Synchronized
-    fun update(context: Context, id: String, change: (Recording) -> Unit) {
-        val list = ArrayList(all(context))
-        val found = list.firstOrNull { it.id == id } ?: return
-        change(found)
-        write(context, list)
-    }
-
-    /** Removes the row and the video with it. */
-    @Synchronized
-    fun delete(context: Context, id: String) {
-        val list = ArrayList(all(context))
-        val found = list.firstOrNull { it.id == id } ?: return
-        list.remove(found)
-        runCatching { File(found.dirPath).deleteRecursively() }
-        write(context, list)
-    }
-
-    /**
-     * Makes room by dropping watched recordings, oldest first.
-     *
-     * Anything marked Keep is never touched, and neither is anything still
-     * recording or never watched - a recording deleted before somebody has seen
-     * it is worse than a recording that failed to start, because they were
-     * counting on it.
-     */
-    @Synchronized
-    fun freeUpSpace(context: Context, needBytes: Long, target: File) {
-        var free = runCatching { target.usableSpace }.getOrDefault(0L)
-        if (free >= needBytes) return
-        val candidates = all(context)
-            .filter { !it.keep && it.watched && !it.isRecording }
-            .sortedBy { it.startedAt }
-        for (old in candidates) {
-            if (free >= needBytes) return
-            val size = old.bytes
-            delete(context, old.id)
-            free += size
-        }
-    }
-
-    private fun write(context: Context, list: List<Recording>) {
-        val array = JSONArray()
-        for (item in list) array.put(item.toJson())
-        runCatching { File(context.filesDir, FILE).writeText(array.toString()) }
-    }
-}
-
-/**
- * Which drives this box can record to, best first.
- *
- * getExternalFilesDirs hands back one folder per volume the app may write to
- * without asking anyone for permission - internal storage first, then any USB
- * stick or card. A null entry means a volume that has been unplugged since
- * Android last looked, so those are dropped rather than offered.
- */
-object Storage {
-
-    const val FOLDER = "JohnnyTV Recordings"
-
-    fun targets(context: Context): List<StorageTarget> {
-        val out = ArrayList<StorageTarget>()
-        val dirs = runCatching { context.getExternalFilesDirs(null) }.getOrNull() ?: emptyArray()
-        dirs.filterNotNull().forEachIndexed { index, base ->
-            val removable = index > 0 || runCatching { Environment.isExternalStorageRemovable(base) }
-                .getOrDefault(false)
-            val dir = File(base, FOLDER)
-            out.add(
-                StorageTarget(
-                    id = base.absolutePath,
-                    label = labelFor(base, index, removable),
-                    dir = dir,
-                    removable = removable
+        return files
+            .filter { it.isFile && it.name.endsWith(".ts") && it.length() > 0 }
+            .map { video ->
+                val note = runCatching { JSONObject(noteFor(video).readText()) }.getOrNull()
+                Recording(
+                    file = video,
+                    channel = note?.optString("channel").orEmpty().ifBlank { video.nameWithoutExtension },
+                    programme = note?.optString("programme").orEmpty(),
+                    startedAt = note?.optLong("started") ?: video.lastModified(),
+                    endedAt = note?.optLong("ended") ?: video.lastModified(),
+                    finished = note?.optBoolean("finished") ?: true
                 )
-            )
-        }
-        // A plugged-in drive is what somebody wants to record to; internal
-        // storage is the safety net underneath it.
-        return out.sortedByDescending { if (it.removable) it.freeBytes else -1L }
+            }
+            .sortedByDescending { it.startedAt }
     }
 
-    /** The drive the customer chose, if it is still plugged in, else the best one going. */
-    fun chosen(context: Context): StorageTarget? {
-        val prefs = Prefs(context)
-        val available = targets(context)
-        val saved = prefs.recordingVolume
-        return available.firstOrNull { it.id == saved } ?: available.firstOrNull()
+    fun delete(recording: Recording) {
+        runCatching { recording.file.delete() }
+        runCatching { noteFor(recording.file).delete() }
     }
 
-    /** Internal storage, which is always there - the fallback when a drive vanishes. */
-    fun internal(context: Context): StorageTarget? =
-        targets(context).firstOrNull { !it.removable }
+    // ---------- how it reads on screen ----------
 
-    private fun labelFor(base: File, index: Int, removable: Boolean): String {
-        if (!removable) return "This device"
-        // /storage/1A2B-3C4D/Android/data/... - the volume id is the only name
-        // Android gives us without asking for storage permission.
-        val path = base.absolutePath
-        val marker = "/storage/"
-        val id = if (path.startsWith(marker)) {
-            path.removePrefix(marker).substringBefore('/')
-        } else {
-            "USB"
-        }
-        // Named by its size rather than its volume id: nobody knows their stick
-        // as "122A-2C7B", everybody knows it as the 128 gig one.
-        val size = runCatching {
-            var probe: File? = base
-            while (probe != null && !probe.exists()) probe = probe.parentFile
-            probe?.totalSpace ?: 0L
-        }.getOrDefault(0L)
-        val gb = size / (1000L * 1000L * 1000L)
-        return when {
-            gb > 0L -> "USB drive ($gb GB)"
-            id.equals("emulated", true) || id.isBlank() -> "USB drive"
-            else -> "USB drive ($id)"
-        }
+    fun sizeText(bytes: Long): String = when {
+        bytes >= 1024L * 1024 * 1024 -> String.format(Locale.US, "%.1f GB", bytes / 1073741824.0)
+        bytes >= 1024L * 1024 -> String.format(Locale.US, "%.0f MB", bytes / 1048576.0)
+        else -> String.format(Locale.US, "%.0f KB", bytes / 1024.0)
     }
+
+    fun lengthText(ms: Long): String {
+        val minutes = (ms / 60000L).toInt()
+        return if (minutes >= 60) "${minutes / 60}h ${minutes % 60}m" else "${minutes}m"
+    }
+
+    fun whenText(at: Long): String =
+        SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault()).format(Date(at))
 }

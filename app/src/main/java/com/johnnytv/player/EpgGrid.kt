@@ -82,9 +82,7 @@ class Timeline(context: Context, hoursShown: Int = 12) {
 /** The channel names down the left. Same row height as the grid so the two scroll together. */
 class ChannelColumnAdapter(
     private val timeline: Timeline,
-    private val onPlay: (StreamItem) -> Unit = {},
-    /** OK held on the channel's name: set a recording by time. */
-    private val onRecordByTime: (StreamItem) -> Unit = {}
+    private val onPlay: (StreamItem) -> Unit = {}
 ) : RecyclerView.Adapter<ChannelColumnAdapter.VH>() {
 
     private val items = ArrayList<StreamItem>()
@@ -160,7 +158,6 @@ class ChannelColumnAdapter(
         holder.name.text = item.name
         holder.number.text = item.num
         holder.itemView.isActivated = item.streamId == selectedId
-        holder.itemView.setOnLongClickListener { onRecordByTime(item); true }
         val logoUrl = IconMemory.artFor(item.streamId, item.name, item.icon)
         holder.logo.load(logoUrl.ifBlank { null }) {
             crossfade(false)
@@ -186,16 +183,6 @@ class EpgRowAdapter(
     /** A press: describe it, or watch it if it is already the one described. */
     private val onPressed: (StreamItem, Programme) -> Unit,
     private val onPlay: (StreamItem) -> Unit,
-    /** OK held down on a programme: record it. */
-    private val onRecord: (StreamItem, Programme) -> Unit = { _, _ -> },
-    /** OK held on a channel with no listings: record it by time instead. */
-    private val onRecordByTime: (StreamItem) -> Unit = { },
-    /**
-     * Whether this programme is being recorded right now (2), set to be (1), or
-     * neither (0) - drawn as a red dot in front of the title, the way every
-     * set-top box marks its own recordings.
-     */
-    private val recordState: (StreamItem, Programme) -> Int = { _, _ -> 0 },
     /** Left was pressed on the earliest programme still on: there is no going back. */
     private val onLeftEdge: () -> Unit = {},
     /** Up was pressed on the top row: the headings are what is above it. */
@@ -248,7 +235,7 @@ class EpgRowAdapter(
             // the subtraction below would go negative and lay out over its neighbour.
             if (width <= gap) continue
             val block = TextView(row.context)
-            block.text = withRecordDot(programme.title, recordState(channel, programme))
+            block.text = programme.title
             block.maxLines = 2
             block.ellipsize = android.text.TextUtils.TruncateAt.END
             block.gravity = Gravity.CENTER_VERTICAL
@@ -272,11 +259,6 @@ class EpgRowAdapter(
             // Tagged so the screen can drop the remote straight onto what is on
             // now when focus arrives from the headings above.
             if (onAir) block.tag = TAG_ON_AIR
-            // What time this block covers. Up and down use it to land on the
-            // programme showing at the same moment rather than on whatever
-            // block happens to overlap on screen.
-            block.setTag(R.id.epg_block_start, programme.start)
-            block.setTag(R.id.epg_block_end, programme.end)
             block.typeface = Typeface.create(
                 if (onAir) "sans-serif-medium" else "sans-serif", Typeface.NORMAL
             )
@@ -290,11 +272,7 @@ class EpgRowAdapter(
                 block.setOnClickListener {
                     if (block.isFocused) onPlay(channel) else onPressed(channel, programme)
                 }
-                // Holding OK used to be a second way to watch the channel,
-                // which the plain press already does. It is worth more as the
-                // way in to recording: one press to read what a programme is,
-                // one hold to keep it.
-                block.setOnLongClickListener { onRecord(channel, programme); true }
+                block.setOnLongClickListener { onPlay(channel); true }
                 block.setOnFocusChangeListener { _, hasFocus ->
                     if (hasFocus) onFocused(channel, programme)
                 }
@@ -322,27 +300,6 @@ class EpgRowAdapter(
             }
             row.addView(block)
         }
-    }
-
-    /**
-     * A filled red dot for a recording running now, a hollow one for a recording
-     * that is still waiting for its time.
-     *
-     * Drawn into the title rather than placed beside it, because these blocks
-     * are as wide as the programme is long: anything sitting alongside would be
-     * the first thing squeezed off a half-hour show.
-     */
-    private fun withRecordDot(title: String, state: Int): CharSequence {
-        if (state <= 0) return title
-        val mark = if (state >= 2) "\u25CF " else "\u25CB "
-        val text = android.text.SpannableString(mark + title)
-        text.setSpan(
-            android.text.style.ForegroundColorSpan(RECORD_RED),
-            0,
-            mark.length,
-            android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-        )
-        return text
     }
 
     /**
@@ -385,11 +342,6 @@ class EpgRowAdapter(
             nowPlaying = false
         )
         label.setOnClickListener { onPlay(channel) }
-        // Holding OK on a channel with no listings is exactly where somebody
-        // wants to set a recording - PPV and event channels have empty rows,
-        // and they are the ones worth recording to the minute. Nothing to press
-        // meant nothing to record, which is no use on fight night.
-        label.setOnLongClickListener { onRecordByTime(channel); true }
         label.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) onFocused(channel, blank) }
         label.setOnKeyListener { _, keyCode, event ->
             if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
@@ -421,9 +373,6 @@ class EpgRowAdapter(
 
         /** How far back a finished programme is faded, so it reads as history. */
         private const val PAST_ALPHA = 0.4f
-
-        /** The red every recorder has used since the video recorder. */
-        private const val RECORD_RED = 0xFFE0393E.toInt()
 
         fun clock(): SimpleDateFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
         fun headerClock(): SimpleDateFormat = SimpleDateFormat("EEE h:mm a", Locale.getDefault())

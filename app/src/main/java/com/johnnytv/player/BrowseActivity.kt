@@ -196,7 +196,6 @@ class BrowseActivity : AppCompatActivity() {
         channelList.layoutManager = LinearLayoutManager(this)
         channelList.adapter = rowAdapter
         channelList.itemAnimator = null
-        channelList.setItemViewCacheSize(20)
         // Rows are recycled out from under the remote on a fast scroll, and focus
         // has to land somewhere - by default it escapes sideways into the category
         // column. Put it back on the channel it was on once the list settles.
@@ -245,27 +244,7 @@ class BrowseActivity : AppCompatActivity() {
         categoryList.layoutManager = LinearLayoutManager(this)
         categoryList.adapter = categoryAdapter
 
-        /*
-         * SCROLLING A CATEGORY WITH THREE THOUSAND THINGS IN IT.
-         *
-         * The list itself is cheap; the artwork is not. Every row that scrolls
-         * into view asks for a picture, decodes it, and throws away the one
-         * that just left - and on a long run down Sports that is hundreds of
-         * decodes a second, which is what the stutter is.
-         *
-         * Three changes, none of them clever. Keep more rows in hand so a
-         * flick back up does not re-fetch everything; ask the layout to build
-         * the next rows before they are needed rather than at the moment they
-         * are; and stop animating rows in and out, which is invisible at this
-         * speed and costs a frame each time.
-         */
-        val grid = GridLayoutManager(this, spanCount())
-        grid.isItemPrefetchEnabled = true
-        grid.initialPrefetchItemCount = spanCount() * 2
-        tileGrid.layoutManager = grid
-        tileGrid.itemAnimator = null
-        tileGrid.setItemViewCacheSize(spanCount() * 4)
-        tileGrid.recycledViewPool.setMaxRecycledViews(0, spanCount() * 6)
+        tileGrid.layoutManager = GridLayoutManager(this, spanCount())
         tileGrid.adapter = tileAdapter
         tileGrid.setHasFixedSize(true)
 
@@ -865,9 +844,6 @@ class BrowseActivity : AppCompatActivity() {
 
         previewJob?.cancel()
         if (!prefs.previewEnabled) return
-        // Same reason as the guide: a preview is a second connection, and
-        // while a recording is running there isn't one to spare.
-        if (RecorderService.isRecording) return
         previewJob = lifecycleScope.launch {
             // Only once the remote stops moving. Holding a direction through fifty
             // channels must not open fifty streams - on a line with one connection

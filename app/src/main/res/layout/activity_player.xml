@@ -50,6 +50,32 @@
         android:textSize="16sp"
         android:visibility="gone" />
 
+    <!--
+        On while something is being recorded, wherever the viewer has wandered
+        to. A recording that leaves no trace on screen is one somebody discovers
+        three days later when the box is full.
+    -->
+    <TextView
+        android:id="@+id/playerRecording"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="18dp"
+        android:background="#CC000000"
+        android:drawablePadding="8dp"
+        android:fontFamily="sans-serif-medium"
+        android:letterSpacing="0.06"
+        android:maxLines="1"
+        android:paddingStart="14dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="9dp"
+        android:paddingBottom="9dp"
+        android:text="@string/recording_badge"
+        android:textAllCaps="true"
+        android:textColor="#FFFF5A5A"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
     <include
         android:id="@+id/playerLoading"
         layout="@layout/view_loading"

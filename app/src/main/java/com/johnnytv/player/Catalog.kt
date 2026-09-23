@@ -39,36 +39,20 @@ object Catalog {
      * [progress] is called with (section, status) so the sync screen can follow along.
      * Sections that fail are left empty rather than failing the whole sync.
      */
-    /*
-     * The count goes with the news.
-     *
-     * Each section used to report itself finished while the lists it had just
-     * fetched were still waiting in local variables - everything is assigned at
-     * the end, so that a half-built catalogue is never visible to the rest of
-     * the app. Perfectly sound, except that the screen asking "how many
-     * channels?" was told none, because none had been assigned yet. It read
-     * "0 channels" beside a finished tick.
-     *
-     * So the number travels with the message rather than being looked up after
-     * it: the section that has just finished says how much it found.
-     */
     fun sync(context: Context, client: XtreamClient, progress: (String, String) -> Unit) {
         progress(SECTION_LIVE, STATUS_WORKING)
         val liveCats = runCatching { client.liveCategories() }.getOrDefault(emptyList())
         val liveStreams = runCatching { client.allLiveStreams() }.getOrDefault(emptyList())
-        counted = counted + (SECTION_LIVE to liveStreams.size)
         progress(SECTION_LIVE, if (liveStreams.isEmpty()) STATUS_EMPTY else STATUS_DONE)
 
         progress(SECTION_VOD, STATUS_WORKING)
         val vodCats = runCatching { client.vodCategories() }.getOrDefault(emptyList())
         val vodStreams = runCatching { client.allVodStreams() }.getOrDefault(emptyList())
-        counted = counted + (SECTION_VOD to vodStreams.size)
         progress(SECTION_VOD, if (vodStreams.isEmpty()) STATUS_EMPTY else STATUS_DONE)
 
         progress(SECTION_SERIES, STATUS_WORKING)
         val seriesCats = runCatching { client.seriesCategories() }.getOrDefault(emptyList())
         val seriesList = runCatching { client.allSeries() }.getOrDefault(emptyList())
-        counted = counted + (SECTION_SERIES to seriesList.size)
         progress(SECTION_SERIES, if (seriesList.isEmpty()) STATUS_EMPTY else STATUS_DONE)
 
         liveCategories = liveCats
@@ -204,14 +188,6 @@ object Catalog {
         }
         return out
     }
-
-    /**
-     * How much each section found, the moment it finished - before the lists
-     * themselves are handed over. The sync screen reads this rather than the
-     * catalogue, which is still empty while the work is going on.
-     */
-    var counted: Map<String, Int> = emptyMap()
-        private set
 
     const val SECTION_LIVE = "LIVE TV"
     const val SECTION_VOD = "MOVIES"

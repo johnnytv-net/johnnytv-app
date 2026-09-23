@@ -97,9 +97,6 @@ class EpgActivity : AppCompatActivity() {
     /** Whether the opening selection has been put on the programme that is on now. */
     private var landedOnNow = false
 
-    /** What is waiting to be recorded, re-read whenever this screen comes back. */
-    private var scheduledNow: List<Scheduled> = emptyList()
-
     private val handler = Handler(Looper.getMainLooper())
     private val tick = object : Runnable {
         override fun run() {
@@ -146,11 +143,7 @@ class EpgActivity : AppCompatActivity() {
         pinGridWidth()
         positionNowLine()
 
-        channelAdapter = ChannelColumnAdapter(
-            timeline,
-            onPlay = { channel -> play(channel) },
-            onRecordByTime = { channel -> RecordByTime.forChannel(this, channel) { refreshRecordMarks() } }
-        )
+        channelAdapter = ChannelColumnAdapter(timeline, onPlay = { channel -> play(channel) })
         rowAdapter = EpgRowAdapter(
             timeline = timeline,
             programmesFor = { channel -> EpgCache.cached(channel.streamId) },
@@ -158,11 +151,6 @@ class EpgActivity : AppCompatActivity() {
             onFocused = { channel, programme -> showSelected(channel, programme, fromFocus = true) },
             onPressed = { channel, programme -> blockClicked(channel, programme) },
             onPlay = { channel -> play(channel) },
-            onRecord = { channel, programme ->
-                RecordDialog.show(this, channel, programme) { refreshRecordMarks() }
-            },
-            onRecordByTime = { channel -> RecordByTime.forChannel(this, channel) { refreshRecordMarks() } },
-            recordState = { channel, programme -> recordStateFor(channel, programme) },
             onLeftEdge = { focusCategoryRow() },
             onTopEdge = { focusCategoryRow() }
         )
@@ -194,40 +182,8 @@ class EpgActivity : AppCompatActivity() {
         handler.post(tick)
     }
 
-    /**
-     * The red dots in the guide.
-     *
-     * Read from what is actually running and what is actually filed, rather
-     * than from anything this screen remembers - so a recording set on the
-     * player, or one that started while the guide was open, is marked too.
-     */
-    private fun recordStateFor(channel: StreamItem, programme: Programme): Int {
-        if (channel.streamId.isBlank()) return 0
-        val now = System.currentTimeMillis()
-        if (RecorderService.isRecording &&
-            RecorderService.activeStreamId == channel.streamId &&
-            programme.start <= now && programme.end > now
-        ) {
-            return 2
-        }
-        val waiting = scheduledNow.any {
-            it.streamId == channel.streamId &&
-                (
-                    (it.startAt < programme.end && programme.start < it.endAt) ||
-                        (it.series && it.title.equals(programme.title, ignoreCase = true))
-                    )
-        }
-        return if (waiting) 1 else 0
-    }
-
-    private fun refreshRecordMarks() {
-        scheduledNow = runCatching { Schedules.upcoming(this) }.getOrDefault(emptyList())
-        rowAdapter.notifyDataSetChanged()
-    }
-
     override fun onResume() {
         super.onResume()
-        refreshRecordMarks()
         // Coming back from a channel the viewer surfed away from: put the guide on
         // the channel they ended on, and clear the note either way so it cannot
         // move the remote on some later screen.
@@ -507,9 +463,6 @@ class EpgActivity : AppCompatActivity() {
 
     private fun queuePreview(channel: StreamItem) {
         if (!prefs.previewEnabled) return
-        // A preview is a whole stream. While something is recording, that is
-        // the line's one connection already spoken for.
-        if (RecorderService.isRecording) return
         if (previewing?.streamId == channel.streamId) return
         previewing = channel
         previewLogo.visibility = View.VISIBLE
@@ -589,17 +542,6 @@ class EpgActivity : AppCompatActivity() {
     }
 
     private fun startPreview(channel: StreamItem, urlIndex: Int = 0) {
-        // The preview is a whole connection. queuePreview already refuses to
-        // start one while a recording is running, but a recording can begin
-        // while a preview is playing - somebody holding OK on the programme
-        // they are watching - so the last word on it belongs here, where every
-        // route to a preview ends up.
-        if (RecorderService.isRecording) {
-            stopPreview()
-            previewNote.setText(R.string.preview_recording)
-            previewNote.visibility = View.VISIBLE
-            return
-        }
         val urls = prefs.client().liveUrls(channel.streamId)
         if (urlIndex >= urls.size) {
             previewNote.setText(R.string.preview_unavailable)
@@ -607,7 +549,6 @@ class EpgActivity : AppCompatActivity() {
             return
         }
         previewUrlIndex = urlIndex
-        watchForRecording()
         val exo = ensurePreviewPlayer()
         exo.stop()
         exo.setMediaItem(MediaItem.fromUri(urls[urlIndex]))
@@ -623,32 +564,6 @@ class EpgActivity : AppCompatActivity() {
     private fun stopPreview() {
         previewPlayer?.stop()
         previewPlayer?.clearMediaItems()
-        previewGuard.removeCallbacksAndMessages(null)
-    }
-
-    /**
-     * Watches for a recording starting underneath a preview that is already
-     * playing, and gets out of its way. Without this the preview keeps the line
-     * for a few seconds and then freezes - which looks like the app is broken
-     * when it is really two things wanting the same single connection.
-     */
-    private val previewGuard = android.os.Handler(android.os.Looper.getMainLooper())
-
-    private fun watchForRecording() {
-        previewGuard.removeCallbacksAndMessages(null)
-        previewGuard.postDelayed(object : Runnable {
-            override fun run() {
-                if (isFinishing) return
-                if (RecorderService.isRecording) {
-                    previewJob?.cancel()
-                    stopPreview()
-                    previewNote.setText(R.string.preview_recording)
-                    previewNote.visibility = View.VISIBLE
-                    return
-                }
-                previewGuard.postDelayed(this, 2_000L)
-            }
-        }, 2_000L)
     }
 
     private fun releasePreviewPlayer() {
@@ -665,99 +580,6 @@ class EpgActivity : AppCompatActivity() {
      * Returns false when the row has no listings yet, so the press falls through
      * and behaves the way it always did.
      */
-    /**
-     * UP AND DOWN KEEP THE TIME.
-     *
-     * A guide is a picture of time: the same moment is the same place on every
-     * row. Left to itself the remote does not know that - it moves to whichever
-     * block happens to overlap the one you are on, and on a channel showing a
-     * three hour film that is a block starting an hour later. Two rows down and
-     * you are somewhere else entirely without having asked to be.
-     *
-     * So the time is carried instead of the position: the moment at the middle
-     * of the block you are on, matched against the blocks in the row you are
-     * moving to. What is showing at nine o'clock stays what is showing at nine
-     * o'clock, all the way down the list.
-     */
-    /**
-     * Up and down in the grid are taken here first, so they can keep the time
-     * rather than letting Android pick by position.
-     */
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN) {
-            val onABlock = currentFocus?.getTag(R.id.epg_block_start) != null
-            if (onABlock) {
-                when (event.keyCode) {
-                    KeyEvent.KEYCODE_DPAD_DOWN -> if (moveRowKeepingTime(true)) return true
-                    KeyEvent.KEYCODE_DPAD_UP -> if (moveRowKeepingTime(false)) return true
-                }
-            }
-        }
-        return super.dispatchKeyEvent(event)
-    }
-
-    /**
-     * UP AND DOWN FOLLOW THE BLUE LINE.
-     *
-     * The line down the guide is now. Moving between channels should keep the
-     * highlight on it: down a channel, and you are on whatever that channel is
-     * showing at this minute, the same as the one above.
-     *
-     * Left to itself the remote moves to whichever block happens to overlap on
-     * screen, which after any sideways scrolling is a programme at some other
-     * time entirely - and the highlight wanders further from the line with
-     * every press.
-     */
-    private fun moveRowKeepingTime(down: Boolean): Boolean {
-        val focused = currentFocus ?: return false
-        if (focused.getTag(R.id.epg_block_start) == null) return false
-
-        val manager = gridRows.layoutManager as? LinearLayoutManager ?: return false
-        val holder = gridRows.findContainingViewHolder(focused) ?: return false
-        val next = holder.bindingAdapterPosition + if (down) 1 else -1
-        if (next < 0 || next >= (gridRows.adapter?.itemCount ?: 0)) return false
-
-        // Just off screen: bring it in and land on the next pass rather than
-        // refusing to move.
-        val target = gridRows.findViewHolderForAdapterPosition(next)?.itemView
-        if (target == null) {
-            manager.scrollToPosition(next)
-            gridRows.post { moveRowKeepingTime(down) }
-            return true
-        }
-
-        val blocks = ArrayList<View>()
-        collectBlocks(target, blocks)
-        if (blocks.isEmpty()) return false
-
-        val now = System.currentTimeMillis()
-        val onNow = blocks.firstOrNull {
-            val from = it.getTag(R.id.epg_block_start) as? Long ?: return@firstOrNull false
-            val to = it.getTag(R.id.epg_block_end) as? Long ?: return@firstOrNull false
-            now in from until to
-        }
-
-        // A row with no listings for right now - the portal keeps none for that
-        // channel, or they have not arrived yet. Take the next thing due rather
-        // than something that finished hours ago.
-        val landing = onNow ?: blocks
-            .filter { (it.getTag(R.id.epg_block_end) as? Long ?: 0L) > now }
-            .minByOrNull { (it.getTag(R.id.epg_block_start) as? Long ?: Long.MAX_VALUE) }
-            ?: blocks.firstOrNull()
-
-        return landing?.requestFocus() ?: false
-    }
-
-    private fun collectBlocks(view: View, into: MutableList<View>) {
-        if (view.getTag(R.id.epg_block_start) != null && view.isFocusable) {
-            into.add(view)
-            return
-        }
-        if (view is ViewGroup) {
-            for (i in 0 until view.childCount) collectBlocks(view.getChildAt(i), into)
-        }
-    }
-
     private fun focusWhatsOnNow(): Boolean {
         val manager = gridRows.layoutManager as? LinearLayoutManager ?: return false
         val first = manager.findFirstVisibleItemPosition()

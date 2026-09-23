@@ -30,6 +30,8 @@ class LoginActivity : AppCompatActivity() {
     // The brand spinner, not a ProgressBar - only its visibility is ever touched.
     private lateinit var progress: View
     private lateinit var statusLabel: TextView
+    private lateinit var savedLabel: TextView
+    private lateinit var savedList: android.widget.LinearLayout
 
     /** The update being offered, held so it survives the trip out to Settings. */
     private var pendingUpdate: RemoteConfig? = null
@@ -59,6 +61,8 @@ class LoginActivity : AppCompatActivity() {
         signInButton = findViewById(R.id.signInButton)
         progress = findViewById(R.id.loginProgress)
         statusLabel = findViewById(R.id.loginStatus)
+        savedLabel = findViewById(R.id.savedLabel)
+        savedList = findViewById(R.id.savedLogins)
 
         signInButton.setOnClickListener { attemptSignIn() }
         findViewById<ImageView>(R.id.passwordReveal).setOnClickListener { togglePassword(it as ImageView) }
@@ -73,7 +77,48 @@ class LoginActivity : AppCompatActivity() {
             true
         }
 
+        showSavedLogins()
         loadConfigThenContinue()
+    }
+
+    /**
+     * The lines this box has signed in with before.
+     *
+     * Kept deliberately plain: the username on a row, press to sign in, hold to
+     * forget. No passwords are ever drawn on screen - the point is that nobody
+     * has to know one to get back in on their own television.
+     */
+    private fun showSavedLogins() {
+        val saved = prefs.savedLogins
+        savedList.removeAllViews()
+        val show = saved.isNotEmpty()
+        savedLabel.visibility = if (show) View.VISIBLE else View.GONE
+        savedList.visibility = if (show) View.VISIBLE else View.GONE
+        if (!show) return
+
+        val inflater = layoutInflater
+        for (one in saved) {
+            val row = inflater.inflate(R.layout.item_saved_login, savedList, false)
+            row.findViewById<TextView>(R.id.savedName).text = one.username
+            row.setOnClickListener {
+                usernameInput.setText(one.username)
+                passwordInput.setText(one.password)
+                attemptSignIn()
+            }
+            row.setOnLongClickListener {
+                AlertDialog.Builder(this)
+                    .setTitle(one.username)
+                    .setMessage(R.string.forget_login_confirm)
+                    .setPositiveButton(R.string.forget_login) { _, _ ->
+                        prefs.forgetLogin(one.username)
+                        showSavedLogins()
+                    }
+                    .setNegativeButton(R.string.cancel, null)
+                    .show()
+                true
+            }
+            savedList.addView(row)
+        }
     }
 
     private fun loadConfigThenContinue() {
@@ -276,6 +321,8 @@ class LoginActivity : AppCompatActivity() {
                         prefs.manualServer = client.server
                     }
                     prefs.saveCredentials(client.server, username, password)
+                    // Remembered for next time, so signing out costs nothing.
+                    prefs.rememberLogin(client.server, username, password)
                     statusLabel.text = worked.second
                     goToApp()
                 }
