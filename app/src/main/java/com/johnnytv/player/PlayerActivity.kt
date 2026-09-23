@@ -874,10 +874,10 @@ class PlayerActivity : AppCompatActivity() {
 
         /**
          * How long a picture may sit frozen while the player insists it is
-         * playing. Longer than the spinner's allowance because a live feed does
-         * legitimately go quiet for a moment, and shorter than anybody's patience.
+         * playing. Three seconds: long enough that a feed catching its breath is
+         * not thrown away, short enough that nobody reaches for the remote first.
          */
-        private const val FROZEN_MS = 6_000L
+        private const val FROZEN_MS = 3_000L
         private const val STALL_CHECK_MS = 1_000L
 
         private const val EXTRA_URLS = "extra_urls"
