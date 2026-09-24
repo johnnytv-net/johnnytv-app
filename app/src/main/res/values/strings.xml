@@ -135,8 +135,13 @@
     <string name="close">Close</string>
     <string name="clear_error">Clear</string>
     <string name="sign_out">Sign out</string>
-    <string name="sign_out_confirm">You will need your username and password to sign back in.</string>
+    <string name="sign_out_confirm">Your login stays saved on this box, so you can sign back in with one press.</string>
     <string name="cancel">Cancel</string>
+    <string name="refreshing_picture">Refreshing the picture…</string>
+    <string name="saved_logins">Saved logins</string>
+    <string name="tap_to_sign_in">Press to sign in</string>
+    <string name="forget_login">Forget</string>
+    <string name="forget_login_confirm">Remove this login from this box? The account itself is not touched.</string>
     <string name="account_unavailable">Account details unavailable right now.</string>
     <string name="catalogue_summary">%1$d channels · %2$d movies · %3$d series\nLast updated %4$s</string>
     <string name="version_label">Version %1$s (%2$d)</string>

@@ -184,9 +184,9 @@ class SettingsActivity : AppCompatActivity() {
      * At home the boxes find each other by announcing themselves. Away from
      * home nothing is announced and nothing is heard, so the box holding the
      * recordings has to be named - by its Tailscale address, which stays the
-     * same wherever either end happens to be. Typed once, and after that a
-     * phone on mobile data lists and plays the Shield's recordings exactly as
-     * the television upstairs does.
+     * same wherever either end is. Typed once, and after that a phone on
+     * mobile data lists and plays the Shield's recordings exactly as the
+     * television upstairs does.
      */
     private fun showAwayState(label: TextView) {
         val typed = prefs.awayBox

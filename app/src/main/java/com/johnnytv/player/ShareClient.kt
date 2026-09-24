@@ -120,7 +120,7 @@ object ShareClient {
     /**
      * The box whose address somebody typed in, if there is one. Tried first:
      * away from home it is the only one that can answer, and at home it
-     * answers faster than waiting to hear an announcement.
+     * answers sooner than waiting to hear an announcement.
      */
     fun writtenDownBox(context: Context): Box? {
         val typed = Prefs(context).awayBox.trim()

@@ -71,6 +71,20 @@ class PlayerActivity : AppCompatActivity() {
     /** When the picture last stopped moving, so a stall can be caught early. */
     private var stalledSince = 0L
 
+    /**
+     * WHERE THE PICTURE HAD GOT TO A SECOND AGO.
+     *
+     * The player's own state is not to be trusted for this. A feed that has gone
+     * quiet without closing leaves ExoPlayer sitting in READY, believing it is
+     * playing, for as long as the socket stays open - which is precisely the
+     * frozen picture everybody recognises and the reason the only cure used to be
+     * changing channel and changing back. The clock, on the other hand, cannot
+     * lie: if the position has not moved, nothing is being played, whatever the
+     * player says about it.
+     */
+    private var lastPosition = -1L
+    private var lastMoved = 0L
+
     private var resumeFrom: Long = 0L
     private var hasSeeked = false
     private var retriesOnCurrentUrl = 0
@@ -216,7 +230,7 @@ class PlayerActivity : AppCompatActivity() {
         playerView.removeCallbacks(stallWatch)
         playerView.removeCallbacks(waitForChunk)
         playerView.removeCallbacks(recordingWatch)
-        stalledSince = 0L
+        resetStallClock()
         castAsk?.dismiss()
         castAsk = null
         releasePlayer()
@@ -308,6 +322,18 @@ class PlayerActivity : AppCompatActivity() {
             if (channel != null) RecordDialog.showForLive(this, channel)
             return true
         }
+        // The picture is frozen and the viewer got there before the watchdog did.
+        // One press puts the channel back on rather than making them walk up the
+        // list and back down again.
+        if (event.action == KeyEvent.ACTION_DOWN && kind == Kind.LIVE && !playlist &&
+            (event.keyCode == KeyEvent.KEYCODE_MENU ||
+                event.keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+        ) {
+            android.widget.Toast.makeText(this, R.string.refreshing_picture, android.widget.Toast.LENGTH_SHORT).show()
+            retune()
+            return true
+        }
+
         val step = stepFor(event.keyCode)
         // Only while the player's own controls are hidden. With them showing, the
         // remote belongs to them - that is how you reach the subtitles button.
@@ -520,28 +546,73 @@ class PlayerActivity : AppCompatActivity() {
         override fun run() {
             val active = player
             if (active != null && !isFinishing) {
-                val stuck = active.playbackState == Player.STATE_BUFFERING && active.playWhenReady
-                if (stuck) {
-                    val now = System.currentTimeMillis()
-                    if (stalledSince == 0L) {
-                        stalledSince = now
-                    } else if (now - stalledSince >= STALL_MS) {
-                        stalledSince = 0L
-                        if (prefs.noteStall(contentId)) deeperBuffer = true
-                        recover()
-                    }
+                val state = active.playbackState
+                val wanted = active.playWhenReady &&
+                    state != Player.STATE_IDLE && state != Player.STATE_ENDED
+                if (!wanted) {
+                    // Paused on purpose, or finished. Nothing to rescue.
+                    resetStallClock()
                 } else {
-                    stalledSince = 0L
+                    val now = System.currentTimeMillis()
+                    val at = active.currentPosition
+                    if (at != lastPosition) {
+                        // Moving. Whatever happened before does not count.
+                        lastPosition = at
+                        lastMoved = now
+                        stalledSince = 0L
+                    } else {
+                        if (lastMoved == 0L) lastMoved = now
+                        val still = now - lastMoved
+                        // A spinner is honest about being stuck, so it gets less
+                        // rope than a picture that is frozen while claiming to
+                        // play - that one is given a few seconds in case the feed
+                        // is only catching its breath.
+                        val patience = if (state == Player.STATE_BUFFERING) STALL_MS else FROZEN_MS
+                        if (still >= patience) {
+                            resetStallClock()
+                            if (prefs.noteStall(contentId)) deeperBuffer = true
+                            // Exactly what changing channel and changing back
+                            // does, minus the viewer having to think of it.
+                            retune()
+                        }
+                    }
                 }
             }
             playerView.postDelayed(this, STALL_CHECK_MS)
         }
     }
 
+    private fun resetStallClock() {
+        stalledSince = 0L
+        lastPosition = -1L
+        lastMoved = 0L
+    }
+
+    /**
+     * OFF AND ON AGAIN, PROPERLY.
+     *
+     * The old connection is dropped and the same channel opened from scratch: a
+     * new socket, a new buffer, nothing carried over from the feed that died.
+     * It is the one move that has always worked, so the app does it itself the
+     * moment the picture stops moving, and the viewer can ask for it by hand
+     * with the menu button when they get there first.
+     */
+    private fun retune() {
+        cancelPendingRetry()
+        resetStallClock()
+        retriesOnCurrentUrl = 0
+        playedCurrentUrl = false
+        showLoading()
+        playerView.post { if (!isFinishing) startPlayback() }
+    }
+
     // ---------- playback ----------
 
     private fun startPlayback() {
         releasePlayer()
+        // A fresh stream starts the clock again, so the last one's silence is not
+        // counted against it.
+        resetStallClock()
         if (urlIndex >= urls.size) {
             showStatus(getString(R.string.could_not_play, title))
             return
@@ -800,6 +871,13 @@ class PlayerActivity : AppCompatActivity() {
         private const val RECORDING_CHECK_MS = 2_000L
 
         private const val STALL_MS = 3_000L
+
+        /**
+         * How long a picture may sit frozen while the player insists it is
+         * playing. Three seconds: long enough that a feed catching its breath is
+         * not thrown away, short enough that nobody reaches for the remote first.
+         */
+        private const val FROZEN_MS = 3_000L
         private const val STALL_CHECK_MS = 1_000L
 
         private const val EXTRA_URLS = "extra_urls"

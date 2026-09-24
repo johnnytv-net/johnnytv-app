@@ -193,6 +193,31 @@
                 android:textSize="15sp"
                 android:textStyle="bold" />
 
+            <!--
+                Logins this box has used before. Signing out no longer means
+                hunting for a password on a piece of paper - the name is a
+                button, and pressing it signs straight back in.
+            -->
+            <TextView
+                android:id="@+id/savedLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="22dp"
+                android:letterSpacing="0.08"
+                android:text="@string/saved_logins"
+                android:textAllCaps="true"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/savedLogins"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="7dp"
+                android:orientation="vertical"
+                android:visibility="gone" />
+
             <com.johnnytv.player.SpinnerView
                 android:id="@+id/loginProgress"
                 android:layout_width="44dp"
