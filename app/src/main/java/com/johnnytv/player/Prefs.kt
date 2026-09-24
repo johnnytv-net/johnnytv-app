@@ -291,18 +291,36 @@ class Prefs(context: Context) {
 
     private fun favouriteKey(kind: Kind, id: String) = "${kind.name}:$id"
 
+    /*
+     * FAVOURITES THAT STAY REMOVED.
+     *
+     * These were kept in a string set, which is the one preference type
+     * Android tells you not to treat as ordinary storage: the set handed back
+     * is the very object the system is holding, and edits made around it are
+     * not guaranteed to be written. In practice that showed as channels a
+     * customer had removed reappearing after a restart - the screen had
+     * updated, the file had not.
+     *
+     * They are one string now, a line per favourite, which has none of that
+     * behaviour. Anything stored the old way is read once and carried over, so
+     * nobody loses the list they already had, and the old key is cleared so
+     * there is only one answer to where favourites live.
+     */
     fun isFavourite(kind: Kind, id: String): Boolean =
         favouriteSet().contains(favouriteKey(kind, id))
 
     fun toggleFavourite(kind: Kind, id: String): Boolean {
-        val set = HashSet(favouriteSet())
+        val list = ArrayList(favouriteSet())
         val key = favouriteKey(kind, id)
-        val nowFavourite = if (set.contains(key)) {
-            set.remove(key); false
+        val nowFavourite = if (list.contains(key)) {
+            list.remove(key); false
         } else {
-            set.add(key); true
+            list.add(key); true
         }
-        sp.edit().putStringSet(KEY_FAVS, set).apply()
+        // Written with commit rather than apply: a television box that loses
+        // power, or is unplugged straight after somebody tidies their list,
+        // must not come back with the removals undone.
+        sp.edit().putString(KEY_FAVS_TEXT, list.joinToString("\n")).commit()
         return nowFavourite
     }
 
@@ -313,7 +331,27 @@ class Prefs(context: Context) {
             .toSet()
     }
 
-    private fun favouriteSet(): Set<String> = sp.getStringSet(KEY_FAVS, emptySet()) ?: emptySet()
+    /** Every favourite, in the order they were added. */
+    private fun favouriteSet(): List<String> {
+        val text = sp.getString(KEY_FAVS_TEXT, null)
+        if (text != null) return text.split("\n").filter { it.isNotBlank() }
+
+        // First run after the change: take what the old set holds, write it
+        // the new way, and forget the old key.
+        val old = runCatching { sp.getStringSet(KEY_FAVS, emptySet()) ?: emptySet() }
+            .getOrDefault(emptySet())
+        val carried = old.filter { it.isNotBlank() }.sorted()
+        sp.edit()
+            .putString(KEY_FAVS_TEXT, carried.joinToString("\n"))
+            .remove(KEY_FAVS)
+            .commit()
+        return carried
+    }
+
+    /** Empties the list outright - the way out of a list that has gone wrong. */
+    fun clearFavourites() {
+        sp.edit().putString(KEY_FAVS_TEXT, "").remove(KEY_FAVS).commit()
+    }
 
     // ---------- continue watching ----------
 
@@ -394,7 +432,8 @@ class Prefs(context: Context) {
         const val KEY_LOGOS = "logo_pack"
         const val KEY_LIST_VIEW = "live_list_view"
         const val KEY_PREVIEW = "channel_preview"
-        const val KEY_FAVS = "favourites"
+        const val KEY_FAVS = "favourites"                 // the old string set
+        const val KEY_FAVS_TEXT = "favourites_list"        // one per line
         const val KEY_POSITIONS = "positions"
         const val KEY_CONTINUE = "continue_watching"
         const val KEY_SEARCHES = "recent_searches"

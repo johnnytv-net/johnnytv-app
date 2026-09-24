@@ -204,6 +204,10 @@
     <string name="recordings_report_run">%1$s to %2$s — %3$d short drops, %4$d seconds lost in total, each one reconnected on its own.</string>
     <string name="record_busy_watching">Recording in progress. Your line allows one connection, so this channel has to stay on until it finishes.</string>
 
+    <string name="clear_favourites">Clear all favourites</string>
+    <string name="clear_favourites_confirm">Remove every channel, film and series from Favourites? Nothing else is affected.</string>
+    <string name="clear_favourites_yes">Clear them</string>
+    <string name="clear_favourites_done">Favourites cleared</string>
     <string name="away_row">Watch recordings from away</string>
     <string name="away_off">Off — recordings on other TVs are found at home only</string>
     <string name="away_help">Type the Tailscale address of the box holding the recordings — it looks like 100.119.61.127. Both boxes need Tailscale signed into the same account. Leave it empty to use the home network only.</string>

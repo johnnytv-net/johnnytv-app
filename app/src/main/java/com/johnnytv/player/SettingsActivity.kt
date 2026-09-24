@@ -48,6 +48,8 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.checkRow).setOnClickListener { showDeviceCheck() }
         findViewById<View>(R.id.phoneRow).setOnClickListener { checkPhoneRecordings() }
 
+        findViewById<View>(R.id.clearFavouritesRow).setOnClickListener { clearFavourites() }
+
         val awayState = findViewById<TextView>(R.id.awayState)
         showAwayState(awayState)
         findViewById<View>(R.id.awayRow).setOnClickListener { askForAwayBox(awayState) }
@@ -188,6 +190,25 @@ class SettingsActivity : AppCompatActivity() {
      * mobile data lists and plays the Shield's recordings exactly as the
      * television upstairs does.
      */
+    /**
+     * The way out of a favourites list that has gone wrong.
+     *
+     * Removing them one at a time is the normal way; this is for the case
+     * where somebody has a list full of channels their portal no longer
+     * carries, or simply wants to start again.
+     */
+    private fun clearFavourites() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.clear_favourites)
+            .setMessage(R.string.clear_favourites_confirm)
+            .setPositiveButton(R.string.clear_favourites_yes) { _, _ ->
+                prefs.clearFavourites()
+                Toast.makeText(this, R.string.clear_favourites_done, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
     private fun showAwayState(label: TextView) {
         val typed = prefs.awayBox
         label.text = if (typed.isBlank()) getString(R.string.away_off) else typed
