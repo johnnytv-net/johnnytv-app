@@ -83,7 +83,28 @@ object Catalog {
         // Note the artwork this service supplied, so the other one can borrow it.
         runCatching { IconMemory.remember(context, liveStreams) }
         save(context)
-        Prefs(context).lastSync = System.currentTimeMillis()
+
+        /*
+         * Clear out favourites whose channel has gone.
+         *
+         * A portal that renumbers its streams leaves favourites pointing at
+         * ids that no longer exist. They cannot be seen and so cannot be
+         * removed by hand - the only moment we can safely tidy them is here,
+         * holding a catalogue we have just fetched and know to be real.
+         */
+        val prefs = Prefs(context)
+        runCatching {
+            if (liveStreams.isNotEmpty()) {
+                prefs.pruneFavourites(Kind.LIVE, liveStreams.map { it.streamId }.toSet())
+            }
+            if (vodStreams.isNotEmpty()) {
+                prefs.pruneFavourites(Kind.VOD, vodStreams.map { it.streamId }.toSet())
+            }
+            if (seriesList.isNotEmpty()) {
+                prefs.pruneFavourites(Kind.SERIES, seriesList.map { it.seriesId }.toSet())
+            }
+        }
+        prefs.lastSync = System.currentTimeMillis()
     }
 
     /**

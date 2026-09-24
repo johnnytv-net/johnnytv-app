@@ -363,12 +363,36 @@ class Prefs(context: Context) {
         val lines = text?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()
         return buildString {
             append("Stored now: ").append(lines.size).append('\n')
+            append("(some may point at channels the portal has removed;\n")
+            append("those are cleared at the next sync)\n")
             if (lines.isNotEmpty()) append(lines.take(8).joinToString("\n")).append('\n')
             append("\nOld store: ")
             append(if (text == null) "not yet carried over" else "cleared")
             append(" (").append(old.size).append(")\n")
             if (old.isNotEmpty()) append(old.take(8).joinToString("\n"))
         }
+    }
+
+    /**
+     * Drops favourites whose channel or film no longer exists.
+     *
+     * Portals renumber their streams, and when they do, every favourite
+     * pointing at an old id becomes invisible - present in the count, absent
+     * from the list, impossible to select and therefore impossible to remove.
+     * After a sync has brought back a real catalogue, anything not in it is
+     * cleared out.
+     *
+     * Only ever called with a catalogue that actually loaded: pruning against
+     * an empty list would wipe somebody's favourites the first time a portal
+     * was slow to answer.
+     */
+    fun pruneFavourites(kind: Kind, existingIds: Set<String>) {
+        if (existingIds.isEmpty()) return
+        val prefix = "${kind.name}:"
+        val all = favouriteSet()
+        val kept = all.filter { !it.startsWith(prefix) || existingIds.contains(it.removePrefix(prefix)) }
+        if (kept.size == all.size) return
+        sp.edit().putString(KEY_FAVS_TEXT, kept.joinToString("\n")).commit()
     }
 
     /** Empties the list outright - the way out of a list that has gone wrong. */

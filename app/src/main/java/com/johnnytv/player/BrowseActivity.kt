@@ -405,7 +405,20 @@ class BrowseActivity : AppCompatActivity() {
      */
     private fun sidebarCategories(): List<Category> {
         val specials = ArrayList<Category>()
-        specials.add(Category(CATEGORY_FAVOURITES, getString(R.string.favourites), prefs.favouriteIds(kind).size))
+        /*
+         * COUNT WHAT CAN ACTUALLY BE SEEN.
+         *
+         * This used to count stored favourites, while the list itself only
+         * shows the ones that still match a channel. When a portal changes a
+         * channel's id - which they do - the favourite left behind points at
+         * nothing: counted in the sidebar, absent from the list, and
+         * impossible to remove because it cannot be selected. "Favourites 2"
+         * over an empty screen, and no way out of it.
+         *
+         * Counting the same list that is drawn means the number can never
+         * disagree with the screen again.
+         */
+        specials.add(Category(CATEGORY_FAVOURITES, getString(R.string.favourites), favouritesOnScreen()))
         // The guide belongs beside the channels, not behind a trip back to the
         // home screen.
         if (kind == Kind.LIVE) specials.add(Category(CATEGORY_GUIDE, getString(R.string.tv_guide)))
@@ -470,6 +483,11 @@ class BrowseActivity : AppCompatActivity() {
         categoryList.scrollToPosition(startIndex)
         showCategory(all[startIndex].id)
     }
+
+    /** How many favourites actually resolve to something in the catalogue. */
+    private fun favouritesOnScreen(): Int =
+        if (kind == Kind.LIVE) channelsFor(CATEGORY_FAVOURITES).size
+        else tilesFor(CATEGORY_FAVOURITES).size
 
     /**
      * Which sidebar entry to open on.
