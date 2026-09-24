@@ -48,62 +48,6 @@ class Prefs(context: Context) {
 
     fun client(): XtreamClient = XtreamClient(server, username, password)
 
-    // ---------- remembered logins ----------
-
-    /**
-     * ONE LINE, ONE TAP, NEXT TIME.
-     *
-     * Every login that has worked on this box is kept here, so signing out is no
-     * longer a punishment: the name comes back as a button on the sign-in screen
-     * and the password comes with it. Nothing is ever drawn on screen but the
-     * name, and none of it leaves the device - the password for the line being
-     * watched was already stored here to keep the session alive, so nothing is
-     * exposed that was not exposed a moment ago.
-     */
-    data class SavedLogin(val server: String, val username: String, val password: String)
-
-    val savedLogins: List<SavedLogin>
-        get() = try {
-            val out = ArrayList<SavedLogin>()
-            val array = org.json.JSONArray(sp.getString(KEY_LOGINS, "[]") ?: "[]")
-            for (i in 0 until array.length()) {
-                val one = array.optJSONObject(i) ?: continue
-                val user = one.optString("u").trim()
-                if (user.isBlank()) continue
-                out.add(SavedLogin(one.optString("s").trim(), user, one.optString("p")))
-            }
-            out
-        } catch (e: Exception) {
-            emptyList()
-        }
-
-    /** Newest first, one entry per username, and a short list - this is a television, not a vault. */
-    fun rememberLogin(server: String, username: String, password: String) {
-        if (username.isBlank() || password.isBlank()) return
-        val list = ArrayList(savedLogins.filter { !it.username.equals(username, true) })
-        list.add(0, SavedLogin(server, username, password))
-        while (list.size > MAX_LOGINS) list.removeAt(list.size - 1)
-        writeLogins(list)
-    }
-
-    fun forgetLogin(username: String) {
-        writeLogins(savedLogins.filter { !it.username.equals(username, true) })
-    }
-
-    private fun writeLogins(list: List<SavedLogin>) {
-        val array = org.json.JSONArray()
-        for (one in list) {
-            array.put(
-                JSONObject()
-                    .put("s", one.server)
-                    .put("u", one.username)
-                    .put("p", one.password)
-            )
-        }
-        sp.edit().putString(KEY_LOGINS, array.toString()).apply()
-    }
-
-
     /** One line this box has been signed into. */
     data class Account(val server: String, val username: String, val password: String) {
         fun client(): XtreamClient = XtreamClient(server, username, password)
@@ -226,6 +170,22 @@ class Prefs(context: Context) {
     var shareRecordings: Boolean
         get() = sp.getBoolean(KEY_SHARE, false)
         set(value) = sp.edit().putBoolean(KEY_SHARE, value).apply()
+
+    /**
+     * A BOX THAT IS NOT ON THIS NETWORK.
+     *
+     * Televisions find each other at home by announcing themselves, which is
+     * how the Google TV upstairs sees the Shield. Those announcements go no
+     * further than the house: over mobile data, or through Tailscale from
+     * somewhere else entirely, nothing is announced and nothing is found.
+     *
+     * So the address can be written down instead. A Tailscale address, a
+     * street address for the box - once it is here, recordings are listed and
+     * played from anywhere, because the connection itself is already private.
+     */
+    var awayBox: String
+        get() = sp.getString(KEY_AWAY_BOX, "") ?: ""
+        set(value) = sp.edit().putString(KEY_AWAY_BOX, value.trim()).apply()
 
     var weatherTown: String
         get() = sp.getString(KEY_WEATHER_TOWN, "") ?: ""
@@ -383,12 +343,11 @@ class Prefs(context: Context) {
         const val KEY_POSITIONS = "positions"
         const val KEY_CONTINUE = "continue_watching"
         const val KEY_SEARCHES = "recent_searches"
-        const val KEY_LOGINS = "saved_logins"
-        const val MAX_LOGINS = 8
         const val KEY_REC_VOLUME = "recording_volume"
         const val KEY_WEATHER_TOWN = "weather_town"
         const val KEY_ACCOUNTS = "known_accounts"
         const val KEY_SHARE = "share_recordings"
+        const val KEY_AWAY_BOX = "away_box"
 
         /** More lines than anyone has; a list that can never grow for ever. */
         const val MAX_ACCOUNTS = 6

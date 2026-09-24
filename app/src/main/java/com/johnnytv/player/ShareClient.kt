@@ -117,6 +117,27 @@ object ShareClient {
     }
 
     /** Everything recorded on every other television in the house. */
-    fun everything(context: Context): List<Remote> =
-        findBoxes(context).flatMap { recordingsOn(it) }.sortedByDescending { it.at }
+    /**
+     * The box whose address somebody typed in, if there is one. Tried first:
+     * away from home it is the only one that can answer, and at home it
+     * answers faster than waiting to hear an announcement.
+     */
+    fun writtenDownBox(context: Context): Box? {
+        val typed = Prefs(context).awayBox.trim()
+        if (typed.isBlank()) return null
+        val cleaned = typed.removePrefix("http://").removePrefix("https://").trimEnd('/')
+        val host = cleaned.substringBefore(':')
+        val port = cleaned.substringAfter(':', "8765").toIntOrNull() ?: 8765
+        if (host.isBlank()) return null
+        return Box(name = "Home", host = host, port = port)
+    }
+
+    fun everything(context: Context): List<Remote> {
+        val boxes = ArrayList<Box>()
+        writtenDownBox(context)?.let { boxes.add(it) }
+        for (box in findBoxes(context)) {
+            if (boxes.none { it.host == box.host }) boxes.add(box)
+        }
+        return boxes.flatMap { recordingsOn(it) }.sortedByDescending { it.at }
+    }
 }

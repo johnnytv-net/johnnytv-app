@@ -135,13 +135,8 @@
     <string name="close">Close</string>
     <string name="clear_error">Clear</string>
     <string name="sign_out">Sign out</string>
-    <string name="sign_out_confirm">Your login stays saved on this box, so you can sign back in with one press.</string>
+    <string name="sign_out_confirm">You will need your username and password to sign back in.</string>
     <string name="cancel">Cancel</string>
-    <string name="refreshing_picture">Refreshing the picture…</string>
-    <string name="saved_logins">Saved logins</string>
-    <string name="tap_to_sign_in">Press to sign in</string>
-    <string name="forget_login">Forget</string>
-    <string name="forget_login_confirm">Remove this login from this box? The account itself is not touched.</string>
     <string name="account_unavailable">Account details unavailable right now.</string>
     <string name="catalogue_summary">%1$d channels · %2$d movies · %3$d series\nLast updated %4$s</string>
     <string name="version_label">Version %1$s (%2$d)</string>
@@ -204,6 +199,10 @@
     <string name="recordings_report_run">%1$s to %2$s — %3$d short drops, %4$d seconds lost in total, each one reconnected on its own.</string>
     <string name="record_busy_watching">Recording in progress. Your line allows one connection, so this channel has to stay on until it finishes.</string>
 
+    <string name="away_row">Watch recordings from away</string>
+    <string name="away_off">Off — recordings on other TVs are found at home only</string>
+    <string name="away_help">Type the Tailscale address of the box holding the recordings — it looks like 100.119.61.127. Both boxes need Tailscale signed into the same account. Leave it empty to use the home network only.</string>
+    <string name="away_forget">Forget</string>
     <string name="share_row">Share recordings with other TVs</string>
     <string name="share_on">On — other TVs in the house can watch this box\'s recordings</string>
     <string name="share_off">Off</string>

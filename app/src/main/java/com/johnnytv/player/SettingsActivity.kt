@@ -3,6 +3,7 @@ package com.johnnytv.player
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import android.widget.EditText
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -46,6 +47,10 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.storageRow).setOnClickListener { chooseStorage(storageState) }
         findViewById<View>(R.id.checkRow).setOnClickListener { showDeviceCheck() }
         findViewById<View>(R.id.phoneRow).setOnClickListener { checkPhoneRecordings() }
+
+        val awayState = findViewById<TextView>(R.id.awayState)
+        showAwayState(awayState)
+        findViewById<View>(R.id.awayRow).setOnClickListener { askForAwayBox(awayState) }
 
         val shareState = findViewById<TextView>(R.id.shareState)
         shareState.setText(if (prefs.shareRecordings) R.string.share_on else R.string.share_off)
@@ -170,6 +175,45 @@ class SettingsActivity : AppCompatActivity() {
             .setTitle(R.string.check_device)
             .setMessage(DeviceCheck.report(this))
             .setPositiveButton(R.string.close, null)
+            .show()
+    }
+
+    /**
+     * WATCHING FROM SOMEWHERE ELSE.
+     *
+     * At home the boxes find each other by announcing themselves. Away from
+     * home nothing is announced and nothing is heard, so the box holding the
+     * recordings has to be named - by its Tailscale address, which stays the
+     * same wherever either end happens to be. Typed once, and after that a
+     * phone on mobile data lists and plays the Shield's recordings exactly as
+     * the television upstairs does.
+     */
+    private fun showAwayState(label: TextView) {
+        val typed = prefs.awayBox
+        label.text = if (typed.isBlank()) getString(R.string.away_off) else typed
+    }
+
+    private fun askForAwayBox(label: TextView) {
+        val input = EditText(this).apply {
+            setText(prefs.awayBox)
+            hint = "100.119.61.127"
+            setSingleLine()
+            setTextColor(getColor(R.color.text_primary))
+            setPadding(48, 24, 48, 24)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.away_row)
+            .setMessage(R.string.away_help)
+            .setView(input)
+            .setPositiveButton(R.string.save) { _, _ ->
+                prefs.awayBox = input.text.toString()
+                showAwayState(label)
+            }
+            .setNeutralButton(R.string.away_forget) { _, _ ->
+                prefs.awayBox = ""
+                showAwayState(label)
+            }
+            .setNegativeButton(R.string.cancel, null)
             .show()
     }
 
