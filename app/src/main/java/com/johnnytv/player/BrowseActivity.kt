@@ -597,7 +597,10 @@ class BrowseActivity : AppCompatActivity() {
         val count = list.adapter?.itemCount ?: 0
         if (count == 0) {
             // The last one has gone: the sidebar is the only place left to be.
-            categoryList.post { categoryList.findFocus() ?: categoryList.requestFocus() }
+            categoryList.post {
+                categoryList.findFocus() ?: categoryList.requestFocus()
+                allowSearchFocusAgain()
+            }
             return
         }
         val landing = index.coerceIn(0, count - 1)
@@ -614,12 +617,18 @@ class BrowseActivity : AppCompatActivity() {
                  * keyboard. The field is told to let go, the row is asked
                  * first, and the list itself catches anything left over.
                  */
-                searchInput.clearFocus()
                 val row = list.findViewHolderForAdapterPosition(landing)?.itemView
                 val took = row?.requestFocus() == true
                 if (!took) list.requestFocus()
+                allowSearchFocusAgain()
             }
         }
+    }
+
+    /** Hands the search box back its keyboard once the list has settled. */
+    private fun allowSearchFocusAgain() {
+        searchInput.isFocusableInTouchMode = true
+        searchInput.isFocusable = true
     }
 
     /** Everything the app knows about, for the one search box on the home screen. */
@@ -1192,6 +1201,17 @@ class BrowseActivity : AppCompatActivity() {
         // Standing in Favourites and removing one: rebuild in place rather than
         // throwing the viewer back to the top of a list they are working down.
         if (currentCategoryId == CATEGORY_FAVOURITES) {
+            /*
+             * Shut the search box out of the rebuild entirely.
+             *
+             * Clearing focus afterwards was not enough: for the frame between
+             * the list emptying and the new rows arriving, the search field is
+             * the only thing on screen that will take focus, so it took it -
+             * and the screen flashed up to the top every time a star came off.
+             * Made unfocusable for the length of the rebuild, it cannot.
+             */
+            searchInput.isFocusable = false
+            searchInput.isFocusableInTouchMode = false
             val wasAt = if (listView && kind == Kind.LIVE) {
                 channelList.focusedChild?.let { channelList.getChildAdapterPosition(it) } ?: 0
             } else {
