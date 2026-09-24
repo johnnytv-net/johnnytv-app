@@ -1206,24 +1206,51 @@ class BrowseActivity : AppCompatActivity() {
          * nothing else on the screen moves at all.
          */
         if (currentCategoryId == CATEGORY_FAVOURITES && !nowFavourite) {
+            /*
+             * MOVE FIRST, THEN REMOVE.
+             *
+             * Removing the row still left a moment with nothing focused -
+             * because the thing that had focus was the row itself. Android
+             * then hunts for somewhere to put it and lands on the nearest
+             * candidate above, which is the list button beside the search box:
+             * hence the flash up there on every star.
+             *
+             * So the highlight is walked onto the neighbouring row while that
+             * row still exists, and only then is the old one taken out. Focus
+             * is never homeless, so nothing else is ever offered it.
+             */
+            val list = if (listView && kind == Kind.LIVE) channelList else tileGrid
+            val at = list.focusedChild?.let { list.getChildAdapterPosition(it) } ?: -1
+            val total = list.adapter?.itemCount ?: 0
+
+            if (at >= 0 && total > 1) {
+                // Prefer the row below; at the end of the list, the one above.
+                val neighbour = if (at + 1 < total) at + 1 else at - 1
+                list.findViewHolderForAdapterPosition(neighbour)?.itemView?.requestFocus()
+            }
+
             val removedAt = if (listView && kind == Kind.LIVE) {
                 rowAdapter.removeById(tile.id)
             } else {
                 tileAdapter.removeById(tile.id)
             }
+
             if (removedAt >= 0) {
-                val list = if (listView && kind == Kind.LIVE) channelList else tileGrid
                 val remaining = list.adapter?.itemCount ?: 0
                 if (remaining == 0) {
+                    // Nothing left to stand on; the sidebar is the sensible home.
                     updateEmpty()
                     categoryList.requestFocus()
                 } else {
+                    updateEmpty()
+                    // The neighbour has shifted up into the removed row's place.
                     val landing = removedAt.coerceIn(0, remaining - 1)
                     list.post {
-                        list.findViewHolderForAdapterPosition(landing)?.itemView?.requestFocus()
-                            ?: list.requestFocus()
+                        if (list.focusedChild == null) {
+                            list.findViewHolderForAdapterPosition(landing)?.itemView?.requestFocus()
+                                ?: list.requestFocus()
+                        }
                     }
-                    updateEmpty()
                 }
             }
         }
