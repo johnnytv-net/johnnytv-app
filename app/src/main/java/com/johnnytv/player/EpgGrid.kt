@@ -97,6 +97,8 @@ class ChannelColumnAdapter(
 
     class VH(view: View) : RecyclerView.ViewHolder(view) {
         val logo: ImageView = view.findViewById(R.id.channelLogo)
+        val initials: TextView = view.findViewById(R.id.channelInitials)
+        val plate: View = view.findViewById(R.id.channelPlate)
         val name: TextView = view.findViewById(R.id.channelName)
         val number: TextView = view.findViewById(R.id.channelNumber)
     }
@@ -161,16 +163,74 @@ class ChannelColumnAdapter(
         holder.number.text = item.num
         holder.itemView.isActivated = item.streamId == selectedId
         holder.itemView.setOnLongClickListener { onRecordByTime(item); true }
+        /*
+         * A LOGO, ON A PLATE IT CAN BE SEEN AGAINST.
+         *
+         * Two things were wrong here. Channels with no logo showed an empty
+         * white rectangle, which reads as a fault - they now show their
+         * initials. And white-on-transparent logos, which plenty of American
+         * sports channels use, were being drawn on a white tile and vanishing
+         * completely: MSG and MSGSN looked blank when in fact they had loaded
+         * perfectly. The picture now picks its own backing.
+         */
+        holder.initials.text = initialsOf(item.name)
         val logoUrl = IconMemory.artFor(item.streamId, item.name, item.icon)
-        holder.logo.load(logoUrl.ifBlank { null }) {
+
+        fun plate(dark: Boolean) = holder.plate.setBackgroundResource(
+            if (dark) R.drawable.bg_logo_tile_dark else R.drawable.bg_logo_tile
+        )
+        fun showInitials(show: Boolean) {
+            holder.initials.visibility = if (show) View.VISIBLE else View.INVISIBLE
+        }
+
+        if (logoUrl.isBlank()) {
+            holder.logo.setImageDrawable(null)
+            plate(false)
+            showInitials(true)
+            return
+        }
+
+        // A logo seen before is placed on the right colour immediately, so a
+        // scroll back up does not flash the wrong plate for a frame.
+        plate(LogoTint.remembered(logoUrl) == true)
+        showInitials(false)
+        holder.logo.load(logoUrl) {
             crossfade(false)
-            placeholder(R.drawable.tile_placeholder)
-            error(R.drawable.tile_placeholder)
-            fallback(R.drawable.tile_placeholder)
+            listener(
+                onSuccess = { _, result ->
+                    plate(LogoTint.needsDarkPlate(logoUrl, result.drawable))
+                },
+                onError = { _, _ ->
+                    holder.logo.setImageDrawable(null)
+                    plate(false)
+                    showInitials(true)
+                }
+            )
         }
     }
 
     override fun getItemCount(): Int = items.size
+}
+
+/**
+ * Up to three letters from a channel's name: SPORTSNET becomes SPO, "TSN 4"
+ * becomes TS4, "A&E" becomes AE. Numbers are kept because on a wall of sports
+ * channels the number is often the only thing that differs.
+ */
+internal fun initialsOf(name: String): String {
+    val cleaned = name.trim()
+    if (cleaned.isEmpty()) return ""
+    val words = cleaned.split(' ', '-', '_').filter { it.isNotBlank() }
+    // Four characters for a single word rather than three: a row of MSG, MSG2,
+    // MSGSN and MSGSN2 all reading "MSG" is no better than four blank tiles.
+    // The name is beside it either way, so this only has to look deliberate.
+    return when {
+        words.size >= 2 -> words.take(3)
+            .mapNotNull { word -> word.firstOrNull { it.isLetterOrDigit() } }
+            .joinToString("")
+            .uppercase()
+        else -> cleaned.filter { it.isLetterOrDigit() }.take(4).uppercase()
+    }
 }
 
 /**

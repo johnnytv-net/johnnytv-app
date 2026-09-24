@@ -27,16 +27,37 @@
         android:textColor="@color/epg_number_text"
         android:textSize="14sp" />
 
-    <ImageView
-        android:id="@+id/rowLogo"
+    <!-- Same arrangement as the guide: initials underneath, and a plate whose
+         colour is chosen from the logo once it arrives. -->
+    <FrameLayout
+        android:id="@+id/rowPlate"
         android:layout_width="46dp"
         android:layout_height="38dp"
         android:layout_marginStart="10dp"
-        android:background="@drawable/bg_logo_tile"
-        android:contentDescription="@string/live_tv"
-        android:padding="3dp"
-        android:scaleType="centerInside"
-        android:src="@drawable/tile_placeholder" />
+        android:background="@drawable/bg_logo_tile">
+
+        <TextView
+            android:id="@+id/rowInitials"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:autoSizeMaxTextSize="13sp"
+            android:autoSizeMinTextSize="8sp"
+            android:autoSizeTextType="uniform"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"
+            android:maxLines="1"
+            android:padding="2dp"
+            android:textColor="#3A3A3A"
+            android:textSize="13sp" />
+
+        <ImageView
+            android:id="@+id/rowLogo"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@string/live_tv"
+            android:padding="3dp"
+            android:scaleType="centerInside" />
+    </FrameLayout>
 
     <LinearLayout
         android:layout_width="0dp"
