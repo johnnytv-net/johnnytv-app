@@ -444,11 +444,21 @@ class BrowseActivity : AppCompatActivity() {
         val all = sidebarCategories()
         categoryAdapter.submit(all)
 
+        // Favourites, the guide, Recently added and the rest always come first,
+        // so counting them off the front gives back the two halves the starting
+        // position is worked out from.
+        val ours = setOf(
+            CATEGORY_FAVOURITES, CATEGORY_GUIDE, CATEGORY_RECENT,
+            CATEGORY_CONTINUE, CATEGORY_ALL
+        )
+        val specialsCount = all.takeWhile { it.id in ours }.size
+        val categories = all.drop(specialsCount)
+
         val requested = intent.getStringExtra(EXTRA_START_CATEGORY)
         val asked = if (requested == null) -1 else all.indexOfFirst { it.id == requested }
         // A category id can go stale between syncs; fall back rather than dropping
         // the viewer on the empty Favourites screen.
-        var startIndex = if (asked >= 0) asked else defaultStartIndex(specials.size, categories)
+        var startIndex = if (asked >= 0) asked else defaultStartIndex(specialsCount, categories)
         // The guide is an action, so opening on it would fire the guide the moment
         // Live TV was opened and leave the browse screen behind it empty. Whatever
         // the arithmetic above decided, step off it.
