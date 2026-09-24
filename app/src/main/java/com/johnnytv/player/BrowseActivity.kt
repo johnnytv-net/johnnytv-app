@@ -586,7 +586,21 @@ class BrowseActivity : AppCompatActivity() {
         list.post {
             (list.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(landing, 0)
                 ?: list.scrollToPosition(landing)
-            list.post { list.findViewHolderForAdapterPosition(landing)?.itemView?.requestFocus() }
+            list.post {
+                /*
+                 * The search box must not win this.
+                 *
+                 * With nothing focused after a rebuild, Android gives focus to
+                 * the first view that will take it - which here is the search
+                 * field at the top, so removing a favourite opened the
+                 * keyboard. The field is told to let go, the row is asked
+                 * first, and the list itself catches anything left over.
+                 */
+                searchInput.clearFocus()
+                val row = list.findViewHolderForAdapterPosition(landing)?.itemView
+                val took = row?.requestFocus() == true
+                if (!took) list.requestFocus()
+            }
         }
     }
 
