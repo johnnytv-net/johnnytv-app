@@ -220,6 +220,39 @@ class EpgActivity : AppCompatActivity() {
         return if (waiting) 1 else 0
     }
 
+    /**
+     * Puts both panes back on the given channel, at the offset it was at.
+     *
+     * Posted rather than done immediately: the rows are laid out after the
+     * screen comes back, and scrolling to a row that does not exist yet does
+     * nothing at all.
+     */
+    private fun returnToGuidePosition(streamId: String) {
+        val position = channels.indexOfFirst { it.streamId == streamId }
+        if (position < 0) return
+        val offset = returnToOffset
+        gridRows.post {
+            (gridRows.layoutManager as? LinearLayoutManager)
+                ?.scrollToPositionWithOffset(position, offset)
+            (channelColumn.layoutManager as? LinearLayoutManager)
+                ?.scrollToPositionWithOffset(position, offset)
+            // And leave the remote on that row, so pressing down carries on
+            // from there rather than jumping to whatever had focus before.
+            gridRows.post {
+                val row = gridRows.findViewHolderForAdapterPosition(position)?.itemView
+                val blocks = ArrayList<View>()
+                if (row != null) collectBlocks(row, blocks)
+                val now = System.currentTimeMillis()
+                val onNow = blocks.firstOrNull {
+                    val from = it.getTag(R.id.epg_block_start) as? Long ?: return@firstOrNull false
+                    val to = it.getTag(R.id.epg_block_end) as? Long ?: return@firstOrNull false
+                    now in from until to
+                }
+                (onNow ?: blocks.firstOrNull())?.requestFocus()
+            }
+        }
+    }
+
     private fun refreshRecordMarks() {
         scheduledNow = runCatching { Schedules.upcoming(this) }.getOrDefault(emptyList())
         rowAdapter.notifyDataSetChanged()
@@ -231,9 +264,18 @@ class EpgActivity : AppCompatActivity() {
         // Coming back from a channel the viewer surfed away from: put the guide on
         // the channel they ended on, and clear the note either way so it cannot
         // move the remote on some later screen.
+        // Surfing in the player changes which channel we come back to; without
+        // that, it is whichever one was opened from here.
         val landedOn = PlayerActivity.consumeChannelLandedOn()
-        if (landedOn.isNotBlank() && channels.any { it.streamId == landedOn }) {
-            channelAdapter.select(landedOn)
+        val comingBackTo = when {
+            landedOn.isNotBlank() && channels.any { it.streamId == landedOn } -> landedOn
+            returnToChannel.isNotBlank() && channels.any { it.streamId == returnToChannel } -> returnToChannel
+            else -> ""
+        }
+        if (comingBackTo.isNotBlank()) {
+            channelAdapter.select(comingBackTo)
+            returnToGuidePosition(comingBackTo)
+            returnToChannel = ""
         }
         // onStop released the preview; start it again for whatever is highlighted.
         previewing?.let { channel -> previewing = null; queuePreview(channel) }
@@ -799,7 +841,27 @@ class EpgActivity : AppCompatActivity() {
         categoryRow.getChildAt(0)?.requestFocus()
     }
 
+    /**
+     * WHERE THE GUIDE WAS WHEN SOMEBODY LEFT IT.
+     *
+     * Pressing back out of a channel put the guide at the top again, so
+     * anybody working their way down a long category had to scroll all the way
+     * back each time they looked at something. The row and its exact offset
+     * are noted on the way out and put back on the way in, and the highlight
+     * returns to the channel that was watched - which is where the eye already
+     * is.
+     */
+    private var returnToChannel: String = ""
+    private var returnToOffset: Int = 0
+
     private fun play(channel: StreamItem) {
+        returnToChannel = channel.streamId
+        returnToOffset = (gridRows.layoutManager as? LinearLayoutManager)
+            ?.let { manager ->
+                val position = channels.indexOfFirst { it.streamId == channel.streamId }
+                if (position >= 0) manager.findViewByPosition(position)?.top ?: 0 else 0
+            } ?: 0
+
         // The guide's own column order, so up and down in the player follow the
         // same channels the guide was showing.
         Catalog.playbackQueue = channels
