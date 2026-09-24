@@ -815,23 +815,61 @@ class EpgActivity : AppCompatActivity() {
 
     // ---------- keeping the panes lined up ----------
 
+    /**
+     * KEEPING THE CHANNEL NAMES BESIDE THEIR OWN LISTINGS.
+     *
+     * The two panes used to be kept together by copying how far the other one
+     * had just moved. That works until one of them cannot move the whole way -
+     * it has reached the end, or a fresh page of channels is still being laid
+     * out when the scroll arrives - and the difference is then lost for good.
+     * Every such moment shifts the names one row further from their programmes,
+     * and nothing ever puts them back.
+     *
+     * So position is copied instead of distance: whichever pane moved says
+     * which row it is showing and how far that row is above the top edge, and
+     * the other is put exactly there. A missed frame stops mattering, because
+     * the next scroll event states where things actually are rather than
+     * describing a change.
+     */
     private fun syncVerticalScrolling() {
         channelColumn.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                if (syncingScroll) return
-                syncingScroll = true
-                gridRows.scrollBy(0, dy)
-                syncingScroll = false
+                matchTo(channelColumn, gridRows)
+            }
+            override fun onScrollStateChanged(recyclerView: RecyclerView, state: Int) {
+                // Once a fling settles, line them up one last time - that is the
+                // moment any drift would otherwise be left on screen.
+                if (state == RecyclerView.SCROLL_STATE_IDLE) matchTo(channelColumn, gridRows)
             }
         })
         gridRows.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                if (syncingScroll) return
-                syncingScroll = true
-                channelColumn.scrollBy(0, dy)
-                syncingScroll = false
+                matchTo(gridRows, channelColumn)
+            }
+            override fun onScrollStateChanged(recyclerView: RecyclerView, state: Int) {
+                if (state == RecyclerView.SCROLL_STATE_IDLE) matchTo(gridRows, channelColumn)
             }
         })
+    }
+
+    /** Puts [follower] at exactly the row and offset [leader] is showing. */
+    private fun matchTo(leader: RecyclerView, follower: RecyclerView) {
+        if (syncingScroll) return
+        val from = leader.layoutManager as? LinearLayoutManager ?: return
+        val to = follower.layoutManager as? LinearLayoutManager ?: return
+        val position = from.findFirstVisibleItemPosition()
+        if (position == RecyclerView.NO_POSITION) return
+        val offset = from.findViewByPosition(position)?.top ?: 0
+
+        // Already there: saying so again would cost a layout pass on every
+        // frame of a fling for nothing.
+        val herePosition = to.findFirstVisibleItemPosition()
+        val hereOffset = to.findViewByPosition(herePosition)?.top ?: 0
+        if (herePosition == position && hereOffset == offset) return
+
+        syncingScroll = true
+        to.scrollToPositionWithOffset(position, offset)
+        syncingScroll = false
     }
 
     private fun syncHorizontalScrolling() {
