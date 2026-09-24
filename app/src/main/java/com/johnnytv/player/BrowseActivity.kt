@@ -599,7 +599,6 @@ class BrowseActivity : AppCompatActivity() {
             // The last one has gone: the sidebar is the only place left to be.
             categoryList.post {
                 categoryList.findFocus() ?: categoryList.requestFocus()
-                allowSearchFocusAgain()
             }
             return
         }
@@ -620,15 +619,8 @@ class BrowseActivity : AppCompatActivity() {
                 val row = list.findViewHolderForAdapterPosition(landing)?.itemView
                 val took = row?.requestFocus() == true
                 if (!took) list.requestFocus()
-                allowSearchFocusAgain()
             }
         }
-    }
-
-    /** Hands the search box back its keyboard once the list has settled. */
-    private fun allowSearchFocusAgain() {
-        searchInput.isFocusableInTouchMode = true
-        searchInput.isFocusable = true
     }
 
     /** Everything the app knows about, for the one search box on the home screen. */
@@ -1198,26 +1190,42 @@ class BrowseActivity : AppCompatActivity() {
          * the count changes under the highlight without the highlight moving.
          */
         refreshSidebarCounts()
-        // Standing in Favourites and removing one: rebuild in place rather than
-        // throwing the viewer back to the top of a list they are working down.
-        if (currentCategoryId == CATEGORY_FAVOURITES) {
-            /*
-             * Shut the search box out of the rebuild entirely.
-             *
-             * Clearing focus afterwards was not enough: for the frame between
-             * the list emptying and the new rows arriving, the search field is
-             * the only thing on screen that will take focus, so it took it -
-             * and the screen flashed up to the top every time a star came off.
-             * Made unfocusable for the length of the rebuild, it cannot.
-             */
-            searchInput.isFocusable = false
-            searchInput.isFocusableInTouchMode = false
-            val wasAt = if (listView && kind == Kind.LIVE) {
-                channelList.focusedChild?.let { channelList.getChildAdapterPosition(it) } ?: 0
+
+        /*
+         * REMOVING ONE ROW, NOT REBUILDING THE LIST.
+         *
+         * Standing in Favourites and taking a star off used to rebuild the
+         * whole category. For the frame between the old rows going and the new
+         * ones arriving there is nothing on screen to hold focus, and the
+         * screen jumped to the search box at the top - every single time.
+         * Making the box unfocusable did not help, because the jump was the
+         * list emptying rather than the box grabbing anything.
+         *
+         * So the row is simply taken out. Everything else stays exactly where
+         * it is, the highlight moves down to whatever has closed the gap, and
+         * nothing else on the screen moves at all.
+         */
+        if (currentCategoryId == CATEGORY_FAVOURITES && !nowFavourite) {
+            val removedAt = if (listView && kind == Kind.LIVE) {
+                rowAdapter.removeById(tile.id)
             } else {
-                tileGrid.focusedChild?.let { tileGrid.getChildAdapterPosition(it) } ?: 0
+                tileAdapter.removeById(tile.id)
             }
-            showCategory(currentCategoryId, wasAt.coerceAtLeast(0))
+            if (removedAt >= 0) {
+                val list = if (listView && kind == Kind.LIVE) channelList else tileGrid
+                val remaining = list.adapter?.itemCount ?: 0
+                if (remaining == 0) {
+                    updateEmpty()
+                    categoryList.requestFocus()
+                } else {
+                    val landing = removedAt.coerceIn(0, remaining - 1)
+                    list.post {
+                        list.findViewHolderForAdapterPosition(landing)?.itemView?.requestFocus()
+                            ?: list.requestFocus()
+                    }
+                    updateEmpty()
+                }
+            }
         }
     }
 

@@ -142,6 +142,26 @@ class TileAdapter(
 
     private val all = ArrayList<Tile>()
     private val shown = ArrayList<Tile>()
+
+    /**
+     * Takes one tile out without rebuilding the list.
+     *
+     * Rebuilding empties the screen for a frame, and in that frame the remote
+     * has nothing to hold on to - which is how removing a favourite ended up
+     * throwing the viewer at the search box. Removing the single row leaves
+     * every other row, and the focus on them, untouched.
+     *
+     * Returns the position it was at, so the caller can put the highlight on
+     * whatever has taken its place.
+     */
+    fun removeById(id: String): Int {
+        val at = shown.indexOfFirst { it.id == id }
+        if (at < 0) return -1
+        shown.removeAt(at)
+        all.removeAll { it.id == id }
+        notifyItemRemoved(at)
+        return at
+    }
     private var query = ""
 
     fun submit(list: List<Tile>) {
@@ -321,6 +341,16 @@ class ChannelRowAdapter(
 
     private val all = ArrayList<StreamItem>()
     private val shown = ArrayList<StreamItem>()
+
+    /** As above: one row out, the rest of the list left alone. */
+    fun removeById(streamId: String): Int {
+        val at = shown.indexOfFirst { it.streamId == streamId }
+        if (at < 0) return -1
+        shown.removeAt(at)
+        all.removeAll { it.streamId == streamId }
+        notifyItemRemoved(at)
+        return at
+    }
     private var query = ""
 
     init {
