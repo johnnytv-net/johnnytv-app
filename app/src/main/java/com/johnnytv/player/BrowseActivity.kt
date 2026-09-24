@@ -362,6 +362,10 @@ class BrowseActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // A film or series screen can add or drop a favourite while we are away,
+        // so the counts beside Favourites and Continue watching are re-read here
+        // as well. The highlight stays where it was.
+        refreshSidebarCounts()
         // Favourites and resume points can change while we were away. In list view
         // the rows are repainted in place - rebuilding would throw the viewer back
         // to the top of the channel list every time they came out of a channel.
@@ -392,7 +396,14 @@ class BrowseActivity : AppCompatActivity() {
 
     // ---------- sidebar ----------
 
-    private fun buildSidebar() {
+    /**
+     * The sidebar's entries, counts and all.
+     *
+     * Separated out because there are two reasons to want them: building the
+     * screen, which also decides where to start, and refreshing the numbers
+     * after something changes, which must not move anybody.
+     */
+    private fun sidebarCategories(): List<Category> {
         val specials = ArrayList<Category>()
         specials.add(Category(CATEGORY_FAVOURITES, getString(R.string.favourites), prefs.favouriteIds(kind).size))
         // The guide belongs beside the channels, not behind a trip back to the
@@ -416,7 +427,21 @@ class BrowseActivity : AppCompatActivity() {
             Kind.SERIES -> Catalog.seriesCategories
         }
 
-        val all = specials + categories
+        return specials + categories
+    }
+
+    /**
+     * The counts, brought up to date, with the highlight left where it is.
+     */
+    private fun refreshSidebarCounts() {
+        val all = sidebarCategories()
+        categoryAdapter.submit(all)
+        val index = all.indexOfFirst { it.id == currentCategoryId }
+        if (index >= 0) categoryAdapter.selectAt(index)
+    }
+
+    private fun buildSidebar() {
+        val all = sidebarCategories()
         categoryAdapter.submit(all)
 
         val requested = intent.getStringExtra(EXTRA_START_CATEGORY)
@@ -1073,6 +1098,20 @@ class BrowseActivity : AppCompatActivity() {
             getString(if (nowFavourite) R.string.added_favourite else R.string.removed_favourite, tile.title),
             Toast.LENGTH_SHORT
         ).show()
+
+        /*
+         * The number beside Favourites is part of the answer, not decoration.
+         *
+         * The sidebar is built once when the screen opens and the count is
+         * taken then; adding or removing a favourite redrew the grid but left
+         * that number where it was. Four favourites, remove one, and the list
+         * says four with three things in it - which makes somebody doubt
+         * whether the removal happened at all.
+         *
+         * So the sidebar is rebuilt here too, and the place in it is kept, so
+         * the count changes under the highlight without the highlight moving.
+         */
+        refreshSidebarCounts()
         if (currentCategoryId == CATEGORY_FAVOURITES) showCategory(currentCategoryId)
     }
 
