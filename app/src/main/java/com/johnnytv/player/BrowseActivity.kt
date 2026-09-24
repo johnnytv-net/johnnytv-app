@@ -514,7 +514,14 @@ class BrowseActivity : AppCompatActivity() {
 
     // ---------- content ----------
 
-    private fun showCategory(categoryId: String) {
+    private fun showCategory(categoryId: String) = showCategory(categoryId, null)
+
+    /**
+     * @param keepPlaceAt when set, the list is rebuilt without jumping to the
+     *   top and the remote is put on the item now at that position. Used when
+     *   something has been removed from the list somebody is standing in.
+     */
+    private fun showCategory(categoryId: String, keepPlaceAt: Int?) {
         // The guide is an action, not a category: it opens and leaves the
         // sidebar selection exactly where it was.
         if (categoryId == CATEGORY_GUIDE) {
@@ -530,7 +537,7 @@ class BrowseActivity : AppCompatActivity() {
             if (sortAlphabetical) channels = channels.sortedBy { it.name.lowercase() }
             rowAdapter.submit(channels)
             rowAdapter.filter(searchInput.text.toString())
-            channelList.scrollToPosition(0)
+            if (keepPlaceAt == null) channelList.scrollToPosition(0) else stayAt(channelList, keepPlaceAt)
             listLostFocusWhileScrolling = false
             highlighted = null
             stopPreview()
@@ -551,8 +558,36 @@ class BrowseActivity : AppCompatActivity() {
         }
         tileAdapter.submit(tiles)
         tileAdapter.filter(searchInput.text.toString())
-        tileGrid.scrollToPosition(0)
+        if (keepPlaceAt == null) tileGrid.scrollToPosition(0) else stayAt(tileGrid, keepPlaceAt)
         updateEmpty()
+    }
+
+    /**
+     * KEEPING SOMEBODY WHERE THEY WERE.
+     *
+     * Taking a channel out of Favourites rebuilt the list and sent it back to
+     * the top with nothing focused, which on a remote means there is nowhere to
+     * press next - so removing four channels meant leaving the screen and
+     * coming back four times. Reported by somebody's parents, which is the only
+     * kind of report that finds this sort of thing.
+     *
+     * The list now stays where it was and the highlight moves onto whatever has
+     * taken the removed item's place, or the last item when the end of the list
+     * has just gone.
+     */
+    private fun stayAt(list: RecyclerView, index: Int) {
+        val count = list.adapter?.itemCount ?: 0
+        if (count == 0) {
+            // The last one has gone: the sidebar is the only place left to be.
+            categoryList.post { categoryList.findFocus() ?: categoryList.requestFocus() }
+            return
+        }
+        val landing = index.coerceIn(0, count - 1)
+        list.post {
+            (list.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(landing, 0)
+                ?: list.scrollToPosition(landing)
+            list.post { list.findViewHolderForAdapterPosition(landing)?.itemView?.requestFocus() }
+        }
     }
 
     /** Everything the app knows about, for the one search box on the home screen. */
@@ -1122,7 +1157,16 @@ class BrowseActivity : AppCompatActivity() {
          * the count changes under the highlight without the highlight moving.
          */
         refreshSidebarCounts()
-        if (currentCategoryId == CATEGORY_FAVOURITES) showCategory(currentCategoryId)
+        // Standing in Favourites and removing one: rebuild in place rather than
+        // throwing the viewer back to the top of a list they are working down.
+        if (currentCategoryId == CATEGORY_FAVOURITES) {
+            val wasAt = if (listView && kind == Kind.LIVE) {
+                channelList.focusedChild?.let { channelList.getChildAdapterPosition(it) } ?: 0
+            } else {
+                tileGrid.focusedChild?.let { tileGrid.getChildAdapterPosition(it) } ?: 0
+            }
+            showCategory(currentCategoryId, wasAt.coerceAtLeast(0))
+        }
     }
 
     private fun spanCount(): Int {

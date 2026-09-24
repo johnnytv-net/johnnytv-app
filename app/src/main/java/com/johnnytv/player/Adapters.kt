@@ -389,8 +389,6 @@ class ChannelRowAdapter(
     class VH(view: View) : RecyclerView.ViewHolder(view) {
         val number: TextView = view.findViewById(R.id.rowNumber)
         val logo: ImageView = view.findViewById(R.id.rowLogo)
-        val plate: View = view.findViewById(R.id.rowPlate)
-        val initials: TextView = view.findViewById(R.id.rowInitials)
         val name: TextView = view.findViewById(R.id.rowName)
         val now: TextView = view.findViewById(R.id.rowNow)
         val progress: ProgressBar = view.findViewById(R.id.rowProgress)
@@ -418,63 +416,12 @@ class ChannelRowAdapter(
         holder.number.text = item.num
         holder.name.text = item.name
         holder.star.visibility = if (isFavourite(item)) View.VISIBLE else View.GONE
-        /*
-         * The same two faults the guide had: a blank tile where a channel has
-         * no logo, and white-on-transparent logos disappearing into a white
-         * plate. Initials underneath, and the plate takes its colour from the
-         * picture.
-         */
-        holder.initials.text = initialsOf(item.name)
-        val logoUrl = IconMemory.artFor(item.streamId, item.name, item.icon)
-
-        fun plate(dark: Boolean) = holder.plate.setBackgroundResource(
-            if (dark) R.drawable.bg_logo_tile_dark else R.drawable.bg_logo_tile
-        )
-
-        if (logoUrl.isBlank()) {
-            holder.logo.setImageDrawable(null)
-            plate(false)
-            holder.initials.visibility = View.VISIBLE
-        } else {
-            plate(LogoTint.remembered(logoUrl) == true)
-            holder.initials.visibility = View.INVISIBLE
-            holder.logo.load(logoUrl) {
-                crossfade(false)
-                listener(
-                    onSuccess = { _, result ->
-                        val at = holder.bindingAdapterPosition
-                        if (at != RecyclerView.NO_POSITION &&
-                            shown.getOrNull(at)?.streamId == item.streamId
-                        ) {
-                            plate(LogoTint.needsDarkPlate(logoUrl, result.drawable))
-                        }
-                    },
-                    onError = { _, _ ->
-                        holder.logo.setImageDrawable(null)
-                        plate(false)
-                        holder.initials.visibility = View.VISIBLE
-                    }
-                )
-            }
-        }
-
-        paintNowLine(holder, item)
-
-        holder.itemView.setOnClickListener {
+        holder.logo.loadArtwork(
+            IconMemory.artFor(item.streamId, item.name, item.icon),
+            R.drawable.tile_placeholder
+        ) {
             val at = holder.bindingAdapterPosition
-            if (at != RecyclerView.NO_POSITION) onOpen(shown[at])
-        }
-        holder.itemView.setOnLongClickListener {
-            val at = holder.bindingAdapterPosition
-            if (at == RecyclerView.NO_POSITION) return@setOnLongClickListener false
-            onLongPress(shown[at])
-            notifyItemChanged(at)
-            true
-        }
-        holder.itemView.setOnFocusChangeListener { _, hasFocus ->
-            if (!hasFocus) return@setOnFocusChangeListener
-            val at = holder.bindingAdapterPosition
-            if (at != RecyclerView.NO_POSITION) onFocused(shown[at])
+            at != RecyclerView.NO_POSITION && shown.getOrNull(at)?.streamId == item.streamId
         }
     }
 

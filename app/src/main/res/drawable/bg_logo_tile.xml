@@ -1,6 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Channel logos are drawn for white backgrounds, so they get one. -->
+<!--
+    The plate behind a channel logo.
+
+    It used to be white, on the reasoning that logos are drawn for white
+    backgrounds. Most IPTV logo packs are the opposite: white lettering on
+    transparent, meant for a dark guide - so MSG, MSGSN and a good many others
+    were white on white and looked like empty boxes. They had loaded perfectly.
+
+    Dark suits both. White lettering shows plainly, and the coloured marks that
+    do exist - a red MOTORTREND, a blue MASN - read at least as well on this as
+    they did on white. A genuinely black logo is the one case that loses out,
+    and those are rare enough to live with.
+
+    Tried and rejected: choosing the colour per logo by measuring its
+    brightness. It looked clever and behaved badly.
+-->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#FFFFFFFF" />
+    <solid android:color="#20242B" />
     <corners android:radius="4dp" />
 </shape>
