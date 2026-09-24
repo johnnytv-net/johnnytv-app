@@ -203,7 +203,20 @@ class SettingsActivity : AppCompatActivity() {
             .setMessage(R.string.clear_favourites_confirm)
             .setPositiveButton(R.string.clear_favourites_yes) { _, _ ->
                 prefs.clearFavourites()
-                Toast.makeText(this, R.string.clear_favourites_done, Toast.LENGTH_SHORT).show()
+                // Show what is left rather than claiming it worked: if anything
+                // survives this, the next screen says so in plain numbers.
+                AlertDialog.Builder(this)
+                    .setTitle(R.string.clear_favourites)
+                    .setMessage(prefs.favouritesReport())
+                    .setPositiveButton(R.string.close, null)
+                    .show()
+            }
+            .setNeutralButton(R.string.clear_favourites_show) { _, _ ->
+                AlertDialog.Builder(this)
+                    .setTitle(R.string.clear_favourites)
+                    .setMessage(prefs.favouritesReport())
+                    .setPositiveButton(R.string.close, null)
+                    .show()
             }
             .setNegativeButton(R.string.cancel, null)
             .show()

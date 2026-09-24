@@ -206,6 +206,7 @@
 
     <string name="clear_favourites">Clear all favourites</string>
     <string name="clear_favourites_confirm">Remove every channel, film and series from Favourites? Nothing else is affected.</string>
+    <string name="clear_favourites_show">Show what is stored</string>
     <string name="clear_favourites_yes">Clear them</string>
     <string name="clear_favourites_done">Favourites cleared</string>
     <string name="away_row">Watch recordings from away</string>

@@ -348,6 +348,29 @@ class Prefs(context: Context) {
         return carried
     }
 
+    /**
+     * What is actually stored, in plain words, for the row in Settings.
+     *
+     * Favourites that will not go away are either a screen not refreshing or a
+     * file not changing, and from the sofa those look identical. This says
+     * which: the raw contents of both the current key and the old one it
+     * replaced.
+     */
+    fun favouritesReport(): String {
+        val text = sp.getString(KEY_FAVS_TEXT, null)
+        val old = runCatching { sp.getStringSet(KEY_FAVS, emptySet()) ?: emptySet() }
+            .getOrDefault(emptySet())
+        val lines = text?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()
+        return buildString {
+            append("Stored now: ").append(lines.size).append('\n')
+            if (lines.isNotEmpty()) append(lines.take(8).joinToString("\n")).append('\n')
+            append("\nOld store: ")
+            append(if (text == null) "not yet carried over" else "cleared")
+            append(" (").append(old.size).append(")\n")
+            if (old.isNotEmpty()) append(old.take(8).joinToString("\n"))
+        }
+    }
+
     /** Empties the list outright - the way out of a list that has gone wrong. */
     fun clearFavourites() {
         sp.edit().putString(KEY_FAVS_TEXT, "").remove(KEY_FAVS).commit()
