@@ -96,7 +96,7 @@ object Config {
      * partial one, and falls back to the full list if none of them are there.
      * Leave the list empty to always open on All.
      */
-    val PREFERRED_LIVE_CATEGORIES: List<String> = listOf("SPORTS", "ENGLISH")
+    val PREFERRED_LIVE_CATEGORIES: List<String> = listOf("CANADA", "SPORTS", "ENGLISH")
 
     /**
      * How the Live TV category list is ordered.
@@ -112,11 +112,36 @@ object Config {
      * good categories are pinned above them. Somebody looking for a fight card
      * is looking for it near the sport.
      */
-    val CATEGORY_FIRST: List<String> = listOf("ENGLISH", "SPORTS")
+    /*
+     * CANADA, FRENCH, THE STATES, THEN BRITAIN.
+     *
+     * Dino sends seventy-nine categories in its own order, which opens on 4K
+     * filler and buries Canada near the bottom - forty categories below the
+     * British ones. For somebody in Victoria that is the wrong way round, so
+     * the order here is the order a customer here would ask for.
+     *
+     * Matching is on part of a name, so "CANADA" catches the Canadian blocks
+     * and the French one beside it, "USA" catches the whole American run, and
+     * the pipes around "|UK|" keep it from matching a word that merely contains
+     * those letters.
+     *
+     * Anything not named stays exactly where the portal put it, so this does no
+     * harm on the other two panels, whose categories are named differently.
+     */
+    val CATEGORY_FIRST: List<String> = listOf(
+        "CANADA",        // |AM| CANADA, and |NA| CANADA FR beside it
+        "HOCKEY",        // |NA| HOCKEY LEAGUE
+        "AHL",           // |AM| AHL PPV
+        "USA",           // the whole |NA| USA run
+        "|UK|",          // then Britain
+        "IRELAND",
+        "ENGLISH",
+        "SPORTS"
+    )
     val CATEGORY_EVENTS: List<String> = listOf("PPV", "PAY PER VIEW", "WWE")
 
     /** Last wherever it is found, so nobody lands on it by scrolling. */
     val CATEGORY_LAST: List<String> = listOf("ADULT", "XXX", "18+", "FOR ADULTS")
 
-    const val USER_AGENT: String = "JohnnyTV/5.78 (Android)"
+    const val USER_AGENT: String = "JohnnyTV/5.79 (Android)"
 }
