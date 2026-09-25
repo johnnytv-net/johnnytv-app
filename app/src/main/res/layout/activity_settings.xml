@@ -284,11 +284,29 @@
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
 
+        <!--
+            Which panel this box is signed in to.
+
+            Three services are in the app and it tries each in turn, so a box
+            can be signed into one while somebody assumes another - which has
+            already cost an hour of confusion. It is worth two lines of screen
+            to say so plainly, and it is the first question when a customer
+            rings up about their channels.
+        -->
+        <TextView
+            android:id="@+id/panelLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:gravity="center"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
         <TextView
             android:id="@+id/versionLabel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
+            android:layout_marginTop="4dp"
             android:gravity="center"
             android:textColor="@color/text_secondary"
             android:textSize="12sp" />

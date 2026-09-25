@@ -33,6 +33,7 @@ class SettingsActivity : AppCompatActivity() {
         accountLabel = findViewById(R.id.accountSummary)
         catalogueLabel = findViewById(R.id.catalogueSummary)
         versionLabel = findViewById(R.id.versionLabel)
+        showPanel(findViewById(R.id.panelLabel))
 
         findViewById<View>(R.id.refreshRow).setOnClickListener { refreshCatalogue() }
 
@@ -249,6 +250,69 @@ class SettingsActivity : AppCompatActivity() {
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
+    }
+
+    /**
+     * WHICH SERVICE THIS BOX IS ON - WITHOUT NAMING IT.
+     *
+     * The app carries three services and tries each in turn at sign-in, so
+     * nothing on screen has ever said which one answered. That costs time
+     * whenever a customer rings up and somebody has to guess which panel to
+     * look in.
+     *
+     * But the address is the one thing the branding exists to hide: a customer
+     * reading "edge.sb" on their own television knows exactly who supplies it,
+     * and can go straight there. So it is shown as a short code - DN, SB, JTV -
+     * which says which panel to open without saying who runs it.
+     */
+    private fun showPanel(label: TextView) {
+        val server = prefs.server
+        if (server.isBlank()) {
+            label.text = ""
+            return
+        }
+        val host = server
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .substringBefore('/')
+            .lowercase()
+
+        val known = Config.SERVERS.map { entry ->
+            RemoteConfigLoader.resolve(entry)
+                .removePrefix("https://")
+                .removePrefix("http://")
+                .substringBefore('/')
+                .lowercase()
+        }
+        val at = known.indexOfFirst { it == host }
+        /*
+         * A code rather than a letter.
+         *
+         * "A" needs a list beside it to mean anything, and the list is the
+         * thing nobody has to hand at half past nine on a Saturday. A short
+         * code taken from the address itself reads straight: the box is on
+         * DN, or SB, or BZ. It says which panel to open without saying who
+         * runs it.
+         */
+        val code = if (at >= 0) {
+            when {
+                host.contains("dino") -> "DN"
+                host.contains("edge.sb") -> "SB"
+                host.contains("edge.bz") -> "JTV"
+                else -> ('A' + at).toString()
+            }
+        } else {
+            // A box pointed somewhere by hand - support mode, or a panel
+            // added since this build.
+            "··"
+        }
+
+        val name = prefs.friendlyName
+        label.text = if (name.isNotBlank()) {
+            getString(R.string.panel_label_named, code, name)
+        } else {
+            getString(R.string.panel_label, code)
+        }
     }
 
     private fun showWeatherState(label: TextView) {
