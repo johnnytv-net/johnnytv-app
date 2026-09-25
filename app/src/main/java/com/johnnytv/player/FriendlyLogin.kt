@@ -27,8 +27,22 @@ import java.net.URLEncoder
  */
 object FriendlyLogin {
 
-    /** Where the lookup lives. On the same site as the newspaper sign-in. */
-    private const val LOOKUP = "https://johnnytv.net/jtv-line.php"
+    /*
+     * WHERE THE LOOKUP LIVES - AND WHY THERE ARE TWO ADDRESSES.
+     *
+     * The site answers on both, but its certificate is not currently valid, so
+     * the secure one fails outright on a television box: the lookup came back
+     * empty, the app treated the customer's name as though it were a real
+     * username, and the sign-in was refused. Nobody could tell from the screen
+     * that anything had been asked at all.
+     *
+     * So both are tried, secure first. When the certificate is put right the
+     * first will simply start working and the second will never be reached.
+     */
+    private val LOOKUPS = listOf(
+        "https://johnnytv.net/jtv-line.php",
+        "http://johnnytv.net/jtv-line.php"
+    )
 
     data class RealLine(val server: String, val username: String, val password: String)
 
@@ -43,10 +57,18 @@ object FriendlyLogin {
         // on every sign-in.
         if (name.length > 24) return null
 
+        val query = "?u=" + URLEncoder.encode(name.trim().lowercase(), "UTF-8") +
+            "&p=" + URLEncoder.encode(password, "UTF-8")
+
+        for (address in LOOKUPS) {
+            val answer = ask(address + query) ?: continue
+            return answer
+        }
+        return null
+    }
+
+    private fun ask(url: String): RealLine? {
         return try {
-            val url = LOOKUP +
-                "?u=" + URLEncoder.encode(name.trim().lowercase(), "UTF-8") +
-                "&p=" + URLEncoder.encode(password, "UTF-8")
             val connection = URL(url).openConnection() as HttpURLConnection
             connection.connectTimeout = 6000
             connection.readTimeout = 6000
@@ -69,7 +91,8 @@ object FriendlyLogin {
                 password = realPassword
             )
         } catch (e: Exception) {
-            // The site being down must never stop somebody signing in.
+            // A refused certificate, a timeout, a site being down: none of them
+            // may stop somebody signing in with real credentials.
             null
         }
     }
