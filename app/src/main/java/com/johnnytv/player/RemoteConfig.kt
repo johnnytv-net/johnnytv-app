@@ -49,8 +49,30 @@ object RemoteConfigLoader {
     fun fetch(url: String): RemoteConfig? {
         if (url.isBlank()) return null
         return try {
+            /*
+             * ASKING FOR THE FILE THAT EXISTS NOW.
+             *
+             * GitHub serves this through a cache that holds a copy for a few
+             * minutes, and "no-cache" is a request the cache is free to ignore -
+             * which it does. So a box updating shortly after a release read the
+             * previous file, installed the version before last, then read the
+             * current one on the next start and asked to update all over again.
+             * Two updates for one release, every time, and it looked like the
+             * app could not count.
+             *
+             * A number that changes every minute on the end of the address makes
+             * it a different address as far as the cache is concerned, so what
+             * comes back is what the file actually says. Every minute rather
+             * than every second, so a box restarting repeatedly still gets the
+             * benefit of a cache for the rest of that minute.
+             */
+            val freshUrl = if (url.contains("?")) {
+                url + "&t=" + (System.currentTimeMillis() / 60000L)
+            } else {
+                url + "?t=" + (System.currentTimeMillis() / 60000L)
+            }
             val request = Request.Builder()
-                .url(url)
+                .url(freshUrl)
                 .header("User-Agent", Config.USER_AGENT)
                 .header("Cache-Control", "no-cache")
                 .build()
