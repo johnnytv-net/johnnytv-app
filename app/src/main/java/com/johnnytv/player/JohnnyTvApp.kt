@@ -38,39 +38,54 @@ class JohnnyTvApp : Application(), ImageLoaderFactory {
         runCatching { ShareService.apply(this) }
 
         /*
-         * FOLLOWING A CUSTOMER WHO HAS BEEN MOVED.
+         * FOLLOWING A CUSTOMER WHO HAS BEEN MOVED - CAREFULLY.
          *
-         * Anybody signed in with a name rather than a code has that name kept
-         * beside their real line. At every start the site is asked again, and
-         * if the answer has changed - because they were moved to another panel
-         * - the box quietly picks up the new line. Nobody is told anything and
-         * nothing is reinstalled.
+         * The first version of this took the site at its word: whatever line
+         * and address came back were saved on the spot. That stranded a box
+         * whose entry named a host that no longer resolved - the catalogue was
+         * cleared, nothing could be fetched, and no amount of restarting helped
+         * because the same bad address was read again every time. Only a
+         * reinstall cleared it. My fault, and the sort that reaches customers
+         * rather than me.
          *
-         * Off the main thread, ignored if the site cannot be reached, and it
-         * changes nothing unless it has a complete answer in hand.
+         * So nothing is saved until it has been proved: the new line is signed
+         * into first, and only a success is written down. A wrong address, a
+         * lapsed line or a site having a bad morning all leave the box exactly
+         * as it was - still working on what it had.
          */
         Thread {
             runCatching {
                 val prefs = Prefs(applicationContext)
                 val name = prefs.friendlyName
-                if (name.isNotBlank()) {
-                    val real = FriendlyLogin.lookUp(name, Config.CUSTOMER_PASSWORD)
-                    if (real != null && real.username.isNotBlank()) {
-                        val moved = real.username != prefs.username ||
-                            real.password != prefs.password
-                        if (moved) {
-                            val server = if (real.server.isNotBlank()) {
-                                RemoteConfigLoader.resolve(real.server)
-                            } else {
-                                prefs.server
-                            }
-                            prefs.saveCredentials(server, real.username, real.password)
-                            prefs.rememberLogin(server, real.username, real.password)
-                            // The catalogue belongs to the old line; drop it so the
-                            // next screen fetches the new one rather than showing
-                            // channels this customer may no longer have.
-                            runCatching { Catalog.clear(applicationContext) }
-                        }
+                if (name.isBlank()) return@runCatching
+
+                val real = FriendlyLogin.lookUp(name, Config.CUSTOMER_PASSWORD) ?: return@runCatching
+                if (real.username.isBlank() || real.password.isBlank()) return@runCatching
+
+                val moved = real.username != prefs.username || real.password != prefs.password
+                if (!moved) return@runCatching
+
+                // Where to try: what the site named first, then the usual list,
+                // so a mistake in one entry cannot cut a box off from the rest.
+                val candidates = ArrayList<String>()
+                if (real.server.isNotBlank()) candidates.add(RemoteConfigLoader.resolve(real.server))
+                candidates.add(prefs.server)
+                for (fallback in Config.SERVERS) {
+                    val resolved = RemoteConfigLoader.resolve(fallback)
+                    if (!candidates.contains(resolved)) candidates.add(resolved)
+                }
+
+                for (address in candidates) {
+                    if (address.isBlank()) continue
+                    val client = XtreamClient(address, real.username, real.password)
+                    val worked = runCatching { client.login() }.isSuccess
+                    if (worked) {
+                        prefs.saveCredentials(address, real.username, real.password)
+                        prefs.rememberLogin(address, real.username, real.password)
+                        // The catalogue belonged to the old line, so it goes -
+                        // but only now that there is a working one to replace it.
+                        runCatching { Catalog.clear(applicationContext) }
+                        break
                     }
                 }
             }
