@@ -285,9 +285,37 @@ class LoginActivity : AppCompatActivity() {
             var lastProblem: String? = null
             var sawRefusal = false
 
+            /*
+             * A name, rather than a code.
+             *
+             * Customers are given their own name and one shared password; the
+             * site turns that pair into the real line. Asked first, and quietly:
+             * if the site says nothing useful - or nothing at all - what was
+             * typed is treated as real credentials and sign-in proceeds exactly
+             * as before, so the codes still work and nobody set up the old way
+             * is affected.
+             */
+            var user = username
+            var pass = password
+            var serverList = servers
+
             withContext(Dispatchers.IO) {
-                for (address in servers) {
-                    val client = XtreamClient(address, username, password)
+                val real = FriendlyLogin.lookUp(username, password)
+                if (real != null) {
+                    user = real.username
+                    pass = real.password
+                    if (real.server.isNotBlank()) {
+                        // The site says which panel they are on, so that one is
+                        // tried first; the usual list still follows as a fallback.
+                        val named = RemoteConfigLoader.resolve(real.server)
+                        serverList = listOf(named) + servers.filter { it != named }
+                    }
+                }
+            }
+
+            withContext(Dispatchers.IO) {
+                for (address in serverList) {
+                    val client = XtreamClient(address, user, pass)
                     try {
                         val status = client.login()
                         success = client to status
@@ -319,9 +347,13 @@ class LoginActivity : AppCompatActivity() {
                     if (serverInput.visibility == View.VISIBLE && typedServer.isNotBlank()) {
                         prefs.manualServer = client.server
                     }
-                    prefs.saveCredentials(client.server, username, password)
+                    // The real line is stored, because that is what every other
+                    // screen signs in with - and the friendly name beside it, so
+                    // the site can be asked again at each start.
+                    prefs.saveCredentials(client.server, user, pass)
+                    prefs.friendlyName = if (user != username) username else ""
                     // Remembered for next time, so signing out costs nothing.
-                    prefs.rememberLogin(client.server, username, password)
+                    prefs.rememberLogin(client.server, user, pass)
                     statusLabel.text = worked.second
                     goToApp()
                 }

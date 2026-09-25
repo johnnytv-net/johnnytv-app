@@ -38,6 +38,16 @@ object Config {
     /** Kept for older builds; SERVERS is the list that matters now. */
     const val DEFAULT_SERVER: String = ""
 
+    /**
+     * The one password every customer is given, alongside their own name.
+     *
+     * Kept here only so a box can ask the site again at each start and follow a
+     * customer who has been moved between panels. It is no secret - every
+     * customer is told it - and it opens nothing on its own: without a name the
+     * site has nothing to answer with.
+     */
+    const val CUSTOMER_PASSWORD: String = "johnnytv"
+
     /** Set both for a build that skips the login screen entirely. Normally left blank. */
     const val PRESET_USERNAME: String = ""
     const val PRESET_PASSWORD: String = ""
@@ -108,5 +118,5 @@ object Config {
     /** Last wherever it is found, so nobody lands on it by scrolling. */
     val CATEGORY_LAST: List<String> = listOf("ADULT", "XXX", "18+", "FOR ADULTS")
 
-    const val USER_AGENT: String = "JohnnyTV/5.76 (Android)"
+    const val USER_AGENT: String = "JohnnyTV/5.77 (Android)"
 }

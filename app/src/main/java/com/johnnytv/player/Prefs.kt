@@ -30,6 +30,18 @@ class Prefs(context: Context) {
     val isLoggedIn: Boolean
         get() = server.isNotBlank() && username.isNotBlank()
 
+    /**
+     * The name the customer actually types, when they have been given one.
+     *
+     * The real line is what everything else in the app uses, so that is what
+     * gets stored; this is kept beside it so the site can be asked again at
+     * each start. That is what lets somebody be moved to another panel without
+     * being told anything - their box notices by itself.
+     */
+    var friendlyName: String
+        get() = sp.getString(KEY_FRIENDLY, "") ?: ""
+        set(value) = sp.edit().putString(KEY_FRIENDLY, value.trim()).apply()
+
     fun saveCredentials(server: String, username: String, password: String) {
         sp.edit()
             .putString(KEY_SERVER, server)
@@ -479,6 +491,7 @@ class Prefs(context: Context) {
         const val KEY_LOGOS = "logo_pack"
         const val KEY_LIST_VIEW = "live_list_view"
         const val KEY_PREVIEW = "channel_preview"
+        const val KEY_FRIENDLY = "friendly_name"
         const val KEY_FAVS = "favourites"                 // the old string set
         const val KEY_FAVS_TEXT = "favourites_list"        // one per line
         const val KEY_POSITIONS = "positions"
