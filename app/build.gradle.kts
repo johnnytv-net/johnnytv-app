@@ -28,10 +28,24 @@ android {
 
     defaultConfig {
         applicationId = "com.johnnytv.player"   // WHITE LABEL: unique per client
-        minSdk = 26
+        /*
+         * ANDROID 7.1 AND UP.
+         *
+         * Was 26, which is Android 8, and that quietly shut out the 2018 Fire
+         * TV Stick 4K - it runs Fire OS 6, which is Android 7.1. The stick can
+         * play everything; it simply could not install the file, and said only
+         * "there was a problem parsing the package", which sounds like a broken
+         * download and sends everybody hunting in the wrong place.
+         *
+         * Nothing here needs Android 8: every call that does - notification
+         * channels, starting a service in the foreground - is already behind a
+         * version check, and none of the Java 8 classes that arrived with it
+         * are used. The libraries all go back to Android 5.
+         */
+        minSdk = 25
         targetSdk = 34
-        versionCode = 114
-        versionName = "5.82"
+        versionCode = 115
+        versionName = "5.83"
     }
 
     signingConfigs {
