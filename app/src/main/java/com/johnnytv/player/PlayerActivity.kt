@@ -664,7 +664,10 @@ class PlayerActivity : AppCompatActivity() {
                 // channel change tearing one down often ends in an error.
                 if (player !== exo) return
                 if (playlist) {
-                    showStatus(getString(R.string.could_not_play, title))
+                    // Say which part it choked on and why; "could not play"
+                    // on its own has never helped anybody work out what to do.
+                    val why = error.errorCodeName + " - " + (error.message ?: "no detail")
+                    showStatus(getString(R.string.could_not_play_detail, title, why))
                     return
                 }
                 // A wobbly feed is not a dead feed. Try the same stream again a couple
@@ -702,6 +705,28 @@ class PlayerActivity : AppCompatActivity() {
                             // A live channel never really "ends" - the feed dropped.
                             // Reconnect instead of closing the player.
                             recover()
+                        } else if (contentId.startsWith("rec:") && exo.currentPosition < 8_000L) {
+                            /*
+                             * A RECORDING THAT ENDS BEFORE IT STARTS.
+                             *
+                             * "Ended" closes the screen, which is right at the
+                             * end of a film and wrong here: a four-hour
+                             * recording that reports the end within a few
+                             * seconds has not been watched, it has failed to
+                             * open - and closing silently sends somebody back
+                             * to the list believing the recording is ruined.
+                             *
+                             * The parts are almost always fine. So it says what
+                             * it saw instead, which is the difference between
+                             * a mystery and a fix.
+                             */
+                            val detail = getString(
+                                R.string.recording_ended_early,
+                                urls.size,
+                                (exo.currentPosition / 1000L).toInt()
+                            )
+                            showStatus(detail)
+                            exo.stop()
                         } else {
                             if (contentId.isNotBlank()) prefs.removePosition(kind, contentId)
                             finish()

@@ -121,6 +121,8 @@
     <!-- player -->
     <string name="nothing_to_play">Nothing to play.</string>
     <string name="reconnecting">Reconnecting to %s…</string>
+    <string name="recording_ended_early">This recording reported the end after %2$d seconds, across %1$d parts — so it did not open rather than finishing. Press back, then Repair recordings.</string>
+    <string name="could_not_play_detail">Could not play %1$s\n\n%2$s</string>
     <string name="could_not_play">Could not play %s. The channel may be offline or the server busy.</string>
 
     <!-- settings -->
@@ -171,6 +173,7 @@
     <string name="recordings_delete_confirm">Delete %1$s? The video file goes with it.</string>
     <string name="recordings_delete_all">Delete all (%1$d)</string>
     <string name="recordings_delete_all_confirm">Delete %1$d recordings and free %2$s GB?\n\nAnything marked Keep is left alone.</string>
+    <string name="recordings_play_parts">Play the parts directly</string>
     <string name="recordings_repair">Repair this recording</string>
     <string name="recordings_repair_nothing">No part files found.\n\nFolder: %1$s\nFolder exists: %2$s</string>
     <string name="recordings_repair_working">Reading the drive and rebuilding the list. On a long recording this takes a moment.</string>

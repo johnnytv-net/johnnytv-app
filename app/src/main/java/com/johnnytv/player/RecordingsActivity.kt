@@ -346,6 +346,26 @@ class RecordingsActivity : AppCompatActivity() {
         )
     }
 
+    /** Every part, in order, straight to the player - no playlist involved. */
+    private fun playParts(recording: Recording) {
+        val files = recording.playableFiles(this)
+        if (files.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.recordings_nothing_title)
+                .setMessage(R.string.recordings_nothing_message)
+                .setPositiveButton(R.string.close, null)
+                .show()
+            return
+        }
+        RecordingStore.update(this, recording.id) { it.watched = true }
+        PlayerActivity.startPlaylist(
+            this,
+            urls = files.map { android.net.Uri.fromFile(it).toString() },
+            title = recording.title,
+            contentId = "rec:" + recording.id
+        )
+    }
+
     private fun showRecordingOptions(recording: Recording) {
         val options = ArrayList<String>()
         val actions = ArrayList<() -> Unit>()
@@ -386,6 +406,17 @@ class RecordingsActivity : AppCompatActivity() {
             // being written, its playlist is meant to be incomplete.
             options.add(getString(R.string.recordings_repair))
             actions.add { repair(recording) }
+
+            /*
+             * Play it the simple way.
+             *
+             * The playlist is the clever route and usually the right one, but
+             * when it will not work the parts themselves are still perfectly
+             * good - handing them to the player one after another gets the
+             * programme on screen without repairing anything first.
+             */
+            options.add(getString(R.string.recordings_play_parts))
+            actions.add { playParts(recording) }
         }
 
         // Clearing a dozen test recordings one at a time is its own small
@@ -513,17 +544,37 @@ class RecordingsActivity : AppCompatActivity() {
             val seconds = entry.groupValues[1].toDoubleOrNull() ?: continue
             if (seconds >= 1.0) known[entry.groupValues[2]] = seconds
         }
+        /*
+         * A LENGTH THAT CANNOT BE ABSURD.
+         *
+         * The first version divided total bytes by total seconds across the
+         * parts whose lengths were known. One stubby part with a thirty-second
+         * label - and after a run of reconnects there are plenty - drags that
+         * rate down, and every estimate built on it comes out enormous. A
+         * four-hour recording was rebuilt as thirty-nine days, and a player
+         * handed a playlist like that gives up immediately.
+         *
+         * So the rate is the median of the parts we actually know, which one
+         * bad entry cannot move, and no part may claim more than two minutes:
+         * this recorder writes thirty-second pieces, so anything longer is
+         * arithmetic rather than television.
+         */
         val measured = parts.filter { known.containsKey(it.name) }
-        val bytesPerSecond = if (measured.isNotEmpty()) {
-            measured.sumOf { it.length() }.toDouble() /
-                measured.sumOf { known[it.name] ?: 0.0 }.coerceAtLeast(1.0)
-        } else {
-            400_000.0
-        }
+        val rates = measured.mapNotNull { part ->
+            val seconds = known[part.name] ?: return@mapNotNull null
+            if (seconds < 1.0) null else part.length() / seconds
+        }.sorted()
+        val bytesPerSecond = when {
+            rates.isEmpty() -> 400_000.0
+            else -> rates[rates.size / 2]
+        }.coerceIn(50_000.0, 4_000_000.0)
 
         val lengths = parts.map { part ->
             val seconds = known[part.name] ?: (part.length() / bytesPerSecond * 0.97)
-            part.name to seconds.coerceAtLeast(1.0)
+            // Nothing here is longer than two minutes; the recorder writes in
+            // thirty-second pieces and a reconnect makes them shorter, never
+            // longer.
+            part.name to seconds.coerceIn(1.0, 120.0)
         }
 
         val text = StringBuilder()
@@ -531,8 +582,19 @@ class RecordingsActivity : AppCompatActivity() {
         text.append("#EXT-X-TARGETDURATION:")
             .append(Math.ceil(lengths.maxOf { it.second }).toInt()).append("\n")
         text.append("#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n")
+        /*
+         * A DISCONTINUITY BETWEEN EVERY PART IS ITS OWN PROBLEM.
+         *
+         * It tells the player to throw away its timing and start again, which
+         * is right where the recording genuinely jumped and wrong everywhere
+         * else. Across two thousand parts it is thousands of restarts, and
+         * enough on its own to stop a recording playing.
+         *
+         * Repair cannot know where the real gaps were - that knowledge was in
+         * the playlist it is replacing - so it claims none, which plays through
+         * cleanly and at worst gets the clock slightly wrong over a join.
+         */
         for ((index, part) in lengths.withIndex()) {
-            if (index > 0) text.append("#EXT-X-DISCONTINUITY\n")
             text.append("#EXTINF:")
                 .append(String.format(Locale.US, "%.3f", part.second))
                 .append(",\n").append(part.first).append("\n")
