@@ -1039,8 +1039,19 @@ class RecorderService : Service() {
                 .orEmpty()
                 .filter { it.length() > 0 }
 
-            // Below this it plays perfectly well as it is.
-            if (parts.size < 40) return@runCatching
+            /*
+             * ONLY WHEN THERE ARE TOO MANY TO PLAY.
+             *
+             * Joining costs a full copy of the recording - ten gigabytes read
+             * and written again - and with five minute pieces a two hour
+             * recording is around two dozen files, which plays straight
+             * through with nothing done to it. Paying that price on every
+             * recording to fix a problem that no longer occurs would be daft.
+             *
+             * So it happens only where the count has run away, which now means
+             * a night of constant reconnects rather than an ordinary evening.
+             */
+            if (parts.size < 150) return@runCatching
 
             val needed = parts.sumOf { it.length() }
             val free = here.usableSpace
