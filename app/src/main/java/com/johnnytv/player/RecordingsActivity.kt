@@ -13,6 +13,11 @@ import androidx.appcompat.app.AppCompatActivity
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.io.File
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import androidx.lifecycle.lifecycleScope
 
 /**
  * RECORDINGS
@@ -270,9 +275,49 @@ class RecordingsActivity : AppCompatActivity() {
 
     // ---------- what a press does ----------
 
+    /**
+     * IS THIS PLAYLIST ACTUALLY ANY USE?
+     *
+     * A playlist names its parts; if those parts are not beside it, the player
+     * fails on the first one and the screen drops straight back to the list -
+     * which looks to anybody watching like the recording is ruined, when every
+     * part is sitting on the drive perfectly intact.
+     *
+     * It happens after a drive has been unplugged and put back: Android gives
+     * it a different name, and anything written down under the old one no
+     * longer points at a real place.
+     *
+     * So the playlist is checked before it is trusted. A few names are looked
+     * for on disk, and if they are not there the parts are played directly
+     * instead - which is what the app already does when there is no playlist
+     * at all.
+     */
+    private fun playlistLooksUsable(playlist: File): Boolean {
+        val folder = playlist.parentFile ?: return false
+        val named = runCatching {
+            playlist.readLines()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && !it.startsWith("#") }
+        }.getOrNull() ?: return false
+
+        if (named.isEmpty()) return false
+
+        // The first, the last and one in the middle: enough to catch a folder
+        // that has moved, without reading five hundred names off a slow drive.
+        val toCheck = listOfNotNull(
+            named.firstOrNull(),
+            named.getOrNull(named.size / 2),
+            named.lastOrNull()
+        )
+        return toCheck.all { name ->
+            val part = if (name.startsWith("/")) File(name) else File(folder, name)
+            part.exists() && part.length() > 0
+        }
+    }
+
     private fun play(recording: Recording) {
         val playlist = recording.playlistFile(this)
-        if (playlist != null) {
+        if (playlist != null && playlistLooksUsable(playlist)) {
             RecordingStore.update(this, recording.id) { it.watched = true }
             PlayerActivity.startPlaylist(
                 this,
@@ -400,6 +445,47 @@ class RecordingsActivity : AppCompatActivity() {
      * the old one had got itself into stops mattering.
      */
     private fun repair(recording: Recording) {
+        /*
+         * OFF THE SCREEN'S OWN THREAD.
+         *
+         * Repair lists every part on the drive, reads the old playlist and
+         * writes a new one. On a four-hour recording that is five hundred
+         * files on a USB drive that answers slowly, and doing it here stops
+         * the screen responding - so Android decides the app has hung and
+         * closes it. From the sofa that looks like Repair crashing the player,
+         * which is exactly what was reported.
+         *
+         * So it happens on a background thread with something on screen to say
+         * it is working, and the answer comes back when it is done.
+         */
+        val working = AlertDialog.Builder(this)
+            .setTitle(R.string.recordings_repair)
+            .setMessage(R.string.recordings_repair_working)
+            .setCancelable(false)
+            .show()
+
+        lifecycleScope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                runCatching { rebuildPlaylist(recording) }
+            }
+            runCatching { working.dismiss() }
+
+            val message = outcome.getOrNull()
+                ?: getString(
+                    R.string.recordings_repair_failed,
+                    outcome.exceptionOrNull()?.message ?: "unknown"
+                )
+
+            AlertDialog.Builder(this@RecordingsActivity)
+                .setTitle(R.string.recordings_repair)
+                .setMessage(message)
+                .setPositiveButton(R.string.close, null)
+                .show()
+        }
+    }
+
+    /** The work itself. Runs off the main thread; returns what to tell somebody. */
+    private fun rebuildPlaylist(recording: Recording): String {
         // Wherever it really is, which is not always where it says it is.
         val folder = recording.folderOnDisk(this)
         val parts = folder.listFiles { f -> f.name.matches(Regex("part\\d+\\.ts")) }
@@ -408,25 +494,18 @@ class RecordingsActivity : AppCompatActivity() {
             .filter { it.length() > 100_000L }
 
         if (parts.isEmpty()) {
-            AlertDialog.Builder(this)
-                .setTitle(R.string.recordings_repair)
-                .setMessage(
-                    getString(
-                        R.string.recordings_repair_nothing,
-                        folder.absolutePath,
-                        if (folder.exists()) "yes" else "no"
-                    )
-                )
-                .setPositiveButton(R.string.close, null)
-                .show()
-            return
+            return getString(
+                R.string.recordings_repair_nothing,
+                folder.absolutePath,
+                if (folder.exists()) "yes" else "no"
+            )
         }
 
         // Lengths from the old playlist where it had them and they look sane;
         // from the file's own size against the rest of the recording where it
         // did not. A part announced as longer than it is stops playback dead,
         // so an estimate always errs short.
-        val old = runCatching { java.io.File(folder, RecorderService.PLAYLIST_NAME).readText() }
+        val old = runCatching { File(folder, RecorderService.PLAYLIST_NAME).readText() }
             .getOrDefault("")
         val known = HashMap<String, Double>()
         val entries = Regex("#EXTINF:([\\d.]+),\\s*\\n(part\\d+\\.ts)").findAll(old)
@@ -461,23 +540,17 @@ class RecordingsActivity : AppCompatActivity() {
         text.append("#EXT-X-ENDLIST\n")
 
         val written = runCatching {
-            java.io.File(folder, RecorderService.PLAYLIST_NAME).writeText(text.toString())
+            File(folder, RecorderService.PLAYLIST_NAME).writeText(text.toString())
             true
         }.getOrDefault(false)
 
-        AlertDialog.Builder(this)
-            .setTitle(R.string.recordings_repair)
-            .setMessage(
-                getString(
-                    R.string.recordings_repair_done,
-                    parts.size,
-                    (lengths.sumOf { it.second } / 60).toInt(),
-                    if (written) "written" else "COULD NOT WRITE",
-                    folder.absolutePath
-                )
-            )
-            .setPositiveButton(R.string.close, null)
-            .show()
+        return getString(
+            R.string.recordings_repair_done,
+            parts.size,
+            (lengths.sumOf { it.second } / 60).toInt(),
+            if (written) "written" else "COULD NOT WRITE",
+            folder.absolutePath
+        )
     }
 
     private fun showReport(recording: Recording) {
