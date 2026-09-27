@@ -173,6 +173,8 @@
     <string name="recordings_delete_confirm">Delete %1$s? The video file goes with it.</string>
     <string name="recordings_delete_all">Delete all (%1$d)</string>
     <string name="recordings_delete_all_confirm">Delete %1$d recordings and free %2$s GB?\n\nAnything marked Keep is left alone.</string>
+    <string name="recordings_inspect">Check the files</string>
+    <string name="recordings_inspect_working">Opening the parts and reading the first of each…</string>
     <string name="recordings_play_parts">Play the parts directly</string>
     <string name="recordings_repair">Repair this recording</string>
     <string name="recordings_repair_nothing">No part files found.\n\nFolder: %1$s\nFolder exists: %2$s</string>

@@ -366,6 +366,83 @@ class RecordingsActivity : AppCompatActivity() {
         )
     }
 
+    /**
+     * WHAT IS ACTUALLY IN THESE FILES?
+     *
+     * A recording that will not play, with no error and no crash, leaves
+     * nothing to go on - and guessing has cost several builds already. This
+     * opens the parts and reports what it finds: whether they can be read at
+     * all, how big they are, and whether they begin the way a television
+     * stream must.
+     *
+     * Every MPEG-TS packet starts with the byte 0x47, one every 188 bytes. A
+     * file that does not is not video as far as any player is concerned,
+     * however many gigabytes of it there are - and that would explain a black
+     * screen far better than anything in the app.
+     */
+    private fun inspect(recording: Recording) {
+        val working = AlertDialog.Builder(this)
+            .setTitle(R.string.recordings_inspect)
+            .setMessage(R.string.recordings_inspect_working)
+            .setCancelable(false)
+            .show()
+
+        lifecycleScope.launch {
+            val report = withContext(Dispatchers.IO) {
+                runCatching { inspectParts(recording) }.getOrElse { "Could not look: " + it.message }
+            }
+            runCatching { working.dismiss() }
+            AlertDialog.Builder(this@RecordingsActivity)
+                .setTitle(R.string.recordings_inspect)
+                .setMessage(report)
+                .setPositiveButton(R.string.close, null)
+                .show()
+        }
+    }
+
+    private fun inspectParts(recording: Recording): String {
+        val folder = recording.folderOnDisk(this)
+        val parts = folder.listFiles { f -> f.name.matches(Regex("part\\d+\\.ts")) }
+            ?.sortedBy { it.name }
+            .orEmpty()
+
+        val out = StringBuilder()
+        out.append("Folder: ").append(folder.absolutePath).append('\n')
+        out.append("Exists: ").append(folder.exists())
+            .append("  readable: ").append(folder.canRead()).append('\n')
+        out.append("Parts: ").append(parts.size).append('\n')
+        if (parts.isEmpty()) return out.toString()
+
+        val total = parts.sumOf { it.length() }
+        out.append("Total: ").append(total / (1024 * 1024)).append(" MB\n")
+        out.append("Empty parts: ").append(parts.count { it.length() == 0L }).append('\n')
+        out.append('\n')
+
+        // The first, one in the middle and the last: enough to tell whether
+        // the whole recording is the same story.
+        for (part in listOfNotNull(parts.firstOrNull(), parts.getOrNull(parts.size / 2), parts.lastOrNull())) {
+            out.append(part.name).append("  ").append(part.length() / 1024).append(" kB  ")
+            val head = runCatching {
+                part.inputStream().use { stream ->
+                    val buffer = ByteArray(1024)
+                    val read = stream.read(buffer)
+                    if (read <= 0) null else buffer.copyOf(read)
+                }
+            }.getOrNull()
+
+            if (head == null) {
+                out.append("could not read\n")
+                continue
+            }
+            val syncAtStart = head[0] == 0x47.toByte()
+            val syncCount = (0 until minOf(head.size, 1024) step 188).count { head[it] == 0x47.toByte() }
+            out.append(if (syncAtStart) "starts correctly" else "does NOT start with 0x47")
+            out.append(", ").append(syncCount).append(" of ")
+                .append((minOf(head.size, 1024) + 187) / 188).append(" packets aligned\n")
+        }
+        return out.toString()
+    }
+
     private fun showRecordingOptions(recording: Recording) {
         val options = ArrayList<String>()
         val actions = ArrayList<() -> Unit>()
@@ -417,6 +494,9 @@ class RecordingsActivity : AppCompatActivity() {
              */
             options.add(getString(R.string.recordings_play_parts))
             actions.add { playParts(recording) }
+
+            options.add(getString(R.string.recordings_inspect))
+            actions.add { inspect(recording) }
         }
 
         // Clearing a dozen test recordings one at a time is its own small
