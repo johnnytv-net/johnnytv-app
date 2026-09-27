@@ -173,6 +173,8 @@
     <string name="recordings_delete_confirm">Delete %1$s? The video file goes with it.</string>
     <string name="recordings_delete_all">Delete all (%1$d)</string>
     <string name="recordings_delete_all_confirm">Delete %1$d recordings and free %2$s GB?\n\nAnything marked Keep is left alone.</string>
+    <string name="recordings_convert">Make it a proper video file</string>
+    <string name="recordings_convert_working">Rewriting the recording as an MP4. Nothing is re-encoded, but ten gigabytes still takes several minutes — leave this on screen.</string>
     <string name="recordings_join">Join into one file</string>
     <string name="recordings_join_working">Copying the pieces into a single file. Ten gigabytes takes a few minutes — leave this on screen.</string>
     <string name="recordings_join_done">Joined %1$d pieces into one file of %2$d MB. Press play as normal; the pieces are still there and can be deleted once you are happy.</string>

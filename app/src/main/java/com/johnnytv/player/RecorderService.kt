@@ -1075,6 +1075,24 @@ class RecorderService : Service() {
         }
     }
 
+    /**
+     * The last step: a video file rather than a broadcast stream.
+     *
+     * Costs a few minutes of copying at the end of a recording and saves
+     * every playback afterwards. If it cannot be done - some broadcast audio
+     * will not go into an MP4 - the joined stream is left in place and still
+     * plays.
+     */
+    private fun makeProperVideoFile() {
+        runCatching {
+            val joined = File(folder, "whole.ts")
+            if (!joined.exists() || joined.length() < 1_000_000L) return@runCatching
+            val free = folder.usableSpace
+            if (free in 1 until joined.length() + 200_000_000L) return@runCatching
+            Remux.toMp4(joined, File(folder, Remux.MP4_NAME))
+        }
+    }
+
     private fun closeUp(id: String) {
         runCatching { out?.flush(); out?.close() }
         if (currentPart.isNotEmpty()) {
@@ -1083,6 +1101,7 @@ class RecorderService : Service() {
         }
         writePlaylist(true)
         joinPartsIntoOneFile()
+        makeProperVideoFile()
         releaseLocks()
         val finishedAt = System.currentTimeMillis()
         val wrote = everWrote
@@ -1457,12 +1476,19 @@ class RecorderService : Service() {
          * in ten minute pieces sat there for five minutes before starting, and
          * seeking into the third hour was worse.
          *
-         * Half a minute is what the rest of the world uses, give or take. An
-         * evening becomes a few hundred small files instead of twenty huge
-         * ones, which costs nothing on a drive and turns a five minute wait
-         * into a second or two.
+         * Half a minute fixed that, and brought its own trouble: an evening of
+         * reconnects came out as two thousand pieces, and no player would go
+         * through them - the picture froze, the app was killed, and four hours
+         * of television sat on the drive unwatchable.
+         *
+         * What settled it was joining the pieces at the end and writing a
+         * proper video file. Playback no longer sees pieces at all, so their
+         * length stops being a playback question and becomes only a question
+         * of what a dropped connection costs: five minutes is small enough to
+         * lose without regret and large enough that an evening is fifty files
+         * rather than two thousand.
          */
-        private const val PART_LENGTH_MS = 30L * 1000L
+        private const val PART_LENGTH_MS = 5L * 60L * 1000L
 
         /** Silence from the portal for this long counts as the feed having dropped. */
         private const val SILENCE_IS_A_DROP_MS = 5_000L
@@ -1481,7 +1507,7 @@ class RecorderService : Service() {
          * rather than the rest of the recording, long enough that an hour is
          * thirty files and not three hundred.
          */
-        private const val SEGMENT_PART_MS = 30L * 1000L
+        private const val SEGMENT_PART_MS = 5L * 60L * 1000L
 
         /** How long to wait before asking a segmented channel what is new. */
         private const val POLL_WAIT_MS = 4_000L

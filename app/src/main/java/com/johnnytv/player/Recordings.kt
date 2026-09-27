@@ -223,8 +223,13 @@ data class Recording(
      * asked for.
      */
     fun wholeFile(context: Context): File? {
-        val file = File(folderOnDisk(context), WHOLE_NAME)
-        return if (file.exists() && file.length() > 1_000_000L) file else null
+        val folder = folderOnDisk(context)
+        // The proper video file first, the joined stream second: both play,
+        // but only one of them can be seeked through reliably.
+        val mp4 = File(folder, Remux.MP4_NAME)
+        if (mp4.exists() && mp4.length() > 1_000_000L) return mp4
+        val ts = File(folder, WHOLE_NAME)
+        return if (ts.exists() && ts.length() > 1_000_000L) ts else null
     }
 
     fun playlistFile(context: Context): File? {

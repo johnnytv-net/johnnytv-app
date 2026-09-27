@@ -545,6 +545,41 @@ class RecordingsActivity : AppCompatActivity() {
         )
     }
 
+    /**
+     * Makes an older recording into a proper video file.
+     *
+     * New recordings do this themselves when they finish. This is for the ones
+     * made before that existed - including the four-hour one that started all
+     * of it.
+     */
+    private fun convert(recording: Recording) {
+        val working = AlertDialog.Builder(this)
+            .setTitle(R.string.recordings_convert)
+            .setMessage(R.string.recordings_convert_working)
+            .setCancelable(false)
+            .show()
+
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                val folder = recording.folderOnDisk(this@RecordingsActivity)
+                var joined = File(folder, WHOLE_NAME)
+                // Joining first if nobody has: no point asking twice.
+                if (!joined.exists() || joined.length() < 1_000_000L) {
+                    runCatching { joinOnDisk(recording) }
+                    joined = File(folder, WHOLE_NAME)
+                }
+                Remux.toMp4(joined, File(folder, Remux.MP4_NAME))
+            }
+            runCatching { working.dismiss() }
+            AlertDialog.Builder(this@RecordingsActivity)
+                .setTitle(R.string.recordings_convert)
+                .setMessage(result.message)
+                .setPositiveButton(R.string.close, null)
+                .show()
+            draw()
+        }
+    }
+
     private fun showRecordingOptions(recording: Recording) {
         val options = ArrayList<String>()
         val actions = ArrayList<() -> Unit>()
@@ -602,6 +637,9 @@ class RecordingsActivity : AppCompatActivity() {
 
             options.add(getString(R.string.recordings_join))
             actions.add { joinParts(recording) }
+
+            options.add(getString(R.string.recordings_convert))
+            actions.add { convert(recording) }
         }
 
         // Clearing a dozen test recordings one at a time is its own small
