@@ -1032,8 +1032,9 @@ class RecorderService : Service() {
      */
     private fun joinPartsIntoOneFile() {
         runCatching {
-            val folder = File(dirPath)
-            val parts = folder.listFiles { f -> f.name.matches(Regex("part\\d+\\.ts")) }
+            // The service already knows where it has been writing.
+            val here = folder
+            val parts = here.listFiles { f -> f.name.matches(Regex("part\\d+\\.ts")) }
                 ?.sortedBy { it.name.filter { c -> c.isDigit() }.toIntOrNull() ?: 0 }
                 .orEmpty()
                 .filter { it.length() > 0 }
@@ -1042,11 +1043,11 @@ class RecorderService : Service() {
             if (parts.size < 40) return@runCatching
 
             val needed = parts.sumOf { it.length() }
-            val free = folder.usableSpace
+            val free = here.usableSpace
             if (free in 1 until needed + 200_000_000L) return@runCatching
 
-            val whole = File(folder, "whole.ts")
-            val building = File(folder, "whole.building.ts")
+            val whole = File(here, "whole.ts")
+            val building = File(here, "whole.building.ts")
             runCatching { building.delete() }
 
             building.outputStream().use { out ->
