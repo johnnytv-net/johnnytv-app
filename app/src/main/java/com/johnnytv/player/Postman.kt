@@ -160,13 +160,30 @@ object Postman {
             .filter { it.account.isBlank() || it.account.equals(account.username, true) }
             .sortedBy { it.startAt }
             .take(3)
-        val text = if (upcoming.isEmpty()) {
+        /*
+         * WHAT IS HAPPENING NOW COMES FIRST.
+         *
+         * The list of what is still to come was useful and incomplete: it
+         * never mentioned the recording actually running, so somebody out for
+         * the afternoon had no way of knowing whether it had started - short
+         * of opening the player on a television they were not standing in
+         * front of.
+         */
+        val nowRecording = if (RecorderService.isRecording) {
+            "RECORDING " + RecorderService.activeTitle.take(28) +
+                " until " + clock.format(Date(RecorderService.activeUntil))
+        } else {
+            ""
+        }
+
+        val coming = if (upcoming.isEmpty()) {
             "Nothing scheduled"
         } else {
             upcoming.joinToString(" · ") {
                 it.title.take(28) + " " + clock.format(Date(it.startAt))
             }
         }
+        val text = if (nowRecording.isNotBlank()) nowRecording + " · " + coming else coming
         CastLink.reportScheduled(account.username, account.password, text)
     }
 }

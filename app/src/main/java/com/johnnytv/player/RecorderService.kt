@@ -84,11 +84,20 @@ class RecorderService : Service() {
         startForeground(notification(title, channel))
         activeId = recordingId
         activeStreamId = streamId
+        activeTitle = title
+        activeChannel = channel
+        activeUntil = endAt
 
         worker = thread(name = "johnnytv-recorder") {
             runCatching { record(recordingId, title, channel, streamId, urls, endAt) }
             activeId = ""
             activeStreamId = ""
+            activeTitle = ""
+            activeChannel = ""
+            activeUntil = 0L
+            activeTitle = ""
+            activeChannel = ""
+            activeUntil = 0L
             stopSelf()
         }
         return START_STICKY
@@ -126,6 +135,9 @@ class RecorderService : Service() {
             }
             activeId = ""
             activeStreamId = ""
+            activeTitle = ""
+            activeChannel = ""
+            activeUntil = 0L
         }
         super.onDestroy()
     }
@@ -1583,6 +1595,26 @@ class RecorderService : Service() {
 
         @Volatile
         var activeStreamId: String = ""
+            private set
+
+        /*
+         * WHAT IS BEING RECORDED, FOR SOMEBODY WHO IS NOT AT HOME.
+         *
+         * The box has always known; it simply never said. Standing in a car
+         * park, the only way to find out whether the recording actually
+         * started was to open the player and look - which rather defeats
+         * setting it from a phone in the first place.
+         */
+        @Volatile
+        var activeTitle: String = ""
+            private set
+
+        @Volatile
+        var activeChannel: String = ""
+            private set
+
+        @Volatile
+        var activeUntil: Long = 0L
             private set
 
         val isRecording: Boolean get() = activeId.isNotBlank()

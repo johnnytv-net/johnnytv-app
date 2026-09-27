@@ -81,6 +81,31 @@ object Schedules {
     private const val FILE = "schedules.json"
 
     @Synchronized
+    /**
+     * CLEARING OUT WHAT ALREADY HAPPENED.
+     *
+     * A schedule is removed when its alarm fires. If the alarm never fires -
+     * the box was asleep, the app had been killed, somebody recorded the
+     * programme by hand instead - the entry stays for ever, and a list of
+     * things still to record fills up with last week's television. Which
+     * rather undermines the point of the list.
+     *
+     * So anything whose finish time has been and gone by a clear margin is
+     * dropped when the list is read. An hour's grace, because a recording that
+     * is running now must never be swept away by its own schedule, and series
+     * entries are left alone because theirs point at the next showing rather
+     * than the last.
+     */
+    private fun withoutStaleOnes(context: Context, items: List<Scheduled>): List<Scheduled> {
+        val cutoff = System.currentTimeMillis() - 60L * 60L * 1000L
+        val stale = items.filter { !it.series && it.recordUntil in 1 until cutoff }
+        if (stale.isEmpty()) return items
+        for (old in stale) {
+            runCatching { remove(context, old.id) }
+        }
+        return items.filter { one -> stale.none { it.id == one.id } }
+    }
+
     fun all(context: Context): List<Scheduled> {
         val file = File(context.filesDir, FILE)
         if (!file.exists()) return emptyList()
@@ -91,7 +116,7 @@ object Schedules {
                 val o = array.optJSONObject(i) ?: continue
                 out.add(Scheduled.fromJson(o))
             }
-            out.sortedBy { it.startAt }
+            withoutStaleOnes(context, out.sortedBy { it.startAt })
         } catch (e: Exception) {
             emptyList()
         }
