@@ -7,6 +7,21 @@ import org.json.JSONObject
 import java.io.File
 
 /**
+ * PARTS IN THE ORDER THEY WERE RECORDED.
+ *
+ * Sorting by name looks right and is wrong past the thousandth part: as text,
+ * "part1877.ts" comes before "part999.ts", because the comparison is letter by
+ * letter and "1" beats "9". A short recording never notices. A four-hour one
+ * interrupted by reconnects runs to two thousand parts, and the second half of
+ * the programme ends up scattered through the first.
+ *
+ * So the number is read out of the name and compared as a number.
+ */
+internal fun partNumber(name: String): Int =
+    Regex("\\d+").find(name)?.value?.toIntOrNull() ?: 0
+
+
+/**
  * RECORDING - WHERE IT ALL LIVES
  *
  * A recording is a folder of ten-minute .ts chunks plus a line in an index kept
@@ -240,7 +255,7 @@ data class Recording(
                 val folder = file.parentFile ?: File(dirPath)
                 val listed = Regex("part\\d+\\.ts").findAll(text).map { it.value }.toSet()
                 val onDisk = folder.listFiles { f -> f.name.matches(Regex("part\\d+\\.ts")) }
-                    ?.sortedBy { it.name }
+                    ?.sortedBy { partNumber(it.name) }
                     .orEmpty()
                 val missing = onDisk.filter { it.name !in listed && it.length() > 1_000_000L }
 

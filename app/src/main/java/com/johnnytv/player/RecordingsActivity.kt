@@ -403,7 +403,7 @@ class RecordingsActivity : AppCompatActivity() {
     private fun inspectParts(recording: Recording): String {
         val folder = recording.folderOnDisk(this)
         val parts = folder.listFiles { f -> f.name.matches(Regex("part\\d+\\.ts")) }
-            ?.sortedBy { it.name }
+            ?.sortedBy { partNumber(it.name) }
             .orEmpty()
 
         val out = StringBuilder()
@@ -600,7 +600,7 @@ class RecordingsActivity : AppCompatActivity() {
         // Wherever it really is, which is not always where it says it is.
         val folder = recording.folderOnDisk(this)
         val parts = folder.listFiles { f -> f.name.matches(Regex("part\\d+\\.ts")) }
-            ?.sortedBy { it.name }
+            ?.sortedBy { partNumber(it.name) }
             .orEmpty()
             .filter { it.length() > 100_000L }
 

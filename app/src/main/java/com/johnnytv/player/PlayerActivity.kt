@@ -711,7 +711,37 @@ class PlayerActivity : AppCompatActivity() {
                         hideStatus()
                         if (!hasSeeked && resumeFrom > 0L) {
                             hasSeeked = true
-                            exo.seekTo(resumeFrom)
+                            /*
+                             * A RESUME POINT MUST BE SOMEWHERE IN THE
+                             * RECORDING.
+                             *
+                             * Seeking past the end makes the player report
+                             * "ended" at once, and the screen closes without a
+                             * word - a black flash and back to where you came
+                             * from, which is indistinguishable from a broken
+                             * recording and sent us hunting through the files
+                             * for an evening.
+                             *
+                             * It happens when the remembered position came from
+                             * a playlist that lied about its length: a repair
+                             * once rebuilt four hours as thirty-nine days, and
+                             * a position saved against that is hours past the
+                             * real end.
+                             *
+                             * So the position is only used when the player
+                             * knows the length and the position sits inside it,
+                             * with a little room at the end. Otherwise the
+                             * recording starts from the beginning, which is
+                             * always better than not starting at all.
+                             */
+                            val length = exo.duration
+                            val sensible = length > 0L && resumeFrom < length - 10_000L
+                            if (sensible) {
+                                exo.seekTo(resumeFrom)
+                            } else if (contentId.isNotBlank()) {
+                                // Forget it, so this cannot happen twice.
+                                prefs.removePosition(kind, contentId)
+                            }
                         }
                     }
                     Player.STATE_ENDED -> {
