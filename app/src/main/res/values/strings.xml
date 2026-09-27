@@ -173,6 +173,11 @@
     <string name="recordings_delete_confirm">Delete %1$s? The video file goes with it.</string>
     <string name="recordings_delete_all">Delete all (%1$d)</string>
     <string name="recordings_delete_all_confirm">Delete %1$d recordings and free %2$s GB?\n\nAnything marked Keep is left alone.</string>
+    <string name="recordings_join">Join into one file</string>
+    <string name="recordings_join_working">Copying the pieces into a single file. Ten gigabytes takes a few minutes — leave this on screen.</string>
+    <string name="recordings_join_done">Joined %1$d pieces into one file of %2$d MB. Press play as normal; the pieces are still there and can be deleted once you are happy.</string>
+    <string name="recordings_join_no_room">Not enough room: this needs %1$d MB and there is %2$d MB free on the drive.</string>
+    <string name="recordings_join_failed">Could not join it: %1$s</string>
     <string name="recordings_inspect">Check the files</string>
     <string name="recordings_inspect_working">Opening the parts and reading the first of each…</string>
     <string name="recordings_play_parts">Play the parts directly</string>

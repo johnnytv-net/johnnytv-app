@@ -17,6 +17,9 @@ import java.io.File
  *
  * So the number is read out of the name and compared as a number.
  */
+/** The name of the single file a recording is joined into. */
+internal const val WHOLE_NAME = "whole.ts"
+
 internal fun partNumber(name: String): Int =
     Regex("\\d+").find(name)?.value?.toIntOrNull() ?: 0
 
@@ -212,6 +215,18 @@ data class Recording(
      * marks every join, so the player treats the recording as a single
      * programme rather than a folder of fragments.
      */
+    /**
+     * The whole recording as one file, when somebody has joined it up.
+     *
+     * Preferred over everything else: no playlist to misread, no pieces to put
+     * in order, nothing to go wrong. It is only ever there because it was
+     * asked for.
+     */
+    fun wholeFile(context: Context): File? {
+        val file = File(folderOnDisk(context), WHOLE_NAME)
+        return if (file.exists() && file.length() > 1_000_000L) file else null
+    }
+
     fun playlistFile(context: Context): File? {
         val file = File(folderOnDisk(context), RecorderService.PLAYLIST_NAME)
         if (!file.exists() || file.length() <= 0L) return null

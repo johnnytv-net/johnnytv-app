@@ -316,6 +316,19 @@ class RecordingsActivity : AppCompatActivity() {
     }
 
     private fun play(recording: Recording) {
+        // If it has been joined into one file, that is always the right answer.
+        val whole = recording.wholeFile(this)
+        if (whole != null) {
+            RecordingStore.update(this, recording.id) { it.watched = true }
+            PlayerActivity.startPlaylist(
+                this,
+                urls = listOf(android.net.Uri.fromFile(whole).toString()),
+                title = recording.title,
+                contentId = "rec:" + recording.id
+            )
+            return
+        }
+
         val playlist = recording.playlistFile(this)
         if (playlist != null && playlistLooksUsable(playlist)) {
             RecordingStore.update(this, recording.id) { it.watched = true }
@@ -443,6 +456,95 @@ class RecordingsActivity : AppCompatActivity() {
         return out.toString()
     }
 
+    /**
+     * ONE FILE INSTEAD OF TWO THOUSAND.
+     *
+     * A recording is written in pieces so that a power cut or a dropped
+     * connection costs seconds rather than the lot. That is right while it is
+     * being made and a nuisance afterwards: four hours interrupted by a run of
+     * reconnects came out as two thousand one hundred and twenty-three pieces,
+     * and no amount of playlist work has persuaded the player through them.
+     *
+     * A television stream can simply be laid end to end - that is what the
+     * format is for - so the pieces are copied into a single file and played
+     * as an ordinary video, with no playlist, no segments and nothing to go
+     * wrong.
+     *
+     * It takes as long as copying ten gigabytes takes, and the pieces are left
+     * alone until somebody says otherwise: nothing is deleted on the strength
+     * of a copy that has not been watched yet.
+     */
+    private fun joinParts(recording: Recording) {
+        val working = AlertDialog.Builder(this)
+            .setTitle(R.string.recordings_join)
+            .setMessage(R.string.recordings_join_working)
+            .setCancelable(false)
+            .show()
+
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { joinOnDisk(recording) }
+            }
+            runCatching { working.dismiss() }
+            val message = result.getOrNull()
+                ?: getString(R.string.recordings_join_failed, result.exceptionOrNull()?.message ?: "unknown")
+            AlertDialog.Builder(this@RecordingsActivity)
+                .setTitle(R.string.recordings_join)
+                .setMessage(message)
+                .setPositiveButton(R.string.close, null)
+                .show()
+            draw()
+        }
+    }
+
+    private fun joinOnDisk(recording: Recording): String {
+        val folder = recording.folderOnDisk(this)
+        val parts = folder.listFiles { f -> f.name.matches(Regex("part\\d+\\.ts")) }
+            ?.sortedBy { partNumber(it.name) }
+            .orEmpty()
+            .filter { it.length() > 0 }
+
+        if (parts.isEmpty()) {
+            return getString(R.string.recordings_repair_nothing, folder.absolutePath,
+                if (folder.exists()) "yes" else "no")
+        }
+
+        val needed = parts.sumOf { it.length() }
+        val free = runCatching { folder.usableSpace }.getOrDefault(0L)
+        if (free in 1 until needed + 200_000_000L) {
+            return getString(
+                R.string.recordings_join_no_room,
+                needed / (1024 * 1024),
+                free / (1024 * 1024)
+            )
+        }
+
+        val whole = File(folder, WHOLE_NAME)
+        runCatching { whole.delete() }
+
+        var copied = 0L
+        whole.outputStream().use { out ->
+            val buffer = ByteArray(1 shl 20)
+            for (part in parts) {
+                part.inputStream().use { input ->
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        out.write(buffer, 0, read)
+                        copied += read
+                    }
+                }
+            }
+            out.flush()
+        }
+
+        return getString(
+            R.string.recordings_join_done,
+            parts.size,
+            copied / (1024 * 1024)
+        )
+    }
+
     private fun showRecordingOptions(recording: Recording) {
         val options = ArrayList<String>()
         val actions = ArrayList<() -> Unit>()
@@ -497,6 +599,9 @@ class RecordingsActivity : AppCompatActivity() {
 
             options.add(getString(R.string.recordings_inspect))
             actions.add { inspect(recording) }
+
+            options.add(getString(R.string.recordings_join))
+            actions.add { joinParts(recording) }
         }
 
         // Clearing a dozen test recordings one at a time is its own small
