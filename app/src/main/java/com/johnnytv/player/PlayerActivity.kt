@@ -28,6 +28,7 @@ import kotlinx.coroutines.withContext
 import android.os.Looper
 import android.os.Handler
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 
 @OptIn(UnstableApi::class)
 class PlayerActivity : AppCompatActivity() {
@@ -729,8 +730,37 @@ class PlayerActivity : AppCompatActivity() {
          * Decoder fallback lets it hand the job to a slower, more forgiving
          * one rather than giving up.
          */
+        /*
+         * THE FORGIVING DECODER, FOR RECORDINGS.
+         *
+         * A recorded stream is not a broadcast: it has been cut and rejoined
+         * thousands of times, and the television's own decoder - built for
+         * speed on clean input - stops producing pictures when it meets a join
+         * it dislikes, or takes the whole app down with it. Neither failure
+         * leaves anything behind to read.
+         *
+         * Android also ships a software decoder. It is slower and uses more of
+         * the processor, which for 720p on this hardware is of no consequence,
+         * and it will chew through joins that the hardware one refuses.
+         *
+         * So recordings ask for software first and fall back to hardware;
+         * live television is untouched and still uses the fast path.
+         */
         val renderers = DefaultRenderersFactory(this)
             .setEnableDecoderFallback(true)
+            .apply {
+                if (playlist) {
+                    setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+                        val all = MediaCodecUtil.getDecoderInfos(
+                            mimeType, requiresSecureDecoder, requiresTunnelingDecoder
+                        )
+                        val software = all.filter { !it.hardwareAccelerated }
+                        // Software first where there is one, then everything
+                        // else - so this can only ever add an option.
+                        software + all.filter { it.hardwareAccelerated }
+                    }
+                }
+            }
 
         val exo = ExoPlayer.Builder(this, renderers)
             .setMediaSourceFactory(DefaultMediaSourceFactory(sourceFactory))
@@ -780,6 +810,15 @@ class PlayerActivity : AppCompatActivity() {
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (player !== exo) return
+                if (playlist && playbackState == Player.STATE_READY) {
+                    // Worth knowing which decoder took the job, since that is
+                    // the whole question with these files.
+                    PlaybackLog.add(
+                        this@PlayerActivity,
+                        "video decoder: " + (exo.videoFormat?.sampleMimeType ?: "none") +
+                            " " + (exo.videoFormat?.width ?: 0) + "x" + (exo.videoFormat?.height ?: 0)
+                    )
+                }
                 if (playlist) {
                     val named = when (playbackState) {
                         Player.STATE_IDLE -> "idle"
@@ -826,8 +865,22 @@ class PlayerActivity : AppCompatActivity() {
                              * recording starts from the beginning, which is
                              * always better than not starting at all.
                              */
+                            /*
+                             * A RECORDING IS NOT WORTH SEEKING INTO.
+                             *
+                             * These files carry no index, so the player guesses
+                             * a position from the average rate - and on a
+                             * recording stitched together from thousands of
+                             * pieces that guess is wildly out: asked for two
+                             * minutes in, it landed at fourteen. Worse, the
+                             * seek itself is where it tends to fall over.
+                             *
+                             * Starting at the beginning is a small annoyance;
+                             * not playing at all is not.
+                             */
                             val length = exo.duration
-                            val sensible = length > 0L && resumeFrom < length - 10_000L
+                            val joined = urls.size == 1 && urls[0].endsWith("whole.ts")
+                            val sensible = !joined && length > 0L && resumeFrom < length - 10_000L
                             if (sensible) {
                                 exo.seekTo(resumeFrom)
                             } else if (contentId.isNotBlank()) {
