@@ -50,6 +50,7 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.phoneRow).setOnClickListener { checkPhoneRecordings() }
 
         findViewById<View>(R.id.clearFavouritesRow).setOnClickListener { clearFavourites() }
+        findViewById<View>(R.id.playbackLogRow).setOnClickListener { showPlaybackLog() }
 
         val awayState = findViewById<TextView>(R.id.awayState)
         showAwayState(awayState)
@@ -220,6 +221,23 @@ class SettingsActivity : AppCompatActivity() {
                     .show()
             }
             .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    /**
+     * The last recording's playback, step by step.
+     *
+     * Only useful when something has gone wrong, and then it is the only thing
+     * that is: it survives the app being killed, so the last line written is
+     * whatever happened immediately before it disappeared.
+     */
+    private fun showPlaybackLog() {
+        val text = PlaybackLog.read(this) ?: getString(R.string.playback_log_empty)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.playback_log_row)
+            .setMessage(text)
+            .setPositiveButton(R.string.close, null)
+            .setNeutralButton(R.string.clear_favourites_yes) { _, _ -> PlaybackLog.clear(this) }
             .show()
     }
 

@@ -677,6 +677,14 @@ class PlayerActivity : AppCompatActivity() {
 
         exo.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
+                if (playlist) {
+                    PlaybackLog.add(
+                        this@PlayerActivity,
+                        "ERROR " + error.errorCodeName + ": " + (error.message ?: "no detail") +
+                            "  cause: " + (error.cause?.javaClass?.simpleName ?: "none") +
+                            " " + (error.cause?.message ?: "")
+                    )
+                }
                 // Late word from a player we have already moved on from - a
                 // channel change tearing one down often ends in an error.
                 if (player !== exo) return
@@ -695,6 +703,12 @@ class PlayerActivity : AppCompatActivity() {
 
             override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
                 if (player !== exo) return
+                if (playlist) {
+                    PlaybackLog.add(
+                        this@PlayerActivity,
+                        "moved to item " + exo.currentMediaItemIndex + " of " + exo.mediaItemCount
+                    )
+                }
                 // Keep a good lead in front of wherever it has got to, so the
                 // join between parts is never waiting on the drive.
                 val left = exo.mediaItemCount - exo.currentMediaItemIndex
@@ -703,6 +717,21 @@ class PlayerActivity : AppCompatActivity() {
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (player !== exo) return
+                if (playlist) {
+                    val named = when (playbackState) {
+                        Player.STATE_IDLE -> "idle"
+                        Player.STATE_BUFFERING -> "buffering"
+                        Player.STATE_READY -> "ready"
+                        Player.STATE_ENDED -> "ended"
+                        else -> playbackState.toString()
+                    }
+                    PlaybackLog.add(
+                        this@PlayerActivity,
+                        named + "  at " + exo.currentPosition + "ms  item " +
+                            exo.currentMediaItemIndex + " of " + exo.mediaItemCount +
+                            "  length " + exo.duration + "ms"
+                    )
+                }
                 when (playbackState) {
                     Player.STATE_BUFFERING -> showLoading()
                     Player.STATE_READY -> {
@@ -813,6 +842,9 @@ class PlayerActivity : AppCompatActivity() {
              * simply never holds more than a few minutes of queue in hand.
              */
             queued = 0
+            PlaybackLog.start(this, "recording: " + title + " - " + urls.size + " item(s)")
+            PlaybackLog.add(this, "first: " + (urls.firstOrNull() ?: "none"))
+            PlaybackLog.add(this, "resume point: " + resumeFrom + "ms")
             addNextBatch(exo)
         } else {
             exo.setMediaItem(MediaItem.fromUri(urls[urlIndex]))

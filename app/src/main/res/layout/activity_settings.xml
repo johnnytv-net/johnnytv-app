@@ -293,6 +293,20 @@
             to say so plainly, and it is the first question when a customer
             rings up about their channels.
         -->
+        <!-- What the player did last time, for when a recording will not play. -->
+        <TextView
+            android:id="@+id/playbackLogRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_row"
+            android:clickable="true"
+            android:focusable="true"
+            android:padding="16dp"
+            android:text="@string/playback_log_row"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp" />
+
         <TextView
             android:id="@+id/panelLabel"
             android:layout_width="match_parent"

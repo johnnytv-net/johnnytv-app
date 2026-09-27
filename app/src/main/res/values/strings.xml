@@ -213,6 +213,8 @@
     <string name="recordings_report_run">%1$s to %2$s — %3$d short drops, %4$d seconds lost in total, each one reconnected on its own.</string>
     <string name="record_busy_watching">Recording in progress. Your line allows one connection, so this channel has to stay on until it finishes.</string>
 
+    <string name="playback_log_row">Last playback, step by step</string>
+    <string name="playback_log_empty">Nothing recorded yet. Try playing a recording, then look here.</string>
     <string name="clear_favourites">Clear all favourites</string>
     <string name="clear_favourites_confirm">Remove every channel, film and series from Favourites? Nothing else is affected.</string>
     <string name="clear_favourites_show">Show what is stored</string>
