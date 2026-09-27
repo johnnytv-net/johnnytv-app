@@ -25,6 +25,9 @@ import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.os.Looper
+import android.os.Handler
+import androidx.media3.exoplayer.DefaultRenderersFactory
 
 @OptIn(UnstableApi::class)
 class PlayerActivity : AppCompatActivity() {
@@ -220,6 +223,8 @@ class PlayerActivity : AppCompatActivity() {
         super.onStop()
         rememberPosition()
         cancelPendingRetry()
+        // The picture watchdog has nothing to watch once the screen has gone.
+        handler.removeCallbacks(freezeWatch)
         playerView.removeCallbacks(applyChannelStep)
         pendingIndex = -1
         // A banner naming a channel we never tuned to would still be sitting
@@ -311,8 +316,29 @@ class PlayerActivity : AppCompatActivity() {
      * list you came from was showing. Handled here rather than by the player's own
      * controls, which would otherwise take the press for seeking.
      */
+    /** For the picture watchdog below; nothing else needs one. */
+    private val handler = Handler(Looper.getMainLooper())
+
     /** How many of the recording's parts the player has been handed so far. */
     private var queued = 0
+
+    /*
+     * WATCHING FOR A FROZEN PICTURE.
+     *
+     * Sound playing over a still image is the one failure nobody notices until
+     * they turn round. The player is not stuck - it is happily decoding audio -
+     * so nothing reports an error and nothing recovers.
+     *
+     * The count of frames the decoder has actually put on screen is checked
+     * against the clock: if the recording is advancing and no new frame has
+     * appeared for several seconds, the picture is frozen. A short seek makes
+     * the decoder start again from a fresh point, which is what a person does
+     * by hand when they nudge the remote - and what fixed it tonight.
+     */
+    private var lastFrames = -1L
+    private var lastFrameCheck = 0L
+    private var freezeNudges = 0
+    private val freezeWatch = Runnable { checkForFrozenPicture() }
 
     /**
      * Hands over the next slice of a long recording.
@@ -326,6 +352,27 @@ class PlayerActivity : AppCompatActivity() {
         val slice = urls.subList(queued, until).map { MediaItem.fromUri(it) }
         if (queued == 0) exo.setMediaItems(slice) else exo.addMediaItems(slice)
         queued = until
+    }
+
+    private fun checkForFrozenPicture() {
+        val exo = player ?: return
+        handler.postDelayed(freezeWatch, 3_000L)
+        if (!exo.isPlaying) return
+
+        val frames = runCatching { exo.videoDecoderCounters?.renderedOutputBufferCount?.toLong() }
+            .getOrNull() ?: return
+        val position = exo.currentPosition
+
+        if (lastFrames >= 0 && frames == lastFrames && position > lastFrameCheck + 2_000L) {
+            // Sound moving, pictures not: nudge the decoder into life again.
+            if (freezeNudges < 20) {
+                freezeNudges++
+                PlaybackLog.add(this, "picture frozen at " + position + "ms - nudging (" + freezeNudges + ")")
+                exo.seekTo(position + 200L)
+            }
+        }
+        lastFrames = frames
+        lastFrameCheck = position
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -669,7 +716,23 @@ class PlayerActivity : AppCompatActivity() {
         // same http factory as before.
         val sourceFactory = DefaultDataSource.Factory(this, httpFactory)
 
-        val exo = ExoPlayer.Builder(this)
+        /*
+         * A SECOND CHANCE FOR AWKWARD VIDEO.
+         *
+         * A recording joined from thousands of pieces has a join every thirty
+         * seconds, and after a run of reconnects some of those joins are
+         * untidy. The television's own decoder is fast and fussy: hand it
+         * something it dislikes and it stops producing pictures while the
+         * sound carries on, which is the worst way to fail because it looks
+         * like it is working.
+         *
+         * Decoder fallback lets it hand the job to a slower, more forgiving
+         * one rather than giving up.
+         */
+        val renderers = DefaultRenderersFactory(this)
+            .setEnableDecoderFallback(true)
+
+        val exo = ExoPlayer.Builder(this, renderers)
             .setMediaSourceFactory(DefaultMediaSourceFactory(sourceFactory))
             .setLoadControl(loadControl)
             .setAudioAttributes(AudioAttributes.DEFAULT, /* handleAudioFocus= */ true)
@@ -851,6 +914,15 @@ class PlayerActivity : AppCompatActivity() {
         }
         exo.prepare()
         exo.playWhenReady = true
+
+        // Keep an eye on the picture for recordings, where the joins live.
+        if (playlist) {
+            lastFrames = -1L
+            lastFrameCheck = 0L
+            freezeNudges = 0
+            handler.removeCallbacks(freezeWatch)
+            handler.postDelayed(freezeWatch, 5_000L)
+        }
 
         showLoading()
     }

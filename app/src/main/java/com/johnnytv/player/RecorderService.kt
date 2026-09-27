@@ -1012,6 +1012,68 @@ class RecorderService : Service() {
     private fun mb(bytes: Long): String =
         String.format(java.util.Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
 
+    /**
+     * ONE FILE, AS SOON AS IT IS FINISHED.
+     *
+     * Recording in pieces is what lets a dropped connection cost seconds
+     * instead of the lot, and that has to stay. But a four-hour recording
+     * broken by a run of reconnects came out as two thousand of them, and no
+     * player wants to be handed that: the picture froze, the sound carried on,
+     * and the recording looked ruined when every second of it was there.
+     *
+     * So the pieces are laid end to end into a single file the moment the
+     * recording ends - which is what a television stream is designed to allow -
+     * and playback uses that. The pieces are left where they are: the joined
+     * file has to prove itself before anything is thrown away, and a drive
+     * with room for the recording has room for a copy.
+     *
+     * Skipped for short recordings, which never had the problem and do not
+     * need the wait.
+     */
+    private fun joinPartsIntoOneFile() {
+        runCatching {
+            val folder = File(dirPath)
+            val parts = folder.listFiles { f -> f.name.matches(Regex("part\\d+\\.ts")) }
+                ?.sortedBy { it.name.filter { c -> c.isDigit() }.toIntOrNull() ?: 0 }
+                .orEmpty()
+                .filter { it.length() > 0 }
+
+            // Below this it plays perfectly well as it is.
+            if (parts.size < 40) return@runCatching
+
+            val needed = parts.sumOf { it.length() }
+            val free = folder.usableSpace
+            if (free in 1 until needed + 200_000_000L) return@runCatching
+
+            val whole = File(folder, "whole.ts")
+            val building = File(folder, "whole.building.ts")
+            runCatching { building.delete() }
+
+            building.outputStream().use { out ->
+                val buffer = ByteArray(1 shl 20)
+                for (part in parts) {
+                    part.inputStream().use { input ->
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read <= 0) break
+                            out.write(buffer, 0, read)
+                        }
+                    }
+                }
+                out.flush()
+            }
+
+            // Only named whole.ts once it is complete, so a join interrupted
+            // by a power cut cannot be mistaken for a finished one.
+            if (building.length() > 1_000_000L) {
+                runCatching { whole.delete() }
+                building.renameTo(whole)
+            } else {
+                runCatching { building.delete() }
+            }
+        }
+    }
+
     private fun closeUp(id: String) {
         runCatching { out?.flush(); out?.close() }
         if (currentPart.isNotEmpty()) {
@@ -1019,6 +1081,7 @@ class RecorderService : Service() {
             currentPart = ""
         }
         writePlaylist(true)
+        joinPartsIntoOneFile()
         releaseLocks()
         val finishedAt = System.currentTimeMillis()
         val wrote = everWrote
