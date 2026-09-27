@@ -311,6 +311,23 @@ class PlayerActivity : AppCompatActivity() {
      * list you came from was showing. Handled here rather than by the player's own
      * controls, which would otherwise take the press for seeking.
      */
+    /** How many of the recording's parts the player has been handed so far. */
+    private var queued = 0
+
+    /**
+     * Hands over the next slice of a long recording.
+     *
+     * Called when the player is built and again as it works through what it
+     * has, so there is always more queued ahead of it but never the lot.
+     */
+    private fun addNextBatch(exo: ExoPlayer) {
+        if (queued >= urls.size) return
+        val until = minOf(queued + BATCH, urls.size)
+        val slice = urls.subList(queued, until).map { MediaItem.fromUri(it) }
+        if (queued == 0) exo.setMediaItems(slice) else exo.addMediaItems(slice)
+        queued = until
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // The record button on a remote that has one. Nothing else on this
         // screen wants it, so it can be taken straight.
@@ -676,6 +693,14 @@ class PlayerActivity : AppCompatActivity() {
                 recover()
             }
 
+            override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
+                if (player !== exo) return
+                // Keep a good lead in front of wherever it has got to, so the
+                // join between parts is never waiting on the drive.
+                val left = exo.mediaItemCount - exo.currentMediaItemIndex
+                if (left < BATCH / 2) addNextBatch(exo)
+            }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (player !== exo) return
                 when (playbackState) {
@@ -743,7 +768,22 @@ class PlayerActivity : AppCompatActivity() {
             // A recording: every chunk handed over at once, so it plays through
             // as one programme rather than stopping at the end of each ten
             // minutes.
-            exo.setMediaItems(urls.map { MediaItem.fromUri(it) })
+            /*
+             * A WINDOW, NOT THE WHOLE RECORDING.
+             *
+             * A four-hour recording interrupted by a run of reconnects came
+             * out as two thousand one hundred and twenty-three pieces, and
+             * handing all of them over at once quietly killed the app: no
+             * error, no crash report, just a black screen and back to the home
+             * page, because Android reclaims an app that asks for too much
+             * rather than letting it fall over.
+             *
+             * So the player is given the first two hundred and topped up as it
+             * goes. It plays through as one programme exactly as before; it
+             * simply never holds more than a few minutes of queue in hand.
+             */
+            queued = 0
+            addNextBatch(exo)
         } else {
             exo.setMediaItem(MediaItem.fromUri(urls[urlIndex]))
         }
@@ -868,6 +908,15 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     companion object {
+        /**
+         * Parts handed to the player at a time.
+         *
+         * Two hundred is roughly an hour of thirty-second pieces, or twenty
+         * minutes of the short ones a reconnect-heavy recording produces -
+         * plenty of lead, and small enough that the count never matters.
+         */
+        private const val BATCH = 200
+
         private const val RETRIES_PER_URL = 2
         private const val RETRY_DELAY_MS = 1_200L
         private const val FAILOVER_DELAY_MS = 250L
