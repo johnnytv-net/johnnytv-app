@@ -51,6 +51,7 @@ class SettingsActivity : AppCompatActivity() {
 
         findViewById<View>(R.id.clearFavouritesRow).setOnClickListener { clearFavourites() }
         findViewById<View>(R.id.playbackLogRow).setOnClickListener { showPlaybackLog() }
+        findViewById<View>(R.id.guideCheckRow).setOnClickListener { checkTheGuide() }
 
         val awayState = findViewById<TextView>(R.id.awayState)
         showAwayState(awayState)
@@ -239,6 +240,70 @@ class SettingsActivity : AppCompatActivity() {
             .setPositiveButton(R.string.close, null)
             .setNeutralButton(R.string.clear_favourites_yes) { _, _ -> PlaybackLog.clear(this) }
             .show()
+    }
+
+    /**
+     * IS THE GUIDE EMPTY, OR IS THE APP NOT ASKING?
+     *
+     * One panel shows programmes and another shows nothing, and from the sofa
+     * those look identical - which leaves somebody wondering whether to raise
+     * it with their supplier or with whoever wrote the app.
+     *
+     * So the guide is asked for, here and now, on a handful of channels, and
+     * what comes back is reported plainly: how many listings, for which
+     * channels, from which service. Empty answers across the board are the
+     * panel's to explain; listings here and nothing on screen would be mine.
+     *
+     * It also clears what was remembered, so the next look at the guide
+     * fetches afresh - which is the "update EPG" that other players offer.
+     */
+    private fun checkTheGuide() {
+        val working = AlertDialog.Builder(this)
+            .setTitle(R.string.guide_check_row)
+            .setMessage(R.string.guide_check_working)
+            .setCancelable(false)
+            .show()
+
+        lifecycleScope.launch {
+            val report = withContext(Dispatchers.IO) {
+                runCatching { askForTheGuide() }.getOrElse { "Could not ask: " + it.message }
+            }
+            runCatching { working.dismiss() }
+            AlertDialog.Builder(this@SettingsActivity)
+                .setTitle(R.string.guide_check_row)
+                .setMessage(report)
+                .setPositiveButton(R.string.close, null)
+                .show()
+        }
+    }
+
+    private fun askForTheGuide(): String {
+        EpgCache.clear()
+        val client = prefs.client() ?: return "Not signed in."
+        val channels = Catalog.live.take(5)
+        if (channels.isEmpty()) return "No channels loaded yet - refresh the catalogue first."
+
+        val out = StringBuilder()
+        var total = 0
+        for (channel in channels) {
+            val listings = runCatching { client.epg(channel.streamId) }.getOrDefault(emptyList())
+            total += listings.size
+            out.append(channel.name.take(28)).append(": ")
+                .append(if (listings.isEmpty()) "nothing" else listings.size.toString() + " listings")
+                .append('\n')
+        }
+
+        out.append('\n')
+        out.append(
+            if (total == 0) {
+                "This service is sending no guide data at all. That is theirs to fix - " +
+                    "ask them to check the EPG for your account."
+            } else {
+                "Guide data is arriving. What was remembered has been cleared, so the " +
+                    "guide will fetch afresh next time it is opened."
+            }
+        )
+        return out.toString()
     }
 
     private fun showAwayState(label: TextView) {
