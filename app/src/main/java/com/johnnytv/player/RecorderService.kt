@@ -1060,10 +1060,12 @@ class RecorderService : Service() {
              * through with nothing done to it. Paying that price on every
              * recording to fix a problem that no longer occurs would be daft.
              *
-             * So it happens only where the count has run away, which now means
-             * a night of constant reconnects rather than an ordinary evening.
+             * So it happens only where the count has run away. At a minute a
+             * piece an ordinary evening is a few hundred, which plays and
+             * skips perfectly well; past six hundred is a reconnect storm, and
+             * that is the only case worth the copy.
              */
-            if (parts.size < 150) return@runCatching
+            if (parts.size < 600) return@runCatching
 
             val needed = parts.sumOf { it.length() }
             val free = here.usableSpace
@@ -1504,14 +1506,23 @@ class RecorderService : Service() {
          * through them - the picture froze, the app was killed, and four hours
          * of television sat on the drive unwatchable.
          *
-         * What settled it was joining the pieces at the end and writing a
-         * proper video file. Playback no longer sees pieces at all, so their
-         * length stops being a playback question and becomes only a question
-         * of what a dropped connection costs: five minutes is small enough to
-         * lose without regret and large enough that an evening is fifty files
-         * rather than two thousand.
+         * Writing a proper video file at the end would have settled it, and
+         * Android's muxer refuses these streams outright - so that route is
+         * closed and the pieces are what playback works with after all.
+         *
+         * Which turns out to be fine, because the playlist of pieces IS an
+         * index: skipping jumps straight to the right piece. What it then
+         * costs is decoding forward from the start of that piece, so the piece
+         * length is exactly the worst-case wait when somebody skips - five
+         * minutes of it, which is what made skipping through three hours such
+         * a chore.
+         *
+         * A minute is the balance. Three hours is a hundred and eighty pieces,
+         * comfortably below where the trouble began, and no skip waits longer
+         * than a minute of catching up. A dropped connection still costs only
+         * the piece in hand.
          */
-        private const val PART_LENGTH_MS = 5L * 60L * 1000L
+        private const val PART_LENGTH_MS = 60L * 1000L
 
         /** Silence from the portal for this long counts as the feed having dropped. */
         private const val SILENCE_IS_A_DROP_MS = 5_000L
@@ -1530,7 +1541,7 @@ class RecorderService : Service() {
          * rather than the rest of the recording, long enough that an hour is
          * thirty files and not three hundred.
          */
-        private const val SEGMENT_PART_MS = 5L * 60L * 1000L
+        private const val SEGMENT_PART_MS = 60L * 1000L
 
         /** How long to wait before asking a segmented channel what is new. */
         private const val POLL_WAIT_MS = 4_000L
