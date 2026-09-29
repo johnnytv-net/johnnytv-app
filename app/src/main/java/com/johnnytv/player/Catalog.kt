@@ -82,12 +82,24 @@ object Catalog {
         val lineup = Lineups.forServer(client.server)
         val arranged = Lineups.apply(lineup, liveCats, liveStreams)
 
+        /*
+         * Films and series get the blunt half of the rules: folders named there
+         * go, and everything filed in them goes with them. A folder taken away
+         * while its titles stay behind leaves films that can still be searched
+         * for and played but that belong nowhere, which is worse than leaving
+         * the folder alone.
+         */
+        val prunedVod = Lineups.prune(lineup?.hideMovies ?: emptyList(), vodCats)
+        val prunedSeries = Lineups.prune(lineup?.hideSeries ?: emptyList(), seriesCats)
+
         liveCategories = arranged.first
-        vodCategories = vodCats
-        seriesCategories = seriesCats
+        vodCategories = prunedVod.first
+        seriesCategories = prunedSeries.first
         live = arranged.second
-        vod = vodStreams
-        series = seriesList
+        vod = if (prunedVod.second.isEmpty()) vodStreams
+              else vodStreams.filter { !prunedVod.second.contains(it.categoryId) }
+        series = if (prunedSeries.second.isEmpty()) seriesList
+                 else seriesList.filter { !prunedSeries.second.contains(it.categoryId) }
         playbackQueue = emptyList()      // the old list is about to be rebuilt
 
         applyCounts()
