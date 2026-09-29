@@ -62,7 +62,15 @@ class SyncActivity : AppCompatActivity() {
 
     private fun start(forced: Boolean) {
         lifecycleScope.launch {
-            if (!forced) {
+            /*
+             * A cached list is a day old at most, which is fine for channels and
+             * wrong for the rules that arrange them. The list is only arranged
+             * while it is being fetched, so a rule written this afternoon would
+             * otherwise sit unused until tomorrow, behind a screen still showing
+             * yesterday's arrangement and no way to tell why. New rules are
+             * therefore a reason to fetch, cache or no cache.
+             */
+            if (!forced && !Lineups.rulesChanged) {
                 val cached = withContext(Dispatchers.IO) { Catalog.load(this@SyncActivity) }
                 val age = System.currentTimeMillis() - prefs.lastSync
                 if (cached && age < CACHE_MAX_AGE_MS) {
@@ -82,6 +90,8 @@ class SyncActivity : AppCompatActivity() {
             spinner.visibility = View.GONE
 
             result.onSuccess {
+                // Whatever the rules said has now been applied to the list.
+                Lineups.changeHandled()
                 if (Catalog.isLoaded) {
                     goTo(HomeActivity::class.java)
                 } else {
