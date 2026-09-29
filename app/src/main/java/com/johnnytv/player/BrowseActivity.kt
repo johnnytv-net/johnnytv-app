@@ -426,12 +426,16 @@ class BrowseActivity : AppCompatActivity() {
             specials.add(Category(CATEGORY_RECENT, getString(R.string.recently_added)))
             specials.add(Category(CATEGORY_CONTINUE, getString(R.string.continue_watching), prefs.continueWatching(kind).size))
         }
-        // All earns its place on a film or series library, where an A-Z list is a
-        // normal way to browse. On Live TV it is three thousand channels nobody
-        // scrolls, and the search box now reaches every one of them anyway.
-        if (kind != Kind.LIVE) {
-            specials.add(Category(CATEGORY_ALL, getString(R.string.all_items), sourceSize()))
-        }
+        /*
+         * All is gone from every list now.
+         *
+         * It was kept for films and series on the strength of an A-Z being a
+         * normal way through a library, but a library of fifty thousand is not
+         * something anyone reads from the top, and the search box reaches every
+         * title without it. Live TV had already lost it for the same reason.
+         * What it mostly did was sit at the head of the sidebar and be the thing
+         * the screen opened on.
+         */
 
         val categories = when (kind) {
             // Live TV is the only one with a house order worth imposing.
