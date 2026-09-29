@@ -43,13 +43,25 @@ data class Lineup(
     /** Individual channels sent to a folder of their own, wherever the panel filed them. */
     val move: List<Move> = emptyList(),
     /** The order the survivors appear in. Anything unlisted follows, as it arrived. */
-    val order: List<String> = emptyList()
+    val order: List<String> = emptyList(),
+    /**
+     * Folders to drop from the series list, and from the film list.
+     *
+     * These get the blunt treatment rather than the arranging above, because
+     * what wants doing to them is blunt. Half of what a portal sends here is a
+     * foreign-language shelf holding three titles, or a "Server 4" holding
+     * nothing whatsoever. There is nothing to merge and nothing to reorder -
+     * they simply should not be on the screen.
+     */
+    val hideSeries: List<String> = emptyList(),
+    val hideMovies: List<String> = emptyList()
 ) {
     data class Merge(val into: String, val from: List<String>)
     data class Move(val into: String, val channels: List<String>)
 
     val isEmpty: Boolean
-        get() = hide.isEmpty() && merge.isEmpty() && move.isEmpty() && order.isEmpty()
+        get() = hide.isEmpty() && merge.isEmpty() && move.isEmpty() && order.isEmpty() &&
+            hideSeries.isEmpty() && hideMovies.isEmpty()
 }
 
 object Lineups {
@@ -243,6 +255,24 @@ object Lineups {
         return ordered to keptStreams
     }
 
+    /**
+     * The folders that survive, and the ids of the ones that did not.
+     *
+     * For films and series, where the only rule anyone wants is "not that one".
+     * The ids travel back with the list because the titles themselves are filed
+     * by id, and a folder removed without its contents leaves films that can
+     * still be searched for and played but that live nowhere.
+     */
+    fun prune(patterns: List<String>, categories: List<Category>): Pair<List<Category>, Set<String>> {
+        if (patterns.isEmpty() || categories.isEmpty()) return categories to emptySet()
+        val dropped = HashSet<String>()
+        val kept = ArrayList<Category>(categories.size)
+        for (category in categories) {
+            if (patterns.any { matches(category.name, it) }) dropped.add(category.id) else kept.add(category)
+        }
+        return kept to dropped
+    }
+
     /** "USA Latin*" matches "USA Latin TELEMUNDO"; anything else is the whole name. */
     private fun matches(name: String, pattern: String): Boolean {
         val n = name.trim()
@@ -285,7 +315,18 @@ object Lineups {
                     if (into.isNotBlank() && channels.isNotEmpty()) move.add(Lineup.Move(into, channels))
                 }
             }
-            val lineup = Lineup(hide.filter { it.isNotBlank() }, merge, move, order.filter { it.isNotBlank() })
+            val hideSeries = ArrayList<String>()
+            one.optJSONArray("hide_series")?.let { for (i in 0 until it.length()) hideSeries.add(it.optString(i)) }
+            val hideMovies = ArrayList<String>()
+            one.optJSONArray("hide_movies")?.let { for (i in 0 until it.length()) hideMovies.add(it.optString(i)) }
+            val lineup = Lineup(
+                hide.filter { it.isNotBlank() },
+                merge,
+                move,
+                order.filter { it.isNotBlank() },
+                hideSeries.filter { it.isNotBlank() },
+                hideMovies.filter { it.isNotBlank() }
+            )
             if (!lineup.isEmpty) out[address] = lineup
         }
         return out
@@ -303,6 +344,8 @@ object Lineups {
             val one = JSONObject()
             one.put("hide", strings(lineup.hide))
             one.put("order", strings(lineup.order))
+            one.put("hide_series", strings(lineup.hideSeries))
+            one.put("hide_movies", strings(lineup.hideMovies))
             val merges = org.json.JSONArray()
             for (m in lineup.merge) {
                 merges.put(JSONObject().put("into", m.into).put("from", strings(m.from)))
