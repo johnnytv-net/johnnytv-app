@@ -19,6 +19,7 @@
         android:ellipsize="end"
         android:hyphenationFrequency="none"
         android:maxLines="2"
+        android:textAllCaps="true"
         android:textColor="@color/text_primary"
         android:textSize="15sp" />
 
