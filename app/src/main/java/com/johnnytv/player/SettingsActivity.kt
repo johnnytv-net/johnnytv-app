@@ -377,17 +377,22 @@ class SettingsActivity : AppCompatActivity() {
          * DN, or SB, or BZ. It says which panel to open without saying who
          * runs it.
          */
-        val code = if (at >= 0) {
-            when {
-                host.contains("dino") -> "DN"
-                host.contains("edge.sb") -> "SB"
-                host.contains("edge.bz") -> "JTV"
-                else -> ('A' + at).toString()
-            }
-        } else {
-            // A box pointed somewhere by hand - support mode, or a panel
-            // added since this build.
-            "··"
+        /*
+         * The code comes from the address, not from the built-in list.
+         *
+         * It used to be looked up in the list this build ships with, which does
+         * not contain every service the config knows about - so a box happily
+         * signed in to one of those showed two dots, as though nobody knew where
+         * it was. It read like a fault and cost an afternoon.
+         */
+        val code = when {
+            host.contains("dino") -> "DN"
+            host.contains("edge.sb") -> "SB"
+            host.contains("edge.bz") -> "JTV"
+            at >= 0 -> ('A' + at).toString()
+            // Genuinely somewhere nobody here has heard of: support mode, or a
+            // panel added since this build.
+            else -> "··"
         }
 
         val name = prefs.friendlyName
