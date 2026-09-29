@@ -47,8 +47,20 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme">
 
+        <!--
+            ONE WINDOW, NEVER TWO.
+
+            After an update installs, the box could be left holding the old
+            instance alongside the new one - two entries in the recents list,
+            two copies of the app. The old one still had the previous channel
+            list in memory, so whichever one you happened to open decided what
+            you saw, and a lineup that had plainly been fixed looked untouched.
+            singleTask means the app has one task and coming back to it brings
+            that task forward rather than starting a second.
+        -->
         <activity
             android:name=".LoginActivity"
+            android:launchMode="singleTask"
             android:screenOrientation="sensorLandscape"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
