@@ -129,6 +129,7 @@ class LoginActivity : AppCompatActivity() {
                 val loaded = RemoteConfigLoader.fetch(Config.CONFIG_URL)
                 // Refresh the channel-logo overrides on the same trip.
                 runCatching { LogoPack.refresh(applicationContext, loaded) }
+                runCatching { Lineups.remember(applicationContext, loaded) }
                 loaded
             }
 

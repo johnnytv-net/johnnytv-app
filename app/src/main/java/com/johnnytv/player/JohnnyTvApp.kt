@@ -13,6 +13,7 @@ class JohnnyTvApp : Application(), ImageLoaderFactory {
         CrashReporter.install(this)
         // Whatever logo overrides were downloaded last time, ready before any screen draws.
         LogoPack.load(this)
+        Lineups.load(this)
 
         /*
          * And then, quietly, the current ones.

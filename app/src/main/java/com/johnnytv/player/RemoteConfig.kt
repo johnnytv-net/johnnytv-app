@@ -35,7 +35,9 @@ data class RemoteConfig(
     /** Where the separate logos file lives. Blank means "next to config.json". */
     val logosUrl: String = "",
     /** How a customer renews, shown when their line is about to run out. */
-    val renewalContact: String = ""
+    val renewalContact: String = "",
+    /** Per-service lineup rules - see Lineup.kt. Keyed by the service address. */
+    val lineups: Map<String, Lineup> = emptyMap()
 )
 
 object RemoteConfigLoader {
@@ -109,7 +111,10 @@ object RemoteConfigLoader {
                     forceUpdate = json.optBoolean("force_update", false),
                     logos = logos,
                     logosUrl = json.optString("logos_url", "").trim(),
-                    renewalContact = json.optString("renewal_contact", "").trim()
+                    renewalContact = json.optString("renewal_contact", "").trim(),
+                    lineups = json.optJSONObject("lineups")
+                        ?.let { runCatching { Lineups.read(it) }.getOrDefault(emptyMap()) }
+                        ?: emptyMap()
                 )
             }
         } catch (e: Exception) {

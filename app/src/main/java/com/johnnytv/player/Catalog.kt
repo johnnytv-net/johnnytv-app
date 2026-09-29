@@ -71,17 +71,28 @@ object Catalog {
         counted = counted + (SECTION_SERIES to seriesList.size)
         progress(SECTION_SERIES, if (seriesList.isEmpty()) STATUS_EMPTY else STATUS_DONE)
 
-        liveCategories = liveCats
+        /*
+         * The lineup, if this service has one.
+         *
+         * Done here, once, rather than every time a screen asks: what is stored
+         * and cached from this point on is already the arranged list, so the
+         * browse screen, the guide, the search box and the player all agree
+         * without any of them knowing the rules exist.
+         */
+        val lineup = Lineups.forServer(client.server)
+        val arranged = Lineups.apply(lineup, liveCats, liveStreams)
+
+        liveCategories = arranged.first
         vodCategories = vodCats
         seriesCategories = seriesCats
-        live = liveStreams
+        live = arranged.second
         vod = vodStreams
         series = seriesList
         playbackQueue = emptyList()      // the old list is about to be rebuilt
 
         applyCounts()
         // Note the artwork this service supplied, so the other one can borrow it.
-        runCatching { IconMemory.remember(context, liveStreams) }
+        runCatching { IconMemory.remember(context, arranged.second) }
         save(context)
 
         /*
@@ -94,8 +105,8 @@ object Catalog {
          */
         val prefs = Prefs(context)
         runCatching {
-            if (liveStreams.isNotEmpty()) {
-                prefs.pruneFavourites(Kind.LIVE, liveStreams.map { it.streamId }.toSet())
+            if (arranged.second.isNotEmpty()) {
+                prefs.pruneFavourites(Kind.LIVE, arranged.second.map { it.streamId }.toSet())
             }
             if (vodStreams.isNotEmpty()) {
                 prefs.pruneFavourites(Kind.VOD, vodStreams.map { it.streamId }.toSet())
