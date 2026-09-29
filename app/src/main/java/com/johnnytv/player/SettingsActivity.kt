@@ -391,11 +391,29 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         val name = prefs.friendlyName
-        label.text = if (name.isNotBlank()) {
+        val base = if (name.isNotBlank()) {
             getString(R.string.panel_label_named, code, name)
         } else {
             getString(R.string.panel_label, code)
         }
+
+        /*
+         * WHETHER THE ARRANGEMENT FOUND THIS SERVICE.
+         *
+         * A lineup that matched nothing and a lineup that had nothing to do
+         * look identical on a television: the same long list of folders, and no
+         * way to tell a rule that is wrong from a rule that never ran at all.
+         * An afternoon went on exactly that. So the line says which it was -
+         * "list 43" when rules were found for this service, "list 131 raw"
+         * when there were none.
+         */
+        val folders = Catalog.liveCategories.size
+        val tuned = if (Lineups.forServer(server) != null) {
+            " - list " + folders
+        } else {
+            " - list " + folders + " raw"
+        }
+        label.text = base + tuned
     }
 
     private fun showWeatherState(label: TextView) {
