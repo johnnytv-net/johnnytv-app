@@ -67,10 +67,30 @@ object Lineups {
      * Keep what config.json said, so a start with no internet still shows the
      * lineup the customer saw yesterday rather than nine thousand channels.
      */
+    /**
+     * True when the rules that just arrived are not the rules we had.
+     *
+     * The channel list is only arranged while it is being fetched, and a fetched
+     * list is kept for a day. So a rule written this afternoon would otherwise
+     * sit unused until tomorrow, on a screen showing yesterday's arrangement,
+     * with nothing to say why. Whoever re-fetches the catalogue clears this.
+     */
+    @Volatile
+    var rulesChanged = false
+        private set
+
+    fun changeHandled() {
+        rulesChanged = false
+    }
+
     fun remember(context: Context, config: RemoteConfig?) {
         if (config == null) return
-        rules = config.lineups
-        runCatching { File(context.filesDir, FILE).writeText(write(config.lineups)) }
+        val incoming = config.lineups
+        val before = write(rules)
+        val after = write(incoming)
+        if (before != after) rulesChanged = true
+        rules = incoming
+        runCatching { File(context.filesDir, FILE).writeText(after) }
         loaded = true
     }
 
@@ -91,20 +111,51 @@ object Lineups {
      * using, and a lineup that silently stops applying is worse than no lineup.
      */
     fun forServer(server: String): Lineup? {
-        val wanted = hostKey(server)
-        if (wanted.isBlank()) return null
+        if (server.isBlank()) return null
         for ((address, lineup) in rules) {
-            if (hostKey(address) == wanted) return if (lineup.isEmpty) null else lineup
+            if (sameService(address, server)) return if (lineup.isEmpty) null else lineup
         }
         return null
     }
 
-    private fun hostKey(address: String): String {
+    /**
+     * Whether two addresses mean the same service.
+     *
+     * The address in config.json and the address the box actually signed in
+     * with are written by different hands. One is copied off a panel, the other
+     * typed into a support screen at half past nine on a Saturday, and they
+     * arrive with and without a scheme, with and without a port, with and
+     * without a trailing slash, in any mixture of case. Demanding they match
+     * character for character gives a lineup that silently does nothing - which
+     * on a television looks exactly like a broken app, and cannot be told apart
+     * from one without reading the source.
+     *
+     * So the host has to match, and the port only has to match when both sides
+     * bothered to name one. That keeps edge.bz:8080 distinct from anything else
+     * living on edge.bz, while letting edge.sb and edge.sb:80 be the single
+     * service they obviously are.
+     */
+    private fun sameService(a: String, b: String): Boolean {
+        val hostA = hostOf(a)
+        if (hostA.isBlank() || hostA != hostOf(b)) return false
+        val portA = portOf(a)
+        val portB = portOf(b)
+        return portA.isBlank() || portB.isBlank() || portA == portB
+    }
+
+    private fun authority(address: String): String {
         var s = address.trim().lowercase()
         if (s.isEmpty()) return ""
         s = s.substringAfter("://")
         s = s.substringBefore('/')
-        return s
+        return s.removePrefix("www.")
+    }
+
+    private fun hostOf(address: String): String = authority(address).substringBefore(':')
+
+    private fun portOf(address: String): String {
+        val a = authority(address)
+        return if (a.contains(':')) a.substringAfter(':') else ""
     }
 
     /**
