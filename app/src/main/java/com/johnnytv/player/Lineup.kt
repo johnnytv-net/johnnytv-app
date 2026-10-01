@@ -54,14 +54,23 @@ data class Lineup(
      * they simply should not be on the screen.
      */
     val hideSeries: List<String> = emptyList(),
-    val hideMovies: List<String> = emptyList()
+    val hideMovies: List<String> = emptyList(),
+    /**
+     * Individual channels to drop, wherever the panel filed them.
+     *
+     * Some panels put a signpost at the top of every folder - a row called
+     * "##### [UK] GENERAL #####" that is not a channel and plays nothing.
+     * One pattern takes all of them out at once, and the folders themselves
+     * are left exactly as they were.
+     */
+    val hideChannels: List<String> = emptyList()
 ) {
     data class Merge(val into: String, val from: List<String>)
     data class Move(val into: String, val channels: List<String>)
 
     val isEmpty: Boolean
         get() = hide.isEmpty() && merge.isEmpty() && move.isEmpty() && order.isEmpty() &&
-            hideSeries.isEmpty() && hideMovies.isEmpty()
+            hideSeries.isEmpty() && hideMovies.isEmpty() && hideChannels.isEmpty()
 }
 
 object Lineups {
@@ -273,6 +282,17 @@ object Lineups {
         return kept to dropped
     }
 
+    /**
+     * Channels to drop outright, by name, wherever the panel filed them.
+     *
+     * Unlike hiding a folder this takes nothing else with it: the folder and
+     * everything else inside it carry on untouched.
+     */
+    fun dropChannels(patterns: List<String>, streams: List<StreamItem>): List<StreamItem> {
+        if (patterns.isEmpty() || streams.isEmpty()) return streams
+        return streams.filter { stream -> patterns.none { matches(stream.name, it) } }
+    }
+
     /** "USA Latin*" matches "USA Latin TELEMUNDO"; anything else is the whole name. */
     private fun matches(name: String, pattern: String): Boolean {
         val n = name.trim()
@@ -319,13 +339,16 @@ object Lineups {
             one.optJSONArray("hide_series")?.let { for (i in 0 until it.length()) hideSeries.add(it.optString(i)) }
             val hideMovies = ArrayList<String>()
             one.optJSONArray("hide_movies")?.let { for (i in 0 until it.length()) hideMovies.add(it.optString(i)) }
+            val hideChannels = ArrayList<String>()
+            one.optJSONArray("hide_channels")?.let { for (i in 0 until it.length()) hideChannels.add(it.optString(i)) }
             val lineup = Lineup(
                 hide.filter { it.isNotBlank() },
                 merge,
                 move,
                 order.filter { it.isNotBlank() },
                 hideSeries.filter { it.isNotBlank() },
-                hideMovies.filter { it.isNotBlank() }
+                hideMovies.filter { it.isNotBlank() },
+                hideChannels.filter { it.isNotBlank() }
             )
             if (!lineup.isEmpty) out[address] = lineup
         }
@@ -346,6 +369,7 @@ object Lineups {
             one.put("order", strings(lineup.order))
             one.put("hide_series", strings(lineup.hideSeries))
             one.put("hide_movies", strings(lineup.hideMovies))
+            one.put("hide_channels", strings(lineup.hideChannels))
             val merges = org.json.JSONArray()
             for (m in lineup.merge) {
                 merges.put(JSONObject().put("into", m.into).put("from", strings(m.from)))
