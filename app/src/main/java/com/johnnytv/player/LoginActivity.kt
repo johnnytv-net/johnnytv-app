@@ -47,6 +47,17 @@ class LoginActivity : AppCompatActivity() {
      */
     private var resolvedServers: List<String> = emptyList()
 
+    /**
+     * The address a saved login was made on.
+     *
+     * Pressing a remembered name used to start at the top of the list like
+     * any other sign-in, so a login that had worked for months could be
+     * refused because some other service answered first and said no. It signs
+     * in where it worked last time now, and the rest of the list still
+     * follows behind it.
+     */
+    private var preferredServer: String = ""
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         awaitingInstallPermission = savedInstanceState?.getBoolean(KEY_AWAITING_INSTALL) == true
@@ -64,7 +75,11 @@ class LoginActivity : AppCompatActivity() {
         savedLabel = findViewById(R.id.savedLabel)
         savedList = findViewById(R.id.savedLogins)
 
-        signInButton.setOnClickListener { attemptSignIn() }
+        signInButton.setOnClickListener {
+            // Typed by hand, so no remembered address applies.
+            preferredServer = ""
+            attemptSignIn()
+        }
         findViewById<ImageView>(R.id.passwordReveal).setOnClickListener { togglePassword(it as ImageView) }
 
         // Hidden support escape hatch: long-press the logo to type a server by hand.
@@ -102,6 +117,7 @@ class LoginActivity : AppCompatActivity() {
             row.setOnClickListener {
                 usernameInput.setText(one.username)
                 passwordInput.setText(one.password)
+                preferredServer = one.server
                 attemptSignIn()
             }
             row.setOnLongClickListener {
@@ -210,10 +226,17 @@ class LoginActivity : AppCompatActivity() {
             if (one.isNotBlank() && !out.contains(one)) out.add(one)
         }
 
-        if (prefs.manualServer.isNotBlank()) {
-            add(prefs.manualServer)
-            return out
-        }
+        /*
+         * A TYPED ADDRESS LEADS. IT NO LONGER VETOES.
+         *
+         * It used to be the only address tried, which left a box pinned to
+         * whatever had once been typed into it - and the only way to clear
+         * that is a long-press on the logo, which a television remote cannot
+         * reach. One stale entry and the box answers "wrong username or
+         * password" to perfectly good credentials, for ever. So it goes
+         * first, and the usual list still follows behind it.
+         */
+        if (prefs.manualServer.isNotBlank()) add(prefs.manualServer)
         remote?.servers?.forEach { add(it) }
         Config.SERVERS.forEach { add(it) }
         if (Config.DEFAULT_SERVER.isNotBlank()) add(Config.DEFAULT_SERVER)
@@ -303,6 +326,8 @@ class LoginActivity : AppCompatActivity() {
             var refusal: String? = null
             var lastProblem: String? = null
             var sawRefusal = false
+            // What was asked, and what each one said, for when nothing works.
+            val tried = ArrayList<String>()
 
             /*
              * A name, rather than a code.
@@ -317,6 +342,14 @@ class LoginActivity : AppCompatActivity() {
             var user = username
             var pass = password
             var serverList = servers
+
+            // Where this login worked last time goes first.
+            val preferred = XtreamClient.normalizeServer(
+                RemoteConfigLoader.resolve(preferredServer.trim())
+            )
+            if (preferred.isNotBlank()) {
+                serverList = listOf(preferred) + serverList.filter { it != preferred }
+            }
 
             withContext(Dispatchers.IO) {
                 val real = FriendlyLogin.lookUp(username, password)
@@ -334,6 +367,7 @@ class LoginActivity : AppCompatActivity() {
 
             withContext(Dispatchers.IO) {
                 for (address in serverList) {
+                    val name = address.substringAfter("://").substringBefore('/')
                     val client = XtreamClient(address, user, pass)
                     try {
                         val status = client.login()
@@ -346,9 +380,11 @@ class LoginActivity : AppCompatActivity() {
                     } catch (e: WrongCredentials) {
                         // Not this one - keep looking, but remember that a portal
                         // did answer, so an unreachable one does not steal the blame.
+                        tried.add("$name: not here")
                         sawRefusal = true
                     } catch (e: Exception) {
                         // Unreachable or not a portal; remember it in case nothing works.
+                        tried.add("$name: no answer")
                         lastProblem = e.message
                     }
                 }
@@ -377,11 +413,22 @@ class LoginActivity : AppCompatActivity() {
                     goToApp()
                 }
                 refused != null -> statusLabel.text = refused
-                sawRefusal -> statusLabel.text = getString(R.string.wrong_login)
-                else -> statusLabel.text = problem ?: getString(R.string.wrong_login)
+                sawRefusal ->
+                    statusLabel.text = getString(R.string.wrong_login) + whatWasTried(tried)
+                else ->
+                    statusLabel.text =
+                        (problem ?: getString(R.string.wrong_login)) + whatWasTried(tried)
             }
         }
     }
+
+    /**
+     * The services asked, and what each answered. Only ever drawn when a
+     * sign-in has already failed - the point is that nobody has to guess
+     * which address a box was talking to, least of all down a telephone.
+     */
+    private fun whatWasTried(tried: List<String>): String =
+        if (tried.isEmpty()) "" else "\n(" + tried.joinToString("  ·  ") + ")"
 
     private fun isUpdateAvailable(remote: RemoteConfig): Boolean {
         if (remote.latestVersionCode <= 0L || remote.downloadUrl.isBlank()) return false
