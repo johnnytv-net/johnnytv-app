@@ -39,9 +39,16 @@ object Config {
      * service taken out of config.json was still being tried by every install,
      * and every start spent fifteen seconds waiting on a machine that had been
      * switched off for good.
+     *
+     * Equally it has to hold every address that IS still standing. Cut down
+     * to one service, a box that cannot reach config.json can only offer that
+     * one - and everybody else is told their password is wrong.
      */
     val SERVERS: List<String> = listOf(
-        "aHR0cDovL2VkZ2UuYno6ODA4MA=="
+        "aHR0cDovL2VkZ2UuYno6ODA4MA==",      // edge.bz:8080
+        "aHR0cDovL2xpbmUuYnEtbGluZXMub3Jn",  // line.bq-lines.org
+        "aHR0cDovL2VkZ2Uuc2I=",              // edge.sb
+        "aHR0cDovL3Zwbi5qb3k4ay50b3A="       // vpn.joy8k.top
     )
 
     /** Kept for older builds; SERVERS is the list that matters now. */
