@@ -271,8 +271,15 @@ object LogoPack {
 
     /** Null means the download itself failed, as opposed to an empty list. */
     private fun download(url: String): Map<String, String>? = try {
+        // GitHub ignores no-cache and serves a copy up to five minutes old. A
+        // changing query string is the one thing its cache honours - one value
+        // per minute, so boxes starting together still share a copy. The
+        // config fetch has done this for weeks; the logo pack never did, which
+        // is why a logo change could take a restart or two to show up.
+        val stamp = (System.currentTimeMillis() / 60_000L).toString()
+        val busted = url + (if (url.contains('?')) "&" else "?") + "v=" + stamp
         val request = Request.Builder()
-            .url(url)
+            .url(busted)
             .header("User-Agent", Config.USER_AGENT)
             .header("Cache-Control", "no-cache")
             .build()
