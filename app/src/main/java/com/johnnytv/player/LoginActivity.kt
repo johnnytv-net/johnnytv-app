@@ -217,8 +217,26 @@ class LoginActivity : AppCompatActivity() {
         remote?.servers?.forEach { add(it) }
         Config.SERVERS.forEach { add(it) }
         if (Config.DEFAULT_SERVER.isNotBlank()) add(Config.DEFAULT_SERVER)
-        if (prefs.server.isNotBlank()) add(prefs.server)
 
+        /*
+         * THE ONE THAT WORKED LAST TIME GOES FIRST - WHILE IT STILL EXISTS.
+         *
+         * Remembering which service accepted a box saves a returning customer
+         * the whole queue, and that is worth having. But the remembered address
+         * used to be added back to the list by the box itself and then promoted
+         * to the front, which meant a service that had been retired was still
+         * the first thing tried - and could not be removed, because taking it
+         * out of config.json did nothing while the box kept supplying it.
+         *
+         * A whole evening went on that: a dead portal answered nothing, the box
+         * spent fifteen seconds on it before every sign-in, and the same line
+         * worked immediately in another player where the new address had simply
+         * been typed in.
+         *
+         * So the memory is now only a preference about the order of the
+         * services on offer, never a way of adding one back. Retire an address
+         * and it stops being asked for.
+         */
         val remembered = XtreamClient.normalizeServer(RemoteConfigLoader.resolve(prefs.server.trim()))
         val at = out.indexOf(remembered)
         if (at > 0) {
