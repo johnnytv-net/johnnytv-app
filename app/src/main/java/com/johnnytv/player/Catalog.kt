@@ -80,7 +80,10 @@ object Catalog {
          * without any of them knowing the rules exist.
          */
         val lineup = Lineups.forServer(client.server)
-        val arranged = Lineups.apply(lineup, liveCats, liveStreams)
+        // Named channels go first, so none of the arranging below ever sees
+        // them - a signpost row at the top of a folder is not a channel.
+        val keptLive = Lineups.dropChannels(lineup?.hideChannels ?: emptyList(), liveStreams)
+        val arranged = Lineups.apply(lineup, liveCats, keptLive)
 
         /*
          * Films and series get the blunt half of the rules: folders named there
