@@ -701,7 +701,21 @@ class RecorderService : Service() {
         text.append("#EXT-X-VERSION:3\n")
         text.append("#EXT-X-TARGETDURATION:").append(Math.ceil(longest).toInt()).append("\n")
         text.append("#EXT-X-MEDIA-SEQUENCE:0\n")
-        text.append("#EXT-X-PLAYLIST-TYPE:EVENT\n")
+        /*
+         * EVENT WHILE IT RUNS, VOD ONCE IT IS DONE.
+         *
+         * EVENT means "this is still happening, more will be added" - the type
+         * used for a match being broadcast. A player handed one of those knows
+         * it may follow along but not roam about, so skipping ahead is
+         * restricted and on a long recording it sits there spinning. Thirty
+         * minutes gets away with it because the whole thing is in hand
+         * already; two and a half hours does not.
+         *
+         * VOD means "this is finished, here is all of it", which is the truth
+         * once a recording has ended and is what lets somebody skip to any
+         * point instantly.
+         */
+        text.append(if (finished) "#EXT-X-PLAYLIST-TYPE:VOD\n" else "#EXT-X-PLAYLIST-TYPE:EVENT\n")
         for ((index, part) in all.withIndex()) {
             /*
              * A DISCONTINUITY IS A CLAIM, NOT A COURTESY.

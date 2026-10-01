@@ -315,7 +315,36 @@ class RecordingsActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * A FINISHED RECORDING SAYS SO.
+     *
+     * While a recording is being made its playlist is marked EVENT, meaning
+     * "still happening, more to come". A player handed one of those knows it
+     * may follow along but not roam about - so skipping ahead is restricted,
+     * and on a long recording it sits and spins. Half an hour gets away with
+     * it; two and a half hours does not.
+     *
+     * New recordings now close themselves properly. This is for the ones made
+     * before that, which would otherwise need Repair run on them by hand: if
+     * the recording is over and its playlist still claims otherwise, the claim
+     * is corrected on the way to playing it.
+     */
+    private fun markFinishedIfNeeded(recording: Recording) {
+        runCatching {
+            if (RecorderService.activeId == recording.id) return@runCatching
+            val playlist = recording.playlistFile(this) ?: return@runCatching
+            val text = playlist.readText()
+            if (!text.contains("#EXT-X-PLAYLIST-TYPE:EVENT")) return@runCatching
+            var fixed = text.replace("#EXT-X-PLAYLIST-TYPE:EVENT", "#EXT-X-PLAYLIST-TYPE:VOD")
+            // And say that it ends, which EVENT playlists leave open.
+            if (!fixed.contains("#EXT-X-ENDLIST")) fixed = fixed.trimEnd() + "\n#EXT-X-ENDLIST\n"
+            playlist.writeText(fixed)
+        }
+    }
+
     private fun play(recording: Recording) {
+        markFinishedIfNeeded(recording)
+
         // If it has been joined into one file, that is always the right answer.
         val whole = recording.wholeFile(this)
         if (whole != null) {
