@@ -63,14 +63,25 @@ data class Lineup(
      * One pattern takes all of them out at once, and the folders themselves
      * are left exactly as they were.
      */
-    val hideChannels: List<String> = emptyList()
+    val hideChannels: List<String> = emptyList(),
+    /**
+     * The order of channels inside one folder.
+     *
+     * A panel files a league folder in whatever order it reached them: a
+     * dozen numbered game feeds, then the teams, then another league. Named
+     * here, the channels matching the first pattern come first, then the
+     * second, and anything unmatched follows as it arrived. Nothing moves
+     * between folders; this only arranges what is already inside one.
+     */
+    val sort: List<Sort> = emptyList()
 ) {
     data class Merge(val into: String, val from: List<String>)
     data class Move(val into: String, val channels: List<String>)
+    data class Sort(val folder: String, val first: List<String>)
 
     val isEmpty: Boolean
         get() = hide.isEmpty() && merge.isEmpty() && move.isEmpty() && order.isEmpty() &&
-            hideSeries.isEmpty() && hideMovies.isEmpty() && hideChannels.isEmpty()
+            hideSeries.isEmpty() && hideMovies.isEmpty() && hideChannels.isEmpty() && sort.isEmpty()
 }
 
 object Lineups {
@@ -255,13 +266,37 @@ object Lineups {
             if (out.none { it.id == id }) out.add(Category(id, name))
         }
 
+        // 4c. The order of channels inside a folder, where one was asked for.
+        var arrangedStreams: List<StreamItem> = keptStreams
+        for (rule in lineup.sort) {
+            if (rule.folder.isBlank() || rule.first.isEmpty()) continue
+            val folders = out.filter { matches(it.name, rule.folder) }.map { it.id }.toHashSet()
+            if (folders.isNotEmpty()) arrangedStreams = sortWithin(arrangedStreams, folders, rule.first)
+        }
+
         // 5. The order asked for, with anything unlisted following as it arrived.
-        if (lineup.order.isEmpty()) return out to keptStreams
+        if (lineup.order.isEmpty()) return out to arrangedStreams
         val rank = HashMap<String, Int>()
         lineup.order.forEachIndexed { at, name -> rank[name.trim().uppercase()] = at }
         val last = lineup.order.size
         val ordered = out.sortedBy { rank[it.name.trim().uppercase()] ?: last }
-        return ordered to keptStreams
+        return ordered to arrangedStreams
+    }
+
+    /**
+     * The channels of one folder, put in the order the patterns ask for.
+     * Everything outside that folder keeps its place exactly.
+     */
+    private fun sortWithin(streams: List<StreamItem>, folders: Set<String>, first: List<String>): List<StreamItem> {
+        val inside = streams.filter { folders.contains(it.categoryId) }
+        if (inside.size < 2) return streams
+        val last = first.size
+        val sorted = inside.sortedBy { stream ->
+            val at = first.indexOfFirst { matches(stream.name, it) }
+            if (at < 0) last else at
+        }
+        var next = 0
+        return streams.map { if (folders.contains(it.categoryId)) sorted[next++] else it }
     }
 
     /**
@@ -341,6 +376,16 @@ object Lineups {
             one.optJSONArray("hide_movies")?.let { for (i in 0 until it.length()) hideMovies.add(it.optString(i)) }
             val hideChannels = ArrayList<String>()
             one.optJSONArray("hide_channels")?.let { for (i in 0 until it.length()) hideChannels.add(it.optString(i)) }
+            val sort = ArrayList<Lineup.Sort>()
+            one.optJSONArray("sort")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val s = arr.optJSONObject(i) ?: continue
+                    val folder = s.optString("folder", "").trim()
+                    val first = ArrayList<String>()
+                    s.optJSONArray("first")?.let { f -> for (j in 0 until f.length()) first.add(f.optString(j)) }
+                    if (folder.isNotBlank() && first.isNotEmpty()) sort.add(Lineup.Sort(folder, first))
+                }
+            }
             val lineup = Lineup(
                 hide.filter { it.isNotBlank() },
                 merge,
@@ -348,7 +393,8 @@ object Lineups {
                 order.filter { it.isNotBlank() },
                 hideSeries.filter { it.isNotBlank() },
                 hideMovies.filter { it.isNotBlank() },
-                hideChannels.filter { it.isNotBlank() }
+                hideChannels.filter { it.isNotBlank() },
+                sort
             )
             if (!lineup.isEmpty) out[address] = lineup
         }
@@ -380,6 +426,11 @@ object Lineups {
                 moves.put(JSONObject().put("into", m.into).put("channels", strings(m.channels)))
             }
             one.put("move", moves)
+            val sorts = org.json.JSONArray()
+            for (s in lineup.sort) {
+                sorts.put(JSONObject().put("folder", s.folder).put("first", strings(s.first)))
+            }
+            one.put("sort", sorts)
             root.put(address, one)
         }
         return root.toString()
