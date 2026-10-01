@@ -30,9 +30,18 @@ object Config {
      * addresses or the base64 form. Used when CONFIG_URL is unreachable, and
      * merged with whatever config.json lists.
      */
+    /*
+     * ONLY WHAT IS STILL STANDING.
+     *
+     * This list is the lifeboat: what a box falls back on when config.json
+     * cannot be reached at all. An address that has been retired must come out
+     * of it, because a built-in address cannot be removed any other way - a
+     * service taken out of config.json was still being tried by every install,
+     * and every start spent fifteen seconds waiting on a machine that had been
+     * switched off for good.
+     */
     val SERVERS: List<String> = listOf(
-        "aHR0cDovL2VkZ2UuYno6ODA4MA==",
-        "http://line.dino.ws"
+        "aHR0cDovL2VkZ2UuYno6ODA4MA=="
     )
 
     /** Kept for older builds; SERVERS is the list that matters now. */
