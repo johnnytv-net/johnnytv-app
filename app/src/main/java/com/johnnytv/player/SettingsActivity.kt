@@ -79,7 +79,10 @@ class SettingsActivity : AppCompatActivity() {
         errorRow.visibility = if (CrashReporter.lastCrash(this) == null) View.GONE else View.VISIBLE
         errorRow.setOnClickListener { showLastError() }
 
-        versionLabel.text = getString(R.string.version_label, versionName(), versionCode())
+        // The version, and which service the box is on, on one line.
+        val code = serviceCode()
+        versionLabel.text = getString(R.string.version_label, versionName(), versionCode()) +
+            if (code.isBlank()) "" else "  ·  " + code
         showCatalogueSummary()
         loadAccount()
     }
@@ -348,18 +351,21 @@ class SettingsActivity : AppCompatActivity() {
      * and can go straight there. So it is shown as a short code - DN, SB, JTV -
      * which says which panel to open without saying who runs it.
      */
-    private fun showPanel(label: TextView) {
+    /**
+     * Which service this box is signed in to, as a short code.
+     *
+     * Shown beside the version as well as on the panel row, because the one
+     * question asked down a telephone is "which panel is it on" and the
+     * answer should be on screen without anybody hunting for it.
+     */
+    private fun serviceCode(): String {
         val server = prefs.server
-        if (server.isBlank()) {
-            label.text = ""
-            return
-        }
+        if (server.isBlank()) return ""
         val host = server
             .removePrefix("https://")
             .removePrefix("http://")
             .substringBefore('/')
             .lowercase()
-
         val known = Config.SERVERS.map { entry ->
             RemoteConfigLoader.resolve(entry)
                 .removePrefix("https://")
@@ -369,31 +375,30 @@ class SettingsActivity : AppCompatActivity() {
         }
         val at = known.indexOfFirst { it == host }
         /*
-         * A code rather than a letter.
-         *
-         * "A" needs a list beside it to mean anything, and the list is the
-         * thing nobody has to hand at half past nine on a Saturday. A short
-         * code taken from the address itself reads straight: the box is on
-         * DN, or SB, or BZ. It says which panel to open without saying who
-         * runs it.
+         * Dino answers on several names - its own, and the ones bought for
+         * it - so every door into the same panel has to read DN. A new
+         * address for it belongs on this line.
          */
-        /*
-         * The code comes from the address, not from the built-in list.
-         *
-         * It used to be looked up in the list this build ships with, which does
-         * not contain every service the config knows about - so a box happily
-         * signed in to one of those showed two dots, as though nobody knew where
-         * it was. It read like a fault and cost an afternoon.
-         */
-        val code = when {
-            host.contains("dino") -> "DN"
+        return when {
+            host.contains("dino") ||
+                host.contains("bq-lines") ||
+                host.contains("joy8k") -> "DN"
             host.contains("edge.sb") -> "SB"
             host.contains("edge.bz") -> "JTV"
             at >= 0 -> ('A' + at).toString()
-            // Genuinely somewhere nobody here has heard of: support mode, or a
-            // panel added since this build.
+            // Genuinely somewhere nobody here has heard of: support mode, or
+            // a panel added since this build.
             else -> "··"
         }
+    }
+
+    private fun showPanel(label: TextView) {
+        val server = prefs.server
+        if (server.isBlank()) {
+            label.text = ""
+            return
+        }
+        val code = serviceCode()
 
         val name = prefs.friendlyName
         val base = if (name.isNotBlank()) {
