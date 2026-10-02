@@ -225,7 +225,8 @@ class MultiViewActivity : AppCompatActivity() {
         val options = listOf(
             getString(R.string.multiview_change),
             getString(R.string.multiview_full_screen),
-            getString(R.string.multiview_close_pane)
+            getString(R.string.multiview_close_pane),
+            getString(if (showNumbers) R.string.multiview_hide_numbers else R.string.multiview_show_numbers)
         )
         showOptions(channel.name, options) { which ->
             when (which) {
@@ -236,6 +237,12 @@ class MultiViewActivity : AppCompatActivity() {
                     pane.channel = null
                     showEmpty(pane)
                     remember()
+                }
+                3 -> {
+                    // The Shield keeps its menu button for itself, so the
+                    // numbers are reached from here.
+                    showNumbers = !showNumbers
+                    panes.forEach { it.stats.visibility = if (showNumbers && it.feed != null) View.VISIBLE else View.GONE }
                 }
             }
         }
