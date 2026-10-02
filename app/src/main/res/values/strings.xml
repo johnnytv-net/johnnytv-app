@@ -277,6 +277,7 @@
     <string name="multiview_change">Change channel</string>
     <string name="multiview_full_screen">Watch this one full screen</string>
     <string name="multiview_close_pane">Close this screen</string>
+    <string name="player_add_screen">Add another screen</string>
     <string name="multiview_show_numbers">Show the buffer numbers</string>
     <string name="multiview_hide_numbers">Hide the buffer numbers</string>
     <string name="multiview_already_on">That channel is already on the other screen.</string>

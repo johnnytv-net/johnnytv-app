@@ -399,6 +399,39 @@ class PlayerActivity : AppCompatActivity() {
             return true
         }
 
+        // HOLD SELECT: a second screen, or a recording, without leaving the
+        // channel. A short press still brings the player's controls up exactly
+        // as before - it is just decided on the way up, once it is known the
+        // button was not being held.
+        val isSelect = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+            event.keyCode == KeyEvent.KEYCODE_ENTER ||
+            event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+        if (isSelect && kind == Kind.LIVE && !playlist &&
+            (holdingSelect || (!controlsUp && !playerView.isControllerFullyVisible))
+        ) {
+            when (event.action) {
+                KeyEvent.ACTION_DOWN -> {
+                    if (event.repeatCount == 0) {
+                        holdingSelect = true
+                        selectHandled = false
+                    } else if (holdingSelect && !selectHandled &&
+                        (event.isLongPress || event.repeatCount >= 8)
+                    ) {
+                        selectHandled = true
+                        holdingSelect = false
+                        showHoldMenu()
+                    }
+                    return true
+                }
+                KeyEvent.ACTION_UP -> {
+                    val wasHolding = holdingSelect
+                    holdingSelect = false
+                    if (wasHolding && !selectHandled) playerView.showController()
+                    return true
+                }
+            }
+        }
+
         val step = stepFor(event.keyCode)
         // Only while the player's own controls are hidden. With them showing, the
         // remote belongs to them - that is how you reach the subtitles button.
@@ -416,6 +449,32 @@ class PlayerActivity : AppCompatActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    private var holdingSelect = false
+    private var selectHandled = false
+
+    /** What holding select offers while a channel is on. */
+    private fun showHoldMenu() {
+        val channel = Catalog.live.firstOrNull { it.streamId == contentId }
+        val options = listOf(getString(R.string.player_add_screen), getString(R.string.record_this))
+        showOptions(title.ifBlank { channel?.name.orEmpty() }, options) { which ->
+            when (which) {
+                0 -> {
+                    if (RecorderService.isRecording) {
+                        android.widget.Toast.makeText(
+                            this, R.string.multiview_recording, android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    } else {
+                        // This screen lets go of the line as it closes, and the
+                        // two screens then share it between them.
+                        MultiViewActivity.open(this, contentId)
+                        finish()
+                    }
+                }
+                1 -> if (channel != null) RecordDialog.showForLive(this, channel)
+            }
+        }
     }
 
     private fun stepFor(keyCode: Int): Int = when (keyCode) {

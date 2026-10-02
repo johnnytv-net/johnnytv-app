@@ -73,6 +73,9 @@ class MultiViewActivity : AppCompatActivity() {
     }
     private var started = false
 
+    /** Opened from a channel that was on: the next thing wanted is its companion. */
+    private var askForSecond = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
@@ -112,8 +115,9 @@ class MultiViewActivity : AppCompatActivity() {
         val first = intent.getStringExtra(EXTRA_FIRST).orEmpty()
         if (first.isNotBlank()) {
             Catalog.live.firstOrNull { it.streamId == first }?.let { channel ->
-                if (panes[1].channel?.streamId == channel.streamId) panes[1].channel = null
+                panes[1].channel = null
                 panes[0].channel = channel
+                askForSecond = true
             }
         }
         setActive(0)
@@ -131,7 +135,13 @@ class MultiViewActivity : AppCompatActivity() {
         handler.post(watch)
         // Nothing chosen yet: go straight to choosing rather than showing two
         // black rectangles and waiting to be asked.
-        if (panes.all { it.channel == null }) choose(0)
+        if (askForSecond) {
+            askForSecond = false
+            setActive(1)
+            choose(1)
+        } else if (panes.all { it.channel == null }) {
+            choose(0)
+        }
     }
 
     override fun onStop() {

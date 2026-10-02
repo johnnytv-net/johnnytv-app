@@ -297,20 +297,34 @@ class RecorderService : Service() {
                 val input = body.byteStream()
                 val buffer = ByteArray(64 * 1024)
 
-                backOnAir(id)
-                needSync = true
-                if (everWrote) {
-                    startFreshChunk = true
-                    needPat = true
-                    trimming = true
-                    trimStartedAt = System.currentTimeMillis()
-                }
+                /*
+                 * PICKING UP EXACTLY WHERE IT LEFT OFF.
+                 *
+                 * The portal answers a reconnect with television we already
+                 * have, byte for byte. So the last packets written are looked
+                 * for in what arrives, and the recording carries on from the
+                 * very next one - no repeat, no hole, and nothing at the join
+                 * for a player to trip over. Only when that exact place cannot
+                 * be found does the older method below take over, working from
+                 * the timestamps instead.
+                 */
+                joinId = id
+                joinOpenedAt = System.currentTimeMillis()
+                joinSettled = false
+                joiner.connectionOpened()
 
                 while (!stopping && System.currentTimeMillis() < endAt) {
                     val read = input.read(buffer)
                     if (read < 0) return               // the portal closed it
                     if (read == 0) continue
-                    feed(buffer, read, id)
+                    joiner.feed(buffer, read)
+                    // Still looking after this long means the place is not
+                    // there to be found. Take what has arrived.
+                    if (!joinSettled && !joiner.flowing &&
+                        System.currentTimeMillis() - joinOpenedAt > JOIN_PATIENCE_MS
+                    ) {
+                        joiner.stopSeeking()
+                    }
                     housekeeping(id)
                 }
             }
@@ -738,6 +752,42 @@ class RecorderService : Service() {
     }
 
     /** Back on air after being away: that is a gap worth reporting. */
+    private val joiner = TsStitcher(true) { data, from, length -> joined(data, from, length) }
+    private var joinerMisses = 0
+    private var joinId = ""
+    private var joinOpenedAt = 0L
+    private var joinSettled = false
+
+    /** What the joiner passes on: one unbroken stream, as far as it could make it one. */
+    private fun joined(data: ByteArray, from: Int, length: Int) {
+        if (!joinSettled) {
+            joinSettled = true
+            val missed = joiner.gaps != joinerMisses
+            joinerMisses = joiner.gaps
+            if (!everWrote || missed) {
+                // The first connection, or a join that could not be made
+                // exactly: handled the way it always was.
+                needSync = true
+                carry = EMPTY
+                if (everWrote) {
+                    startFreshChunk = true
+                    needPat = true
+                    trimming = true
+                    trimStartedAt = System.currentTimeMillis()
+                }
+                backOnAir(joinId)
+            } else {
+                // An exact join. The feed went away and came back, but not a
+                // frame is missing, so there is no gap to report.
+                if (awaySince > 0L) {
+                    RecordingStore.update(this, joinId) { it.reconnects++ }
+                }
+                awaySince = 0L
+            }
+        }
+        if (from == 0) feed(data, length, joinId) else feed(data.copyOfRange(from, from + length), length, joinId)
+    }
+
     private fun backOnAir(id: String) {
         if (awaySince <= 0L) return
         val lost = ((System.currentTimeMillis() - awaySince) / 1000L).toInt()
@@ -1571,6 +1621,9 @@ class RecorderService : Service() {
          * the read timeout above before we come back to it.
          */
         private const val RECONNECT_WAIT_MS = 250L
+
+        /** How long a reconnect may spend looking for the exact place it left off. */
+        private const val JOIN_PATIENCE_MS = 6_000L
 
         /**
          * How much a piece may overlap what we hold and still count as new.

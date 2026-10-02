@@ -246,7 +246,16 @@ class BytePipe {
  * Everything that reaches [out] is whole 188-byte packets, in order, each one
  * exactly once.
  */
-class TsStitcher(private val out: (ByteArray, Int, Int) -> Unit) {
+class TsStitcher(
+    /**
+     * What to do when no exact join can be found. A screen starts again at the
+     * next complete picture. The recorder would rather be handed everything
+     * and sort it out with its own, older method, which loses nothing - so
+     * for it this is true.
+     */
+    private val handOverWhole: Boolean = false,
+    private val out: (ByteArray, Int, Int) -> Unit
+) {
 
     private enum class Mode { PASS, SEEK, RESYNC }
 
@@ -445,7 +454,11 @@ class TsStitcher(private val out: (ByteArray, Int, Int) -> Unit) {
         // Or it has run on past where we stopped without the bytes matching.
         val ranPast = lastPts >= 0L && arrivingPts >= 0L &&
             ptsDiff(arrivingPts, lastPts) > PAST_MARGIN_TICKS
-        if (startsAhead || ranPast || soughtBytes > SEEK_LIMIT_BYTES) {
+        // Or its clock is nowhere near ours - a different feed, or one that has
+        // restarted - and no amount of waiting will bring the two together.
+        val elsewhere = lastPts >= 0L && burstFirstPts >= 0L &&
+            ptsDiff(burstFirstPts, lastPts) < -(if (handOverWhole) ELSEWHERE_RECORDER_TICKS else ELSEWHERE_TICKS)
+        if (startsAhead || ranPast || elsewhere || soughtBytes > SEEK_LIMIT_BYTES) {
             settleWithoutMatch(false)
             return
         }
@@ -478,12 +491,23 @@ class TsStitcher(private val out: (ByteArray, Int, Int) -> Unit) {
         holdLen = 0
         val known = lastPts >= 0L && burstFirstPts >= 0L
         val delta = if (known) ptsDiff(burstFirstPts, lastPts) else 0L
-        val follows = known && holdWhole && delta > -BEHIND_OK_TICKS && delta <= AHEAD_OK_TICKS
+        // The recorder only takes a piece as following on when it starts
+        // strictly after the last one; anything that might repeat a moment
+        // goes to its own method instead, which trims repeats by the clock.
+        val behindOk = if (handOverWhole) 0L else BEHIND_OK_TICKS
+        val follows = known && holdWhole && delta > -behindOk && delta <= AHEAD_OK_TICKS
         if (follows && end > 0) {
             mode = Mode.PASS
             joins++
             overlapMs = 0L
             pass(hold, 0, end)
+            return
+        }
+        if (handOverWhole) {
+            mode = Mode.PASS
+            gaps++
+            overlapMs = 0L
+            if (end > 0) pass(hold, 0, end)
             return
         }
         beginResync()
@@ -563,6 +587,8 @@ class TsStitcher(private val out: (ByteArray, Int, Int) -> Unit) {
         /** How near to where we stopped a new piece must start to count as following on. */
         private const val AHEAD_OK_TICKS = 67_500L              // three quarters of a second
         private const val BEHIND_OK_TICKS = 135_000L            // a second and a half
+        private const val ELSEWHERE_TICKS = 300L * 90_000L      // five minutes
+        private const val ELSEWHERE_RECORDER_TICKS = 120L * 90_000L
         private const val RESYNC_LIMIT_BYTES = 8L * 1024L * 1024L
         private const val RESYNC_LIMIT_MS = 4_000L
         private const val ASSUMED_BYTES_PER_SECOND = 600_000L
@@ -727,7 +753,7 @@ class LineFeed(
     @Volatile var lastError: String = ""
         private set
 
-    private val stitcher = TsStitcher { data, from, length -> pipe.put(data, from, length) }
+    private val stitcher = TsStitcher(false) { data, from, length -> pipe.put(data, from, length) }
 
     private var thread: Thread? = null
     @Volatile private var connection: HttpURLConnection? = null
