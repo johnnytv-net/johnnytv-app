@@ -26,6 +26,13 @@ object Catalog {
         get() = live.isNotEmpty() || vod.isNotEmpty() || series.isNotEmpty()
 
     /**
+     * True when this service's Live TV folders are already in the order they
+     * are to be shown in, and the app's own built-in order must keep off.
+     */
+    var liveOrderFixed: Boolean = false
+        private set
+
+    /**
      * The channel list exactly as it was on screen when a channel was opened -
      * same order, same search filter. The player walks this so that pressing down
      * goes to the channel that was next in the list the viewer was looking at.
@@ -95,6 +102,7 @@ object Catalog {
         val prunedVod = Lineups.prune(lineup?.hideMovies ?: emptyList(), vodCats)
         val prunedSeries = Lineups.prune(lineup?.hideSeries ?: emptyList(), seriesCats)
 
+        liveOrderFixed = lineup?.strict == true
         liveCategories = arranged.first
         vodCategories = prunedVod.first
         seriesCategories = prunedSeries.first
@@ -166,6 +174,7 @@ object Catalog {
         runCatching { IconMemory.load(context) }
         playbackQueue = emptyList()      // belongs to whatever was on screen before
         return try {
+            liveOrderFixed = File(context.filesDir, FILE_ORDER_FIXED).exists()
             liveCategories = readCategories(context, FILE_LIVE_CATS)
             vodCategories = readCategories(context, FILE_VOD_CATS)
             seriesCategories = readCategories(context, FILE_SERIES_CATS)
@@ -180,6 +189,10 @@ object Catalog {
     }
 
     private fun save(context: Context) {
+        runCatching {
+            val flag = File(context.filesDir, FILE_ORDER_FIXED)
+            if (liveOrderFixed) flag.writeText("1") else flag.delete()
+        }
         writeCategories(context, FILE_LIVE_CATS, liveCategories)
         writeCategories(context, FILE_VOD_CATS, vodCategories)
         writeCategories(context, FILE_SERIES_CATS, seriesCategories)
@@ -195,6 +208,8 @@ object Catalog {
         )) {
             runCatching { File(context.filesDir, name).delete() }
         }
+        runCatching { File(context.filesDir, FILE_ORDER_FIXED).delete() }
+        liveOrderFixed = false
         liveCategories = emptyList()
         vodCategories = emptyList()
         seriesCategories = emptyList()
@@ -275,4 +290,5 @@ object Catalog {
     private const val FILE_LIVE = "live.json"
     private const val FILE_VOD = "vod.json"
     private const val FILE_SERIES = "series.json"
+    private const val FILE_ORDER_FIXED = "live_order_fixed"
 }

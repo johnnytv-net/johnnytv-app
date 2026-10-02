@@ -73,7 +73,18 @@ data class Lineup(
      * second, and anything unmatched follows as it arrived. Nothing moves
      * between folders; this only arranges what is already inside one.
      */
-    val sort: List<Sort> = emptyList()
+    val sort: List<Sort> = emptyList(),
+    /** Folders sent to the far end of the list, just ahead of the adult ones. */
+    val last: List<String> = emptyList(),
+    /**
+     * The order written here is the whole order.
+     *
+     * The app has an order of its own built in - Canada first, then the
+     * leagues - which suits one service and is wrong for another. A lineup
+     * marked strict is shown exactly as it is arranged here, with nothing
+     * built in laid over the top of it.
+     */
+    val strict: Boolean = false
 ) {
     data class Merge(val into: String, val from: List<String>)
     data class Move(val into: String, val channels: List<String>)
@@ -81,7 +92,8 @@ data class Lineup(
 
     val isEmpty: Boolean
         get() = hide.isEmpty() && merge.isEmpty() && move.isEmpty() && order.isEmpty() &&
-            hideSeries.isEmpty() && hideMovies.isEmpty() && hideChannels.isEmpty() && sort.isEmpty()
+            hideSeries.isEmpty() && hideMovies.isEmpty() && hideChannels.isEmpty() && sort.isEmpty() &&
+            last.isEmpty() && !strict
 }
 
 object Lineups {
@@ -274,12 +286,19 @@ object Lineups {
             if (folders.isNotEmpty()) arrangedStreams = sortWithin(arrangedStreams, folders, rule.first)
         }
 
-        // 5. The order asked for, with anything unlisted following as it arrived.
-        if (lineup.order.isEmpty()) return out to arrangedStreams
-        val rank = HashMap<String, Int>()
-        lineup.order.forEachIndexed { at, name -> rank[name.trim().uppercase()] = at }
-        val last = lineup.order.size
-        val ordered = out.sortedBy { rank[it.name.trim().uppercase()] ?: last }
+        // 5. The order asked for: the named folders first, in the order they
+        //    are named; then everything unlisted, as it arrived; then the
+        //    folders asked to go last.
+        if (lineup.order.isEmpty() && lineup.last.isEmpty()) return out to arrangedStreams
+        val middle = lineup.order.size
+        val ordered = out.sortedBy { category ->
+            val at = lineup.order.indexOfFirst { matches(category.name, it) }
+            when {
+                at >= 0 -> at
+                lineup.last.any { matches(category.name, it) } -> middle + 1
+                else -> middle
+            }
+        }
         return ordered to arrangedStreams
     }
 
@@ -333,10 +352,20 @@ object Lineups {
         val n = name.trim()
         val p = pattern.trim()
         if (p.isEmpty()) return false
-        return if (p.endsWith("*")) {
-            n.startsWith(p.dropLast(1).trim(), ignoreCase = true)
-        } else {
-            n.equals(p, ignoreCase = true)
+        // A star at the end means "starts with", at the front "ends with",
+        // and at both ends "has this in it somewhere".
+        val lead = p.length > 1 && p.startsWith("*")
+        val trail = p.length > 1 && p.endsWith("*")
+        if (!lead && !trail) return n.equals(p, ignoreCase = true)
+        var core = p
+        if (lead) core = core.substring(1)
+        if (trail && core.isNotEmpty()) core = core.dropLast(1)
+        core = core.trim()
+        if (core.isEmpty()) return !lead
+        return when {
+            lead && trail -> n.contains(core, ignoreCase = true)
+            lead -> n.endsWith(core, ignoreCase = true)
+            else -> n.startsWith(core, ignoreCase = true)
         }
     }
 
@@ -386,6 +415,8 @@ object Lineups {
                     if (folder.isNotBlank() && first.isNotEmpty()) sort.add(Lineup.Sort(folder, first))
                 }
             }
+            val last = ArrayList<String>()
+            one.optJSONArray("last")?.let { for (i in 0 until it.length()) last.add(it.optString(i)) }
             val lineup = Lineup(
                 hide.filter { it.isNotBlank() },
                 merge,
@@ -394,7 +425,9 @@ object Lineups {
                 hideSeries.filter { it.isNotBlank() },
                 hideMovies.filter { it.isNotBlank() },
                 hideChannels.filter { it.isNotBlank() },
-                sort
+                sort,
+                last.filter { it.isNotBlank() },
+                one.optBoolean("strict", false)
             )
             if (!lineup.isEmpty) out[address] = lineup
         }
@@ -416,6 +449,8 @@ object Lineups {
             one.put("hide_series", strings(lineup.hideSeries))
             one.put("hide_movies", strings(lineup.hideMovies))
             one.put("hide_channels", strings(lineup.hideChannels))
+            one.put("last", strings(lineup.last))
+            one.put("strict", lineup.strict)
             val merges = org.json.JSONArray()
             for (m in lineup.merge) {
                 merges.put(JSONObject().put("into", m.into).put("from", strings(m.from)))

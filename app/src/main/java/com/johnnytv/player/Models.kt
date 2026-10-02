@@ -146,6 +146,14 @@ data class MovieInfo(
  * it says nothing about exactly where the portal had it.
  */
 fun List<Category>.inPreferredOrder(): List<Category> {
+    // A service whose order is written out in config.json is shown in that
+    // order. Only the adult folders are still sent to the bottom.
+    if (Catalog.liveOrderFixed) {
+        return sortedBy { category ->
+            val upper = category.name.uppercase()
+            if (Config.CATEGORY_LAST.any { upper.contains(it.uppercase()) }) 1 else 0
+        }
+    }
     fun rank(name: String): Int {
         val upper = name.uppercase().trim()
         // Adult is settled first, so a category called "ADULT PPV" goes to the
