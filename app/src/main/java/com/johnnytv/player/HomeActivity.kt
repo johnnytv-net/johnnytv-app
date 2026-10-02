@@ -146,6 +146,9 @@ class HomeActivity : AppCompatActivity() {
         findViewById<View>(R.id.homeEpg).setOnClickListener {
             startActivity(Intent(this, EpgActivity::class.java))
         }
+        findViewById<View>(R.id.homeMultiview).setOnClickListener {
+            MultiViewActivity.open(this)
+        }
         findViewById<View>(R.id.homeRefresh).setOnClickListener {
             startActivity(
                 Intent(this, SyncActivity::class.java).putExtra(SyncActivity.EXTRA_FORCE, true)

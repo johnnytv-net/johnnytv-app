@@ -269,4 +269,14 @@
     <string name="weather_town_prompt">Type your town, or leave it empty to work it out from your connection.</string>
     <string name="weather_town_hint">Town or city</string>
     <string name="weather_town_not_found">Could not find that town. Check the spelling, or leave it empty.</string>
+
+    <!-- Multiview: two channels side by side on a one-connection line. -->
+    <string name="multiview">Multiview</string>
+    <string name="multiview_empty">Press OK to choose a channel</string>
+    <string name="multiview_pick_folder">Choose a folder</string>
+    <string name="multiview_change">Change channel</string>
+    <string name="multiview_full_screen">Watch this one full screen</string>
+    <string name="multiview_close_pane">Close this screen</string>
+    <string name="multiview_already_on">That channel is already on the other screen.</string>
+    <string name="multiview_recording">A recording is using the line, so multiview has to wait until it finishes.</string>
 </resources>

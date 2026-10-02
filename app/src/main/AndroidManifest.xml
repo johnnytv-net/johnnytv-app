@@ -105,6 +105,13 @@
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:theme="@style/AppTheme.Fullscreen" />
 
+        <activity
+            android:name=".MultiViewActivity"
+            android:screenOrientation="sensorLandscape"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
+            android:theme="@style/AppTheme.Fullscreen" />
+
 
         <!--
             The recorder. Its own process would be tidier still, but it shares
