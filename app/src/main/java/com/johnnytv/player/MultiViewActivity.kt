@@ -62,7 +62,15 @@ class MultiViewActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var panes: List<Pane> = emptyList()
     private var active = 0
-    private var showNumbers = true
+    private var showNumbers = false
+
+    /** The blue outline: up while the remote is in use, gone once it rests. */
+    private var highlightUp = true
+    private var swallowOk = false
+    private val hideHighlight = Runnable {
+        highlightUp = false
+        panes.forEach { it.border.visibility = View.GONE }
+    }
     private var started = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -84,7 +92,10 @@ class MultiViewActivity : AppCompatActivity() {
         }
         panes.forEachIndexed { index, pane ->
             pane.frame.setOnClickListener {
-                if (active == index) openMenu(index) else setActive(index)
+                val wasUp = highlightUp
+                wake()
+                if (!wasUp) setActive(active)
+                else if (active == index) openMenu(index) else setActive(index)
             }
         }
 
@@ -111,6 +122,8 @@ class MultiViewActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         started = true
+        wake()
+        setActive(active)
         panes.forEachIndexed { index, pane ->
             val channel = pane.channel
             if (channel != null) tune(index, channel) else showEmpty(pane)
@@ -130,7 +143,33 @@ class MultiViewActivity : AppCompatActivity() {
 
     // ---------- the remote ----------
 
+    /**
+     * Shows the outline and starts the clock on putting it away again.
+     *
+     * Two pictures side by side are the thing being watched; a blue box round
+     * one of them is only useful while a choice is being made.
+     */
+    private fun wake() {
+        highlightUp = true
+        handler.removeCallbacks(hideHighlight)
+        handler.postDelayed(hideHighlight, HIGHLIGHT_MS)
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && event.keyCode != KeyEvent.KEYCODE_BACK) {
+            val wasUp = highlightUp
+            wake()
+            if (!wasUp) {
+                setActive(active)
+                // With the outline away, the first press of OK only brings it
+                // back - opening a menu for a screen nobody can see is
+                // highlighted would be a guess.
+                val isOk = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                    event.keyCode == KeyEvent.KEYCODE_ENTER ||
+                    event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                if (isOk && event.repeatCount == 0) swallowOk = true
+            }
+        }
         val step = when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> 1
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> -1
@@ -152,7 +191,9 @@ class MultiViewActivity : AppCompatActivity() {
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
                 // Acted on as the button comes up, so the press that opens the
                 // menu is not also the press that picks its first row.
-                if (event.action == KeyEvent.ACTION_UP) openMenu(active)
+                if (event.action == KeyEvent.ACTION_UP) {
+                    if (swallowOk) swallowOk = false else openMenu(active)
+                }
                 return true
             }
             KeyEvent.KEYCODE_MENU -> {
@@ -169,7 +210,7 @@ class MultiViewActivity : AppCompatActivity() {
     private fun setActive(index: Int) {
         active = index
         panes.forEachIndexed { at, pane ->
-            pane.border.visibility = if (at == index) View.VISIBLE else View.GONE
+            pane.border.visibility = if (at == index && highlightUp) View.VISIBLE else View.GONE
             pane.player?.volume = if (at == index) 1f else 0f
         }
     }
@@ -422,6 +463,7 @@ class MultiViewActivity : AppCompatActivity() {
         private const val WATCH_MS = 400L
         private const val SETTLE_MS = 700L
         private const val RESTART_MS = 1_500L
+        private const val HIGHLIGHT_MS = 5_000L
 
         fun open(context: Context, firstChannelId: String = "") {
             // A recording owns the line until it finishes.
