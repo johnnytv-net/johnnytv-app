@@ -304,6 +304,41 @@ class Prefs(context: Context) {
     private fun favouriteKey(kind: Kind, id: String) = "${kind.name}:$id"
 
     /*
+     * A LIST PER SERVICE.
+     *
+     * Favourites are remembered by channel number, and channel numbers mean
+     * something different on every portal. Kept as one list, a box that signs
+     * in to a second service - or is handed a different catalogue for any
+     * reason - has its favourites checked against channels they were never
+     * about, and the tidying further down then throws them away as "gone".
+     * From the sofa that is an update wiping the favourites.
+     *
+     * So each service has its own list, and signing in to another one cannot
+     * touch it. The list that existed before this change goes, once, to the
+     * service the box is signed in to when it first runs this version.
+     */
+    private fun serviceTag(): String {
+        val host = server
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .substringBefore('/')
+            .substringBefore(':')
+            .lowercase()
+            .trim()
+        return when {
+            host.isEmpty() -> ""
+            // Every door into the same panel shares one list.
+            host.contains("dino") || host.contains("bq-lines") || host.contains("joy8k") -> "dn"
+            else -> host
+        }
+    }
+
+    private fun favouritesKey(): String {
+        val tag = serviceTag()
+        return if (tag.isEmpty()) KEY_FAVS_TEXT else "$KEY_FAVS_TEXT@$tag"
+    }
+
+    /*
      * FAVOURITES THAT STAY REMOVED.
      *
      * These were kept in a string set, which is the one preference type
@@ -332,7 +367,7 @@ class Prefs(context: Context) {
         // Written with commit rather than apply: a television box that loses
         // power, or is unplugged straight after somebody tidies their list,
         // must not come back with the removals undone.
-        sp.edit().putString(KEY_FAVS_TEXT, list.joinToString("\n")).commit()
+        sp.edit().putString(favouritesKey(), list.joinToString("\n")).commit()
         return nowFavourite
     }
 
@@ -345,6 +380,26 @@ class Prefs(context: Context) {
 
     /** Every favourite, in the order they were added. */
     private fun favouriteSet(): List<String> {
+        val key = favouritesKey()
+        if (key != KEY_FAVS_TEXT) {
+            val mine = sp.getString(key, null)
+            if (mine != null) return mine.split("\n").filter { it.isNotBlank() }
+            // This service has no list of its own yet. The list from before
+            // lists were kept apart is handed to the first service to ask, and
+            // only to that one; the original is left where it is, untouched.
+            if (sp.getBoolean(KEY_FAVS_CARRIED, false)) return emptyList()
+            val before = sharedFavourites()
+            sp.edit()
+                .putString(key, before.joinToString("\n"))
+                .putBoolean(KEY_FAVS_CARRIED, true)
+                .commit()
+            return before
+        }
+        return sharedFavourites()
+    }
+
+    /** The one list every service used to share. */
+    private fun sharedFavourites(): List<String> {
         val text = sp.getString(KEY_FAVS_TEXT, null)
         if (text != null) return text.split("\n").filter { it.isNotBlank() }
 
@@ -369,7 +424,7 @@ class Prefs(context: Context) {
      * replaced.
      */
     fun favouritesReport(): String {
-        val text = sp.getString(KEY_FAVS_TEXT, null)
+        val text = sp.getString(favouritesKey(), null)
         val old = runCatching { sp.getStringSet(KEY_FAVS, emptySet()) ?: emptySet() }
             .getOrDefault(emptySet())
         val lines = text?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()
@@ -404,12 +459,23 @@ class Prefs(context: Context) {
         val all = favouriteSet()
         val kept = all.filter { !it.startsWith(prefix) || existingIds.contains(it.removePrefix(prefix)) }
         if (kept.size == all.size) return
-        sp.edit().putString(KEY_FAVS_TEXT, kept.joinToString("\n")).commit()
+        /*
+         * Tidying, not clearing out. A channel or two disappearing is a portal
+         * dropping channels. Most of a list disappearing at once is the wrong
+         * catalogue in hand - a short answer from a busy portal, or channel
+         * numbers that have all changed - and acting on that is how a list
+         * somebody built over months vanishes in one sync. So when more than a
+         * few would go and they are over half the list, nothing is removed.
+         */
+        val mine = all.count { it.startsWith(prefix) }
+        val going = all.size - kept.size
+        if (going > 3 && going * 2 > mine) return
+        sp.edit().putString(favouritesKey(), kept.joinToString("\n")).commit()
     }
 
     /** Empties the list outright - the way out of a list that has gone wrong. */
     fun clearFavourites() {
-        sp.edit().putString(KEY_FAVS_TEXT, "").remove(KEY_FAVS).commit()
+        sp.edit().putString(favouritesKey(), "").remove(KEY_FAVS).commit()
     }
 
     // ---------- continue watching ----------
@@ -494,6 +560,7 @@ class Prefs(context: Context) {
         const val KEY_FRIENDLY = "friendly_name"
         const val KEY_FAVS = "favourites"                 // the old string set
         const val KEY_FAVS_TEXT = "favourites_list"        // one per line
+        const val KEY_FAVS_CARRIED = "favourites_carried"  // the shared list has been handed on
         const val KEY_POSITIONS = "positions"
         const val KEY_CONTINUE = "continue_watching"
         const val KEY_SEARCHES = "recent_searches"
