@@ -136,7 +136,9 @@ class LineShare {
         val depth = if (known.isEmpty()) ASSUMED_DEPTH_MS else known.minOrNull() ?: ASSUMED_DEPTH_MS
         val others = (list.size - 1).coerceAtLeast(1)
         val forTurns = others * (gulpMs + settleMs + 400L) + 1_500L
-        var low = maxOf((depth * 45L) / 100L, forTurns)
+        // A line that has already missed a join gets a wider margin still.
+        val missed = (list.maxOfOrNull { it.gaps } ?: 0).coerceAtMost(3)
+        var low = maxOf((depth * (62L + 6L * missed)) / 100L, forTurns)
         low = minOf(low, LOW_WATER_MAX_MS)
         low = minOf(low, maxOf(1_500L, depth - 1_000L))
         return low
@@ -257,7 +259,12 @@ class TsStitcher(private val out: (ByteArray, Int, Int) -> Unit) {
     private var tailLen = 0
 
     /** Packets from the new connection still being searched. */
-    private var heldBack = EMPTY
+    private var hold = EMPTY
+    private var holdLen = 0
+    private var scanFrom = 0
+
+    /** True while [hold] still starts where the connection started. */
+    private var holdWhole = true
     private var soughtBytes = 0L
     private var resyncBytes = 0L
     private var resyncSince = 0L
@@ -294,7 +301,9 @@ class TsStitcher(private val out: (ByteArray, Int, Int) -> Unit) {
     fun connectionOpened() {
         carry = EMPTY
         synced = false
-        heldBack = EMPTY
+        holdLen = 0
+        scanFrom = 0
+        holdWhole = true
         soughtBytes = 0L
         resyncBytes = 0L
         burstFirstPts = -1L
@@ -316,7 +325,7 @@ class TsStitcher(private val out: (ByteArray, Int, Int) -> Unit) {
     @Synchronized
     fun stopSeeking() {
         if (mode != Mode.SEEK) return
-        beginResync()
+        settleWithoutMatch(true)
     }
 
     @Synchronized
@@ -405,28 +414,30 @@ class TsStitcher(private val out: (ByteArray, Int, Int) -> Unit) {
      * packet, which is the whole difference between this and a stutter.
      */
     private fun seek(data: ByteArray, from: Int, until: Int) {
-        val window: ByteArray
-        if (heldBack.isEmpty()) {
-            window = data.copyOfRange(from, until)
-        } else {
-            window = ByteArray(heldBack.size + (until - from))
-            System.arraycopy(heldBack, 0, window, 0, heldBack.size)
-            System.arraycopy(data, from, window, heldBack.size, until - from)
+        val add = until - from
+        if (hold.size < holdLen + add) {
+            hold = hold.copyOf(maxOf(hold.size * 2, holdLen + add, 512 * 1024))
         }
-        soughtBytes += (until - from)
+        System.arraycopy(data, from, hold, holdLen, add)
+        holdLen += add
+        soughtBytes += add
 
-        val at = findTail(window)
+        val at = findTail(hold, scanFrom, holdLen)
         if (at >= 0) {
-            heldBack = EMPTY
             mode = Mode.PASS
             joins++
             if (lastPts >= 0L && burstFirstPts >= 0L) {
                 overlapMs = (ptsDiff(lastPts, burstFirstPts) / 90L).coerceAtLeast(0L)
             }
             val rest = at + tailLen
-            if (rest < window.size) pass(window, rest, window.size)
+            val end = holdLen
+            holdLen = 0
+            if (rest < end) pass(hold, rest, end)
             return
         }
+        // Only what has not been looked at yet needs looking at next time,
+        // less enough to catch a match that straddles two reads.
+        scanFrom = (holdLen - tailLen + TS_PACKET).coerceAtLeast(0)
 
         // Nothing we hold is in this lump at all: it starts after we stopped.
         val startsAhead = lastPts >= 0L && burstFirstPts >= 0L &&
@@ -435,15 +446,51 @@ class TsStitcher(private val out: (ByteArray, Int, Int) -> Unit) {
         val ranPast = lastPts >= 0L && arrivingPts >= 0L &&
             ptsDiff(arrivingPts, lastPts) > PAST_MARGIN_TICKS
         if (startsAhead || ranPast || soughtBytes > SEEK_LIMIT_BYTES) {
-            heldBack = EMPTY
-            beginResync()
-            resync(window, 0, window.size)
+            settleWithoutMatch(false)
             return
         }
 
-        // Keep just enough to catch a match that straddles two reads.
-        val keep = minOf(window.size, (tailLen - TS_PACKET).coerceAtLeast(0))
-        heldBack = window.copyOfRange(window.size - keep, window.size)
+        // A deep lump is mostly television we already have. Keep the recent
+        // end of it and let the rest go.
+        if (holdLen > HOLD_MAX_BYTES) {
+            val drop = ((holdLen - HOLD_KEEP_BYTES) / TS_PACKET) * TS_PACKET
+            System.arraycopy(hold, drop, hold, 0, holdLen - drop)
+            holdLen -= drop
+            scanFrom = (scanFrom - drop).coerceAtLeast(0)
+            holdWhole = false
+        }
+    }
+
+    /**
+     * No exact join. Two different things look like that, and only one of them
+     * loses any television.
+     *
+     * The portal hands its buffer back in whole pieces. If we stopped exactly
+     * at the end of one piece and it starts us at the beginning of the next,
+     * there is no overlap to find - and nothing missing either. That is a
+     * clean continuation and is taken whole, from its first packet.
+     *
+     * Anything else really is a break, and starts again at the first complete
+     * picture after the point we had reached.
+     */
+    private fun settleWithoutMatch(atLiveEdge: Boolean) {
+        val end = holdLen
+        holdLen = 0
+        val known = lastPts >= 0L && burstFirstPts >= 0L
+        val delta = if (known) ptsDiff(burstFirstPts, lastPts) else 0L
+        val follows = known && holdWhole && delta > -BEHIND_OK_TICKS && delta <= AHEAD_OK_TICKS
+        if (follows && end > 0) {
+            mode = Mode.PASS
+            joins++
+            overlapMs = 0L
+            pass(hold, 0, end)
+            return
+        }
+        beginResync()
+        if (end > 0) resync(hold, 0, end)
+        // Nothing usable was held and the feed has gone quiet: take whatever
+        // comes next rather than waiting on a picture that is not coming.
+        if (atLiveEdge && mode == Mode.RESYNC) resyncSince = steadyNow() - RESYNC_LIMIT_MS
     }
 
     private fun beginResync() {
@@ -478,11 +525,11 @@ class TsStitcher(private val out: (ByteArray, Int, Int) -> Unit) {
         resyncBytes += (until - from)
     }
 
-    private fun findTail(window: ByteArray): Int {
+    private fun findTail(window: ByteArray, from: Int, until: Int): Int {
         val n = tailLen
-        if (n < MIN_MATCH_BYTES || window.size < n) return -1
-        val last = window.size - n
-        var i = 0
+        if (n < MIN_MATCH_BYTES || until - from < n) return -1
+        val last = until - n
+        var i = from
         while (i <= last) {
             if (window[i + 1] == tail[1] && window[i + 2] == tail[2] && window[i + 3] == tail[3]) {
                 var k = 4
@@ -508,6 +555,14 @@ class TsStitcher(private val out: (ByteArray, Int, Int) -> Unit) {
         private const val PTS_WRAP = 1L shl 33
         private const val PAST_MARGIN_TICKS = 135_000L          // a second and a half
         private const val SEEK_LIMIT_BYTES = 160L * 1024L * 1024L
+
+        /** How much of an unmatched lump is kept while the search goes on. */
+        private const val HOLD_MAX_BYTES = 6 * 1024 * 1024
+        private const val HOLD_KEEP_BYTES = 4 * 1024 * 1024
+
+        /** How near to where we stopped a new piece must start to count as following on. */
+        private const val AHEAD_OK_TICKS = 67_500L              // three quarters of a second
+        private const val BEHIND_OK_TICKS = 135_000L            // a second and a half
         private const val RESYNC_LIMIT_BYTES = 8L * 1024L * 1024L
         private const val RESYNC_LIMIT_MS = 4_000L
         private const val ASSUMED_BYTES_PER_SECOND = 600_000L
@@ -641,6 +696,24 @@ class LineFeed(
     @Volatile var depthMs: Long = -1L
         private set
 
+    /**
+     * The last few measurements of that. The portal hands back whole pieces,
+     * so the figure swings by a piece from one reconnect to the next; planning
+     * on the smallest recent one is what keeps a join from being missed.
+     */
+    private val depths = LongArray(4) { -1L }
+    private var depthAt = 0
+    private var gaveAt = 0L
+
+    private fun noteDepth(ms: Long) {
+        if (ms <= 0L) return
+        depths[depthAt % depths.size] = ms
+        depthAt++
+        var least = Long.MAX_VALUE
+        for (d in depths) if (d > 0L && d < least) least = d
+        if (least != Long.MAX_VALUE) depthMs = least
+    }
+
     @Volatile var connects = 0
         private set
     @Volatile var joins = 0
@@ -708,6 +781,8 @@ class LineFeed(
             if (!line.take(this)) break
 
             val began = steadyNow()
+            val away = if (gaveAt > 0L) began - gaveAt else 0L
+            val gapsBefore = stitcher.gaps
             var worked = false
             try {
                 worked = readTurn()
@@ -719,8 +794,12 @@ class LineFeed(
                 cut()
                 joins = stitcher.joins
                 gaps = stitcher.gaps
+                gaveAt = steadyNow()
                 line.give(this)
             }
+            // A missed join says the portal had less saved than we were away
+            // for, whatever it measured last time.
+            if (stitcher.gaps > gapsBefore && away > 0L) noteDepth(away * 9L / 10L)
             if (closed) break
 
             if (worked) {
@@ -819,7 +898,7 @@ class LineFeed(
             // it took, is what the portal had saved up for us.
             val span = TsStitcher.ptsDiff(newest, first) / 90L
             val measured = span - (now - turnStartedAt)
-            if (measured > 0L) depthMs = measured
+            noteDepth(measured)
         }
     }
 
