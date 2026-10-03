@@ -175,6 +175,8 @@ class HomeActivity : AppCompatActivity() {
         handler.post(castWatch)
         showMessage()
         checkExpiry()
+        showTeams()
+        handler.postDelayed(teamWatch, TEAM_CHECK_MS)
         // Somebody setting a recording from the car park should find it already
         // on the list when they walk in, rather than up to five minutes later.
         kotlin.concurrent.thread { runCatching { Postman.collect(this@HomeActivity) } }
@@ -342,6 +344,86 @@ class HomeActivity : AppCompatActivity() {
         super.onStop()
         handler.removeCallbacks(tick)
         handler.removeCallbacks(castWatch)
+        handler.removeCallbacks(teamWatch)
+    }
+
+    // ---------- my teams ----------
+
+    /** Keeps the games panel current and says when one is about to start. */
+    private val teamWatch = object : Runnable {
+        override fun run() {
+            showTeams()
+            checkTeamReminder()
+            handler.postDelayed(this, TEAM_CHECK_MS)
+        }
+    }
+
+    /**
+     * Today's games for the teams being followed, under the artwork. With no
+     * teams chosen, or nothing on, the panel is not there and the artwork has
+     * the whole column - nobody is shown an empty box.
+     */
+    private fun showTeams() {
+        val panel = findViewById<View>(R.id.teamsPanel)
+        if (shortScreen()) {
+            panel.visibility = View.GONE
+            return
+        }
+        lifecycleScope.launch {
+            val now = System.currentTimeMillis()
+            val games = withContext(Dispatchers.Default) {
+                runCatching { MyTeams.games(this@HomeActivity, now) }.getOrDefault(emptyList())
+            }.take(3)
+            if (isFinishing || isDestroyed) return@launch
+            val folders = HashMap<String, String>()
+            for (category in Catalog.liveCategories) folders[category.id] = category.name
+            val clock = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT)
+            val rows = intArrayOf(R.id.teamGame1, R.id.teamGame2, R.id.teamGame3)
+            rows.forEachIndexed { index, id ->
+                val row = findViewById<View>(id)
+                val game = games.getOrNull(index)
+                if (game == null) {
+                    row.visibility = View.GONE
+                    return@forEachIndexed
+                }
+                row.visibility = View.VISIBLE
+                val logo = row.findViewById<ImageView>(R.id.gameLogo)
+                if (game.team.logo.isBlank()) {
+                    logo.setImageResource(R.drawable.logo)
+                } else {
+                    logo.load(game.team.logo) { crossfade(true) }
+                }
+                row.findViewById<TextView>(R.id.gameTitle).text = game.title
+                val folder = folders[game.channel.categoryId].orEmpty()
+                val started = game.startsAt <= now
+                val when_ = if (started) {
+                    getString(R.string.team_game_started, clock.format(Date(game.startsAt)))
+                } else {
+                    val minutes = ((game.startsAt - now) / 60_000L).toInt()
+                    if (minutes >= 60) getString(R.string.team_game_in_hours, minutes / 60, minutes % 60)
+                    else getString(R.string.team_game_in_minutes, minutes.coerceAtLeast(1))
+                }
+                row.findViewById<TextView>(R.id.gameSub).text =
+                    if (folder.isBlank()) when_ else "$folder  \u00B7  $when_"
+                row.findViewById<TextView>(R.id.gameTime).text =
+                    if (started) getString(R.string.team_game_on_now) else clock.format(Date(game.startsAt))
+                row.setOnClickListener {
+                    PlayerActivity.start(
+                        this@HomeActivity,
+                        urls = prefs.client().liveUrls(game.channel.streamId),
+                        title = game.channel.name,
+                        kind = Kind.LIVE,
+                        contentId = game.channel.streamId,
+                        category = game.channel.categoryId
+                    )
+                }
+                row.setOnLongClickListener {
+                    RecordDialog.showForLive(this@HomeActivity, game.channel)
+                    true
+                }
+            }
+            panel.visibility = if (games.isEmpty()) View.GONE else View.VISIBLE
+        }
     }
 
     // ---------- artwork ----------
@@ -460,6 +542,9 @@ class HomeActivity : AppCompatActivity() {
     }
 
     private companion object {
+        /** How often the games panel and the reminder are looked at. */
+        private const val TEAM_CHECK_MS = 30_000L
+
         /** How many days out the reminder starts appearing. */
         const val REMIND_WITHIN_DAYS = 14
         /** Inside this it returns every time Home does, rather than once a launch. */

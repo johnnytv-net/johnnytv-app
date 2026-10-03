@@ -25,6 +25,15 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var catalogueLabel: TextView
     private lateinit var versionLabel: TextView
 
+    override fun onResume() {
+        super.onResume()
+        // Back from choosing teams: say how many there are now.
+        val count = MyTeams.chosen(this).size
+        findViewById<TextView>(R.id.myTeamsState).text =
+            if (count == 0) getString(R.string.my_teams_none)
+            else resources.getQuantityString(R.plurals.teams_chosen, count, count)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
@@ -42,6 +51,9 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.previewRow).setOnClickListener {
             prefs.previewEnabled = !prefs.previewEnabled
             showPreviewState(previewState)
+        }
+        findViewById<View>(R.id.myTeamsRow).setOnClickListener {
+            startActivity(android.content.Intent(this, MyTeamsActivity::class.java))
         }
         val testerState = findViewById<TextView>(R.id.testerState)
         testerState.setText(if (prefs.tester) R.string.tester_on else R.string.tester_off)

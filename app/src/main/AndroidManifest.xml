@@ -106,6 +106,12 @@
             android:theme="@style/AppTheme.Fullscreen" />
 
         <activity
+            android:name=".MyTeamsActivity"
+            android:screenOrientation="sensorLandscape"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode" />
+
+        <activity
             android:name=".MultiViewActivity"
             android:screenOrientation="sensorLandscape"
             android:exported="false"

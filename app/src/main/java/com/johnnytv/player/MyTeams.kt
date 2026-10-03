@@ -1,0 +1,310 @@
+package com.johnnytv.player
+
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.regex.Pattern
+
+/** A team somebody follows. */
+data class Team(val league: String, val name: String, val nickname: String, val logo: String) {
+    val key: String get() = "$league|$nickname"
+}
+
+/** One of their games, and the channel it is on. */
+data class TeamGame(val team: Team, val channel: StreamItem, val startsAt: Long, val title: String)
+
+/**
+ * MY TEAMS.
+ *
+ * Pick the teams you follow, and their games come to you: on the home screen
+ * for today, and as a nudge ten minutes before the start.
+ *
+ * WHERE THE GAMES COME FROM. Nothing is fetched to find them. Portals list
+ * events as channels and write the teams and the start time into the channel's
+ * name, because the name is the only field they have - the same names the app
+ * already reads to put those folders in time order. A team's game is a channel
+ * whose name carries the team and a time. So this finds what the portal lists
+ * that way, and cannot find a game that is simply on an ordinary channel with
+ * no team in its name.
+ *
+ * WHERE THE TEAMS COME FROM. The league's own list, with proper names and
+ * logos, fetched once and kept for a week. If that cannot be had, a list of
+ * names built into the app stands in - no logos, but every team is there.
+ */
+object MyTeams {
+
+    val LEAGUES = listOf("NHL", "NFL", "NBA", "MLB", "MLS", "CFL")
+
+    private val PATHS = mapOf(
+        "NHL" to "hockey/nhl",
+        "NFL" to "football/nfl",
+        "NBA" to "basketball/nba",
+        "MLB" to "baseball/mlb",
+        "MLS" to "soccer/usa.1",
+        "CFL" to "football/cfl"
+    )
+
+    private const val STORE = "my_teams"
+    private const val KEY_CHOSEN = "chosen"
+    private const val KEY_REMINDED = "reminded"
+
+    private const val LIST_AGE_MS = 7L * 24L * 60L * 60L * 1000L
+
+    /** How long before the start the reminder goes up. */
+    const val REMIND_AHEAD_MS = 10L * 60L * 1000L
+
+    /** A game that began this long ago is still worth showing as on now. */
+    private const val ON_NOW_MS = 3L * 60L * 60L * 1000L
+
+    /** "Today", looking forward. */
+    private const val AHEAD_MS = 18L * 60L * 60L * 1000L
+
+    private fun store(context: Context) =
+        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+
+    // ---------- the teams somebody follows ----------
+
+    fun chosen(context: Context): List<Team> =
+        (store(context).getString(KEY_CHOSEN, "") ?: "").split("\n").mapNotNull { parse(it) }
+
+    private fun parse(line: String): Team? {
+        val parts = line.split("\t")
+        if (parts.size < 4 || parts[0].isBlank() || parts[2].isBlank()) return null
+        return Team(parts[0], parts[1], parts[2], parts[3])
+    }
+
+    /** Adds the team, or takes it off. True when it is now followed. */
+    fun toggle(context: Context, team: Team): Boolean {
+        val list = ArrayList(chosen(context))
+        val had = list.removeAll { it.key == team.key }
+        if (!had) list.add(team)
+        val text = list.joinToString("\n") { listOf(it.league, it.name, it.nickname, it.logo).joinToString("\t") }
+        store(context).edit().putString(KEY_CHOSEN, text).apply()
+        return !had
+    }
+
+    // ---------- a league's teams ----------
+
+    /** Blocking. Call off the main thread. */
+    fun teams(context: Context, league: String): List<Team> {
+        val file = File(context.filesDir, "teams_$league.json")
+        val kept = runCatching { readList(file, league) }.getOrDefault(emptyList())
+        val fresh = file.exists() && System.currentTimeMillis() - file.lastModified() < LIST_AGE_MS
+        if (kept.isNotEmpty() && fresh) return kept
+
+        val fetched = runCatching { fetch(league) }.getOrDefault(emptyList())
+        if (fetched.isNotEmpty()) {
+            runCatching { writeList(file, fetched) }
+            return fetched
+        }
+        // An old list is better than a bare one, and a bare one better than none.
+        if (kept.isNotEmpty()) return kept
+        return builtIn(league)
+    }
+
+    private fun fetch(league: String): List<Team> {
+        val path = PATHS[league] ?: return emptyList()
+        val http = URL("https://site.api.espn.com/apis/site/v2/sports/$path/teams?limit=100")
+            .openConnection() as HttpURLConnection
+        try {
+            http.connectTimeout = 8_000
+            http.readTimeout = 10_000
+            http.setRequestProperty("User-Agent", Config.USER_AGENT)
+            if (http.responseCode !in 200..299) return emptyList()
+            val body = http.inputStream.bufferedReader().use { it.readText() }
+            val list = JSONObject(body).optJSONArray("sports")?.optJSONObject(0)
+                ?.optJSONArray("leagues")?.optJSONObject(0)
+                ?.optJSONArray("teams") ?: return emptyList()
+            val out = ArrayList<Team>(list.length())
+            for (i in 0 until list.length()) {
+                val team = list.optJSONObject(i)?.optJSONObject("team") ?: continue
+                val name = team.optString("displayName", "").trim()
+                val nickname = team.optString("name", "").trim()
+                    .ifBlank { team.optString("shortDisplayName", "").trim() }
+                if (name.isBlank() || nickname.isBlank()) continue
+                val logo = team.optJSONArray("logos")?.optJSONObject(0)?.optString("href", "").orEmpty()
+                out.add(Team(league, name, nickname, logo.replace("http://", "https://")))
+            }
+            return out.sortedBy { it.name }
+        } finally {
+            http.disconnect()
+        }
+    }
+
+    private fun readList(file: File, league: String): List<Team> {
+        if (!file.exists()) return emptyList()
+        val array = JSONArray(file.readText())
+        val out = ArrayList<Team>(array.length())
+        for (i in 0 until array.length()) {
+            val o = array.optJSONObject(i) ?: continue
+            val nickname = o.optString("k", "")
+            if (nickname.isBlank()) continue
+            out.add(Team(league, o.optString("n", ""), nickname, o.optString("l", "")))
+        }
+        return out
+    }
+
+    private fun writeList(file: File, teams: List<Team>) {
+        val array = JSONArray()
+        for (team in teams) {
+            array.put(JSONObject().put("n", team.name).put("k", team.nickname).put("l", team.logo))
+        }
+        file.writeText(array.toString())
+    }
+
+    private fun builtIn(league: String): List<Team> =
+        (BUILT_IN[league] ?: "").split(";").mapNotNull { entry ->
+            val parts = entry.split("|")
+            if (parts.size < 2) null
+            else Team(league, parts[0].trim() + " " + parts[1].trim(), parts[1].trim(), "")
+        }.sortedBy { it.name }
+
+    // ---------- their games ----------
+
+    fun games(context: Context, now: Long = System.currentTimeMillis()): List<TeamGame> {
+        val mine = chosen(context)
+        if (mine.isEmpty()) return emptyList()
+        val folders = HashMap<String, String>()
+        for (category in Catalog.liveCategories) folders[category.id] = category.name
+        val patterns = mine.map { team ->
+            team to Pattern.compile("\\b" + Pattern.quote(team.nickname) + "\\b", Pattern.CASE_INSENSITIVE)
+        }
+        val out = ArrayList<TeamGame>()
+        val seen = HashSet<String>()
+        for (channel in Catalog.live) {
+            val name = channel.name
+            for ((team, pattern) in patterns) {
+                if (!pattern.matcher(name).find()) continue
+                // Kings, Jets, Giants, Panthers: a nickname alone can belong to
+                // two leagues, so where a league is named it has to be the right one.
+                if (!leagueFits(team.league, name + " " + folders[channel.categoryId].orEmpty())) continue
+                val at = EventOrder.timeIn(name, now) ?: continue
+                if (at < now - ON_NOW_MS || at > now + AHEAD_MS) continue
+                // The same game on three feeds is one game.
+                if (!seen.add(team.key + "@" + (at / 600_000L))) continue
+                out.add(TeamGame(team, channel, at, tidy(name)))
+            }
+        }
+        return out.sortedBy { it.startsAt }
+    }
+
+    private val LEAGUE_WORDS: List<Pair<String, Pattern>> = LEAGUES.map {
+        it to Pattern.compile("\\b$it\\b", Pattern.CASE_INSENSITIVE)
+    }
+
+    private fun leagueFits(league: String, text: String): Boolean {
+        var named = false
+        for ((code, pattern) in LEAGUE_WORDS) {
+            if (pattern.matcher(text).find()) {
+                if (code == league) return true
+                named = true
+            }
+        }
+        return !named
+    }
+
+    private val BRACKETS = Regex("[\\(\\[][^\\)\\]]*[\\)\\]]")
+    private val CLOCK = Regex("(?i)\\b\\d{1,2}(:\\d{2})?\\s*(am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b")
+    private val DATE = Regex("\\b\\d{1,2}\\s*[/.\\-]\\s*\\d{1,2}\\b")
+    private val SPACES = Regex("\\s+")
+
+    /** The channel's name with the folder tag, the date and the time taken off. */
+    private fun tidy(name: String): String {
+        var text = name
+        val bar = text.indexOf('|')
+        if (bar in 1..16) text = text.substring(bar + 1)
+        text = text.replace(BRACKETS, " ").replace(CLOCK, " ").replace(DATE, " ")
+        text = text.replace(SPACES, " ").trim().trim('-', '|', ':', '@', ',', ' ')
+        return text.ifBlank { name }
+    }
+
+    /**
+     * A game that starts within the next ten minutes and has not been
+     * mentioned yet - marked as mentioned as it is handed over, so it is said
+     * once however many screens ask.
+     */
+    fun dueReminder(context: Context, now: Long = System.currentTimeMillis()): TeamGame? {
+        val reminded = (store(context).getString(KEY_REMINDED, "") ?: "").split("\n").filter { it.isNotBlank() }
+        val due = games(context, now).firstOrNull { game ->
+            val wait = game.startsAt - now
+            wait in 0L..REMIND_AHEAD_MS && !reminded.contains(tokenFor(game))
+        } ?: return null
+        val kept = (reminded + tokenFor(due)).takeLast(40)
+        store(context).edit().putString(KEY_REMINDED, kept.joinToString("\n")).apply()
+        return due
+    }
+
+    private fun tokenFor(game: TeamGame): String = game.team.key + "@" + (game.startsAt / 600_000L)
+
+    // Location|Nickname, for when the league's own list cannot be fetched.
+    private val BUILT_IN = mapOf(
+        "NHL" to "Anaheim|Ducks;Boston|Bruins;Buffalo|Sabres;Calgary|Flames;Carolina|Hurricanes;Chicago|Blackhawks;Colorado|Avalanche;Columbus|Blue Jackets;Dallas|Stars;Detroit|Red Wings;Edmonton|Oilers;Florida|Panthers;Los Angeles|Kings;Minnesota|Wild;Montreal|Canadiens;Nashville|Predators;New Jersey|Devils;New York|Islanders;New York|Rangers;Ottawa|Senators;Philadelphia|Flyers;Pittsburgh|Penguins;San Jose|Sharks;Seattle|Kraken;St. Louis|Blues;Tampa Bay|Lightning;Toronto|Maple Leafs;Utah|Mammoth;Vancouver|Canucks;Vegas|Golden Knights;Washington|Capitals;Winnipeg|Jets",
+        "NFL" to "Arizona|Cardinals;Atlanta|Falcons;Baltimore|Ravens;Buffalo|Bills;Carolina|Panthers;Chicago|Bears;Cincinnati|Bengals;Cleveland|Browns;Dallas|Cowboys;Denver|Broncos;Detroit|Lions;Green Bay|Packers;Houston|Texans;Indianapolis|Colts;Jacksonville|Jaguars;Kansas City|Chiefs;Las Vegas|Raiders;Los Angeles|Chargers;Los Angeles|Rams;Miami|Dolphins;Minnesota|Vikings;New England|Patriots;New Orleans|Saints;New York|Giants;New York|Jets;Philadelphia|Eagles;Pittsburgh|Steelers;San Francisco|49ers;Seattle|Seahawks;Tampa Bay|Buccaneers;Tennessee|Titans;Washington|Commanders",
+        "NBA" to "Atlanta|Hawks;Boston|Celtics;Brooklyn|Nets;Charlotte|Hornets;Chicago|Bulls;Cleveland|Cavaliers;Dallas|Mavericks;Denver|Nuggets;Detroit|Pistons;Golden State|Warriors;Houston|Rockets;Indiana|Pacers;Los Angeles|Clippers;Los Angeles|Lakers;Memphis|Grizzlies;Miami|Heat;Milwaukee|Bucks;Minnesota|Timberwolves;New Orleans|Pelicans;New York|Knicks;Oklahoma City|Thunder;Orlando|Magic;Philadelphia|76ers;Phoenix|Suns;Portland|Trail Blazers;Sacramento|Kings;San Antonio|Spurs;Toronto|Raptors;Utah|Jazz;Washington|Wizards",
+        "MLB" to "Arizona|Diamondbacks;Atlanta|Braves;Baltimore|Orioles;Boston|Red Sox;Chicago|Cubs;Chicago|White Sox;Cincinnati|Reds;Cleveland|Guardians;Colorado|Rockies;Detroit|Tigers;Houston|Astros;Kansas City|Royals;Los Angeles|Angels;Los Angeles|Dodgers;Miami|Marlins;Milwaukee|Brewers;Minnesota|Twins;New York|Mets;New York|Yankees;Athletics|Athletics;Philadelphia|Phillies;Pittsburgh|Pirates;San Diego|Padres;San Francisco|Giants;Seattle|Mariners;St. Louis|Cardinals;Tampa Bay|Rays;Texas|Rangers;Toronto|Blue Jays;Washington|Nationals",
+        "CFL" to "BC|Lions;Calgary|Stampeders;Edmonton|Elks;Hamilton|Tiger-Cats;Montreal|Alouettes;Ottawa|Redblacks;Saskatchewan|Roughriders;Toronto|Argonauts;Winnipeg|Blue Bombers"
+    )
+}
+
+/**
+ * The nudge before a game: who is playing, how soon, and three things to do
+ * about it. It sits at the foot of the screen so that what is being watched
+ * carries on above it, and it goes away on its own if nobody answers.
+ */
+fun android.app.Activity.showGameReminder(game: TeamGame) {
+    val minutes = ((game.startsAt - System.currentTimeMillis()) / 60_000L).coerceAtLeast(1L)
+    val view = android.view.LayoutInflater.from(this).inflate(R.layout.dialog_options, null, false)
+    val column = view.findViewById<android.widget.LinearLayout>(R.id.optionsColumn)
+    val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+        .setTitle(getString(R.string.team_reminder_title, game.title, minutes.toInt()))
+        .setView(view)
+        .create()
+    val labels = listOf(
+        getString(R.string.team_reminder_watch),
+        getString(R.string.record_this),
+        getString(R.string.team_reminder_dismiss)
+    )
+    labels.forEachIndexed { index, label ->
+        val row = android.view.LayoutInflater.from(this)
+            .inflate(R.layout.item_option, column, false) as android.widget.TextView
+        row.text = label
+        row.setOnClickListener {
+            dialog.dismiss()
+            when (index) {
+                0 -> PlayerActivity.start(
+                    this,
+                    urls = Prefs(this).client().liveUrls(game.channel.streamId),
+                    title = game.channel.name,
+                    kind = Kind.LIVE,
+                    contentId = game.channel.streamId,
+                    category = game.channel.categoryId
+                )
+                1 -> RecordDialog.showForLive(this, game.channel)
+            }
+        }
+        column.addView(row)
+    }
+    dialog.setOnShowListener { column.getChildAt(0)?.requestFocus() }
+    dialog.window?.setGravity(android.view.Gravity.BOTTOM)
+    dialog.show()
+    // Unanswered, it clears itself rather than sitting over the picture.
+    view.postDelayed({ if (dialog.isShowing && !isFinishing) runCatching { dialog.dismiss() } }, 25_000L)
+}
+
+/** Looks for a game about to start and, if there is one, says so. */
+fun android.app.Activity.checkTeamReminder(watching: String = "") {
+    val activity = this
+    kotlin.concurrent.thread {
+        val game = runCatching { MyTeams.dueReminder(activity) }.getOrNull() ?: return@thread
+        // Already on it: nothing to be reminded of.
+        if (game.channel.streamId == watching) return@thread
+        activity.runOnUiThread {
+            if (!activity.isFinishing && !activity.isDestroyed) {
+                runCatching { activity.showGameReminder(game) }
+            }
+        }
+    }
+}

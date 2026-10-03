@@ -240,6 +240,7 @@ class PlayerActivity : AppCompatActivity() {
         if (urls.isNotEmpty()) startPlayback()
         if (kind == Kind.LIVE) playerView.post(castWatch)
         if (kind == Kind.LIVE && !playlist) playerView.postDelayed(stallWatch, STALL_CHECK_MS)
+        playerView.postDelayed(teamWatch, TEAM_CHECK_MS)
         if (kind == Kind.LIVE && !playlist) playerView.postDelayed(recordingWatch, RECORDING_CHECK_MS)
     }
 
@@ -257,6 +258,7 @@ class PlayerActivity : AppCompatActivity() {
         channelLabel.visibility = View.GONE
         playerView.removeCallbacks(castWatch)
         playerView.removeCallbacks(stallWatch)
+        playerView.removeCallbacks(teamWatch)
         playerView.removeCallbacks(waitForChunk)
         playerView.removeCallbacks(recordingWatch)
         resetStallClock()
@@ -473,6 +475,14 @@ class PlayerActivity : AppCompatActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    /** Says when a followed team's game is about to start, whatever is on. */
+    private val teamWatch = object : Runnable {
+        override fun run() {
+            checkTeamReminder(if (kind == Kind.LIVE) contentId else "")
+            playerView.postDelayed(this, TEAM_CHECK_MS)
+        }
     }
 
     private var holdingSelect = false
@@ -1294,6 +1304,9 @@ class PlayerActivity : AppCompatActivity() {
 
         /** A live connection silent for this long is reopened behind the player's back. */
         private const val STEADY_QUIET_MS = 5_000L
+
+        /** How often to look for a followed team's game about to start. */
+        private const val TEAM_CHECK_MS = 30_000L
 
         private const val EXTRA_URLS = "extra_urls"
         private const val EXTRA_PLAYLIST = "extra_playlist"

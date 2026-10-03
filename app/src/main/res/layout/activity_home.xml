@@ -115,7 +115,8 @@
                 </LinearLayout>
             </LinearLayout>
         </LinearLayout>
-        <FrameLayout android:id="@+id/featuredPanel" android:layout_width="0dp" android:layout_height="match_parent" android:layout_marginStart="12dp" android:layout_weight="65" android:background="@drawable/bg_poster_card" android:clickable="true" android:focusable="true" android:foreground="@drawable/fg_card_press">
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_marginStart="12dp" android:layout_weight="65" android:orientation="vertical">
+        <FrameLayout android:id="@+id/featuredPanel" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:background="@drawable/bg_poster_card" android:clickable="true" android:focusable="true" android:foreground="@drawable/fg_card_press">
             <ImageView android:id="@+id/featuredArt" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="@string/featured" android:scaleType="centerCrop"/>
             <TextView android:id="@+id/featuredTag" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="top|start" android:layout_margin="16dp" android:background="@drawable/bg_home_tag" android:fontFamily="sans-serif-medium" android:letterSpacing="0.08" android:paddingStart="10dp" android:paddingEnd="10dp" android:paddingTop="5dp" android:paddingBottom="5dp" android:text="@string/home_recently_added" android:textAllCaps="true" android:textColor="#FFFFFFFF" android:textSize="12sp" android:visibility="gone"/>
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom" android:background="@drawable/bg_card_label" android:orientation="vertical" android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingTop="54dp" android:paddingBottom="16dp">
@@ -124,5 +125,17 @@
                 <TextView android:id="@+id/featuredHint" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:background="@drawable/bg_home_hint" android:fontFamily="sans-serif-medium" android:paddingStart="12dp" android:paddingEnd="12dp" android:paddingTop="6dp" android:paddingBottom="6dp" android:text="@string/home_press_ok" android:textColor="#FFFFFFFF" android:textSize="13sp" android:visibility="gone"/>
             </LinearLayout>
         </FrameLayout>
+        <!-- Today's games for the teams somebody follows. Not there at all
+             unless there is a game to show. -->
+        <LinearLayout android:id="@+id/teamsPanel" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:background="@drawable/bg_panel" android:orientation="vertical" android:paddingStart="12dp" android:paddingEnd="12dp" android:paddingTop="10dp" android:paddingBottom="12dp" android:visibility="gone">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:fontFamily="sans-serif-medium" android:letterSpacing="0.12" android:text="@string/my_teams_today" android:textAllCaps="true" android:textColor="@color/text_secondary" android:textSize="11sp"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/my_teams_hint" android:textColor="@color/text_secondary" android:textSize="11sp"/>
+            </LinearLayout>
+            <include android:id="@+id/teamGame1" layout="@layout/item_team_game" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp"/>
+            <include android:id="@+id/teamGame2" layout="@layout/item_team_game" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="7dp"/>
+            <include android:id="@+id/teamGame3" layout="@layout/item_team_game" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="7dp"/>
+        </LinearLayout>
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

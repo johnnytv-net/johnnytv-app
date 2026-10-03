@@ -86,6 +86,23 @@
     <string name="view_grid">Grid</string>
     <string name="minutes_long">%1$d min</string>
     <string name="preview_unavailable">Preview unavailable</string>
+    <!-- My Teams -->
+    <string name="my_teams">My Teams</string>
+    <string name="my_teams_about">Pick the teams you follow. Their games show on the home screen, with a reminder before they start.</string>
+    <string name="my_teams_none">None chosen yet</string>
+    <string name="my_teams_today">Your teams today</string>
+    <string name="my_teams_hint">OK to watch  ·  hold OK to record</string>
+    <plurals name="teams_chosen">
+        <item quantity="one">%1$d team chosen</item>
+        <item quantity="other">%1$d teams chosen</item>
+    </plurals>
+    <string name="team_game_on_now">ON NOW</string>
+    <string name="team_game_started">started %1$s</string>
+    <string name="team_game_in_hours">in %1$d h %2$d min</string>
+    <string name="team_game_in_minutes">in %1$d min</string>
+    <string name="team_reminder_title">%1$s starts in %2$d min</string>
+    <string name="team_reminder_watch">Watch</string>
+    <string name="team_reminder_dismiss">Dismiss</string>
     <string name="tester_title">Try new features early on this box</string>
     <string name="tester_on">On — this box gets features that are still being tested</string>
     <string name="tester_off">Off — this box gets what everybody gets</string>
