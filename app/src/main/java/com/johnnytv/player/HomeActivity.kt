@@ -157,6 +157,13 @@ class HomeActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.featuredPanel).setOnClickListener { openFeatured() }
 
+        fitToScreen()
+        // The prompt on the artwork only belongs there while the remote does.
+        val hint = findViewById<View>(R.id.featuredHint)
+        findViewById<View>(R.id.featuredPanel).setOnFocusChangeListener { _, focused ->
+            hint.visibility = if (focused && featured != null) View.VISIBLE else View.GONE
+        }
+
         loadArtwork()
         findViewById<View>(R.id.tileLive).requestFocus()
     }
@@ -339,19 +346,56 @@ class HomeActivity : AppCompatActivity() {
     // ---------- artwork ----------
 
     private fun loadArtwork() {
-        // Three different pieces of artwork, so the tiles don't all show the same poster.
-        val recentMovies = Catalog.vod.filter { it.icon.isNotBlank() }
-            .sortedByDescending { it.added }
-            .take(40)
-        setArt(findViewById(R.id.moviesArt), recentMovies.getOrNull(0)?.icon)
-        setArt(findViewById(R.id.liveArt), recentMovies.randomOrNull()?.icon)
-
-        val series = Catalog.series.filter { it.cover.isNotBlank() }
-            .sortedByDescending { it.added }
-            .firstOrNull()
-        setArt(findViewById(R.id.seriesArt), series?.cover)
+        // The three main rows say how much is behind them. They used to carry
+        // posters instead - and Live TV, having none of its own, borrowed a
+        // random film's.
+        showCount(R.id.homeLiveCount, R.string.home_count_channels, Catalog.live.size)
+        showCount(R.id.homeSeriesCount, R.string.home_count_series, Catalog.series.size)
+        showCount(R.id.homeMoviesCount, R.string.home_count_movies, Catalog.vod.size)
 
         loadFeatured()
+    }
+
+    private fun showCount(viewId: Int, textId: Int, count: Int) {
+        val label = findViewById<TextView>(viewId)
+        // A short screen has no room for a second line under each name.
+        if (count <= 0 || shortScreen()) {
+            label.visibility = View.GONE
+            return
+        }
+        label.text = getString(textId, java.text.NumberFormat.getIntegerInstance().format(count))
+        label.visibility = View.VISIBLE
+    }
+
+    /** A phone on its side, rather than a television or a tablet. */
+    private fun shortScreen(): Boolean = resources.configuration.screenHeightDp < 430
+
+    /**
+     * The layout is drawn for a television. On a phone held sideways there is
+     * roughly two thirds of the height, so the rows keep their shape by
+     * giving up a little size: smaller names, smaller icon squares.
+     */
+    private fun fitToScreen() {
+        if (!shortScreen()) return
+        val density = resources.displayMetrics.density
+        for (id in intArrayOf(R.id.tileLiveLabel, R.id.tileSeriesLabel, R.id.tileMoviesLabel)) {
+            findViewById<TextView>(id).textSize = 17f
+        }
+        for (id in intArrayOf(R.id.liveChip, R.id.seriesChip, R.id.moviesChip)) {
+            val chip = findViewById<View>(id)
+            val params = chip.layoutParams
+            params.width = (34 * density).toInt()
+            params.height = (34 * density).toInt()
+            chip.layoutParams = params
+            val pad = (7 * density).toInt()
+            (chip as? android.view.ViewGroup)?.getChildAt(0)?.setPadding(pad, pad, pad, pad)
+        }
+        for (id in intArrayOf(
+            R.id.homeEpgLabel, R.id.homeMultiviewLabel, R.id.homeRecordingsLabel,
+            R.id.homeSearchLabel, R.id.homeRefreshLabel, R.id.homeSettingsLabel
+        )) {
+            findViewById<TextView>(id).textSize = 12f
+        }
     }
 
     private fun setArt(view: ImageView, url: String?) {
@@ -375,6 +419,7 @@ class HomeActivity : AppCompatActivity() {
         val title = findViewById<TextView>(R.id.featuredTitle)
         val meta = findViewById<TextView>(R.id.featuredMeta)
 
+        findViewById<View>(R.id.featuredTag).visibility = if (choice == null) View.GONE else View.VISIBLE
         if (choice == null) {
             art.setImageResource(R.drawable.tile_placeholder)
             title.text = getString(R.string.app_name)

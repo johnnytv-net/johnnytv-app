@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icons on the smaller home buttons: light blue at rest, white when focused. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true" android:color="#FFFFFFFF" />
+    <item android:state_pressed="true" android:color="#FFFFFFFF" />
+    <item android:color="@color/epg_now" />
+</selector>
