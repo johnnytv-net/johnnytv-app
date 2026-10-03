@@ -285,6 +285,7 @@
     <string name="home_count_series">%1$s series</string>
     <string name="home_count_movies">%1$s movies</string>
     <string name="player_add_screen">Add another screen</string>
+    <string name="multiview_pick_channel">Choose a channel</string>
     <string name="multiview_show_numbers">Show the buffer numbers</string>
     <string name="multiview_hide_numbers">Hide the buffer numbers</string>
     <string name="multiview_already_on">That channel is already on the other screen.</string>

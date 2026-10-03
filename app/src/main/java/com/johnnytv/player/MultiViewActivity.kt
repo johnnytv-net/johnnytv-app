@@ -217,7 +217,11 @@ class MultiViewActivity : AppCompatActivity() {
         return super.dispatchKeyEvent(event)
     }
 
+    private fun isOpen(index: Int): Boolean = panes[index].frame.visibility == View.VISIBLE
+
     private fun setActive(index: Int) {
+        // A screen that has been closed is not somewhere the highlight can go.
+        if (!isOpen(index)) return
         active = index
         panes.forEachIndexed { at, pane ->
             pane.border.visibility = if (at == index && highlightUp) View.VISIBLE else View.GONE
@@ -228,34 +232,79 @@ class MultiViewActivity : AppCompatActivity() {
     private fun openMenu(index: Int) {
         val pane = panes[index]
         val channel = pane.channel
+        val other = 1 - index
         if (channel == null) {
-            choose(index)
+            // An empty screen beside one that is playing can be filled or
+            // put away; an empty screen on its own can only be filled.
+            if (isOpen(other) && panes[other].channel != null) {
+                val choices = listOf(
+                    getString(R.string.multiview_pick_channel),
+                    getString(R.string.multiview_close_pane)
+                )
+                showOptions(getString(R.string.multiview), choices) { which ->
+                    if (which == 0) choose(index) else closePane(index)
+                }
+            } else {
+                choose(index)
+            }
             return
         }
-        val options = listOf(
-            getString(R.string.multiview_change),
-            getString(R.string.multiview_full_screen),
-            getString(R.string.multiview_close_pane),
-            getString(if (showNumbers) R.string.multiview_hide_numbers else R.string.multiview_show_numbers)
-        )
-        showOptions(channel.name, options) { which ->
-            when (which) {
-                0 -> choose(index)
-                1 -> goFullScreen(channel)
-                2 -> {
-                    stopPane(pane)
-                    pane.channel = null
-                    showEmpty(pane)
-                    remember()
-                }
-                3 -> {
-                    // The Shield keeps its menu button for itself, so the
-                    // numbers are reached from here.
-                    showNumbers = !showNumbers
-                    panes.forEach { it.stats.visibility = if (showNumbers && it.feed != null) View.VISIBLE else View.GONE }
-                }
-            }
+
+        // Built as it goes, because what is offered depends on whether the
+        // other screen is open.
+        val labels = ArrayList<String>()
+        val actions = ArrayList<() -> Unit>()
+        labels.add(getString(R.string.multiview_change))
+        actions.add { choose(index) }
+        if (isOpen(other)) {
+            labels.add(getString(R.string.multiview_close_pane))
+            actions.add { closePane(index) }
+        } else {
+            labels.add(getString(R.string.player_add_screen))
+            actions.add { reopenPane(other) }
         }
+        labels.add(getString(R.string.multiview_full_screen))
+        actions.add { goFullScreen(channel) }
+        labels.add(getString(if (showNumbers) R.string.multiview_hide_numbers else R.string.multiview_show_numbers))
+        actions.add {
+            // The Shield keeps its menu button for itself, so the numbers are
+            // reached from here.
+            showNumbers = !showNumbers
+            panes.forEach { it.stats.visibility = if (showNumbers && it.feed != null) View.VISIBLE else View.GONE }
+        }
+        showOptions(channel.name, labels) { which -> actions.getOrNull(which)?.invoke() }
+    }
+
+    /**
+     * Closing a screen puts it away altogether: it stops, it leaves the
+     * layout, and the one that is left grows to fill the television without
+     * missing a frame. It used to stay where it was as an empty half with a
+     * prompt in it, which looked like nothing had happened.
+     */
+    private fun closePane(index: Int) {
+        val pane = panes[index]
+        val other = 1 - index
+        stopPane(pane)
+        pane.channel = null
+        remember()
+        if (!isOpen(other) || panes[other].channel == null) {
+            // Nothing left to watch here.
+            finish()
+            return
+        }
+        pane.frame.visibility = View.GONE
+        wake()
+        setActive(other)
+    }
+
+    /** Brings the second screen back and goes straight to choosing what goes on it. */
+    private fun reopenPane(index: Int) {
+        val pane = panes[index]
+        pane.frame.visibility = View.VISIBLE
+        showEmpty(pane)
+        wake()
+        setActive(index)
+        choose(index)
     }
 
     /** A folder, then a channel in it. */
