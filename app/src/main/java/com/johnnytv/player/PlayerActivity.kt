@@ -15,11 +15,13 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
@@ -68,6 +70,13 @@ class PlayerActivity : AppCompatActivity() {
 
     /** This channel has stalled on this line before, so hold more in hand. */
     private var deeperBuffer = false
+
+    /**
+     * The live channel's own connection, kept by the app rather than by the
+     * player - see the note where it is made.
+     */
+    private var steadyFeed: LineFeed? = null
+    private val steadyLine = LineShare()
 
     /** A recording being played back: a list of chunk files, not a live stream. */
     private var playlist = false
@@ -1022,7 +1031,45 @@ class PlayerActivity : AppCompatActivity() {
             PlaybackLog.add(this, "resume point: " + resumeFrom + "ms")
             addNextBatch(exo)
         } else {
-            exo.setMediaItem(MediaItem.fromUri(urls[urlIndex]))
+            val address = urls[urlIndex]
+            /*
+             * A DROP THE VIEWER NEVER SEES.
+             *
+             * Given the address, the player keeps the connection itself, and
+             * when the portal lets go of it the player can only report an
+             * error and be rebuilt - a freeze, a spinner, and the channel
+             * starting over. That is the buffering people notice.
+             *
+             * The portal answers a reconnect with the last several seconds
+             * over again, and the player is always a few seconds behind live
+             * with that much in hand. So the app keeps the connection instead:
+             * when it drops, or goes quiet, it is reopened and joined at the
+             * exact packet it stopped on while the player carries on from what
+             * it already holds. This is the engine Multiview and the recorder
+             * already run on.
+             *
+             * It is for the raw feed only. If the address never opens the feed
+             * says so, and the old path - next address, playlist form - takes
+             * over as it always did. The watchdog above stays as it is: if the
+             * picture stops anyway, it still starts the channel afresh.
+             */
+            val steady = kind == Kind.LIVE && prefs.steadyLive &&
+                address.startsWith("http") && !address.contains(".m3u8")
+            if (steady) {
+                val feed = LineFeed(address, steadyLine, Config.USER_AGENT, 2, STEADY_QUIET_MS) {
+                    // A recording has first call on a one-connection line.
+                    !RecorderService.isRecording
+                }
+                steadyFeed = feed
+                val uri = android.net.Uri.parse(address)
+                exo.setMediaSource(
+                    ProgressiveMediaSource.Factory(DataSource.Factory { FeedDataSource(feed, uri) })
+                        .createMediaSource(MediaItem.fromUri(uri))
+                )
+                feed.start()
+            } else {
+                exo.setMediaItem(MediaItem.fromUri(address))
+            }
         }
         exo.prepare()
         exo.playWhenReady = true
@@ -1095,6 +1142,9 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun releasePlayer() {
+        val feed = steadyFeed
+        steadyFeed = null
+        feed?.close()
         player?.let {
             player = null          // cleared first, so its parting errors are ignored
             // Films and episodes must come back where they were: a reconnect, or
@@ -1199,6 +1249,9 @@ class PlayerActivity : AppCompatActivity() {
          */
         private const val FROZEN_MS = 3_000L
         private const val STALL_CHECK_MS = 1_000L
+
+        /** A live connection silent for this long is reopened behind the player's back. */
+        private const val STEADY_QUIET_MS = 5_000L
 
         private const val EXTRA_URLS = "extra_urls"
         private const val EXTRA_PLAYLIST = "extra_playlist"

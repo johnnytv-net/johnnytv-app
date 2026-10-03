@@ -708,11 +708,29 @@ class TsStitcher(
 class LineFeed(
     private val url: String,
     private val line: LineShare,
-    private val userAgent: String
+    private val userAgent: String,
+    /**
+     * Stop trying after this many failures in a row if the channel has never
+     * produced anything, so whoever is waiting can try another address. Zero
+     * means keep trying for ever.
+     */
+    private val giveUpAfter: Int = 0,
+    /**
+     * A connection that has sent nothing for this long is dead, whatever the
+     * socket says: hang up and reconnect. Zero leaves that to the read
+     * timeout.
+     */
+    private val quietCutMs: Long = 0L,
+    /** Asked before every connection; false means wait. */
+    private val mayConnect: () -> Boolean = { true }
 ) {
     val pipe = BytePipe()
 
     @Volatile var closed = false
+        private set
+
+    /** True once this feed has stopped trying because the channel never opened. */
+    @Volatile var gaveUp = false
         private set
 
     /** How much the player itself is holding, told to us by the screen. */
@@ -803,6 +821,8 @@ class LineFeed(
         while (!closed) {
             // Plenty in hand: stay off the line so somebody else can have it.
             while (!closed && !needsLine()) nap(60L)
+            // Somebody else has first call on the line just now.
+            while (!closed && !mayConnect()) nap(500L)
             if (closed) break
             if (!line.take(this)) break
 
@@ -834,6 +854,13 @@ class LineFeed(
                 if (sharing()) line.noteGulp(steadyNow() - began)
             } else {
                 failures++
+                if (giveUpAfter > 0 && !everPlayed && failures >= giveUpAfter) {
+                    // It never opened. Say so rather than spin: whoever is
+                    // reading can move on to another address for the channel.
+                    gaveUp = true
+                    pipe.shut()
+                    break
+                }
                 if (sharing()) line.noteRefused()
                 nap((300L * failures).coerceAtMost(2_500L))
             }
@@ -943,6 +970,14 @@ class LineFeed(
     internal fun tick(now: Long) {
         if (!connected || closed || letGo) return
         val quiet = now - lastBytesAt
+        if (quietCutMs > 0L && quiet >= quietCutMs) {
+            // The socket is open and nothing is coming down it. The portal
+            // has stopped sending without saying so; a fresh connection picks
+            // up where this one left off.
+            letGo = true
+            cut()
+            return
+        }
         if (bytesThisTurn > 0L && quiet >= QUIET_MEANS_LIVE_MS) {
             // Level with live and still no sign of where we left off.
             if (!stitcher.flowing) stitcher.stopSeeking()

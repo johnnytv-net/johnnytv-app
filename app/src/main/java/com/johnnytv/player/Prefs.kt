@@ -183,6 +183,15 @@ class Prefs(context: Context) {
      * but a preview holds a connection, so anyone on a single-connection line who
      * runs into trouble can turn it off.
      */
+    /**
+     * Whether live channels are fed through the app's own reconnecting feed.
+     * Set from config.json, so it can be switched off for everybody without a
+     * new build if it ever misbehaves on some portal.
+     */
+    var steadyLive: Boolean
+        get() = sp.getBoolean("steady_live", true)
+        set(value) = sp.edit().putBoolean("steady_live", value).apply()
+
     var previewEnabled: Boolean
         get() = sp.getBoolean(KEY_PREVIEW, true)
         set(value) = sp.edit().putBoolean(KEY_PREVIEW, value).apply()

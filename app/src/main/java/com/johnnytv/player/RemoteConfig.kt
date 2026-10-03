@@ -37,7 +37,9 @@ data class RemoteConfig(
     /** How a customer renews, shown when their line is about to run out. */
     val renewalContact: String = "",
     /** Per-service lineup rules - see Lineup.kt. Keyed by the service address. */
-    val lineups: Map<String, Lineup> = emptyMap()
+    val lineups: Map<String, Lineup> = emptyMap(),
+    /** The off-switch for the reconnecting live feed; on unless config.json says otherwise. */
+    val steadyLive: Boolean = true
 )
 
 object RemoteConfigLoader {
@@ -114,7 +116,8 @@ object RemoteConfigLoader {
                     renewalContact = json.optString("renewal_contact", "").trim(),
                     lineups = json.optJSONObject("lineups")
                         ?.let { runCatching { Lineups.read(it) }.getOrDefault(emptyMap()) }
-                        ?: emptyMap()
+                        ?: emptyMap(),
+                    steadyLive = json.optBoolean("steady_live", true)
                 )
             }
         } catch (e: Exception) {
