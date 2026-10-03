@@ -43,6 +43,12 @@ class SettingsActivity : AppCompatActivity() {
             prefs.previewEnabled = !prefs.previewEnabled
             showPreviewState(previewState)
         }
+        val testerState = findViewById<TextView>(R.id.testerState)
+        testerState.setText(if (prefs.tester) R.string.tester_on else R.string.tester_off)
+        findViewById<View>(R.id.testerRow).setOnClickListener {
+            prefs.tester = !prefs.tester
+            testerState.setText(if (prefs.tester) R.string.tester_on else R.string.tester_off)
+        }
         val storageState = findViewById<TextView>(R.id.storageState)
         showStorageState(storageState)
         findViewById<View>(R.id.storageRow).setOnClickListener { chooseStorage(storageState) }

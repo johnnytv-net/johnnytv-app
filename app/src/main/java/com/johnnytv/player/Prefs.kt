@@ -188,14 +188,31 @@ class Prefs(context: Context) {
      * Set from config.json, so it can be switched off for everybody without a
      * new build if it ever misbehaves on some portal.
      */
-    var steadyLive: Boolean
-        get() = sp.getBoolean("steady_live", true)
-        set(value) = sp.edit().putBoolean("steady_live", value).apply()
+    val steadyLive: Boolean
+        get() = if (tester) sp.getBoolean("steady_live_testers", true) else sp.getBoolean("steady_live", false)
+
+    /**
+     * A box that has asked to try things early. What everybody gets and what
+     * a trying-out box gets are two separate switches in config.json, so a
+     * feature can run on a few boxes for as long as it takes to be sure of it
+     * without anyone else ever seeing it.
+     */
+    var tester: Boolean
+        get() = sp.getBoolean("tester", false)
+        set(value) = sp.edit().putBoolean("tester", value).apply()
+
+    /** What config.json last said, kept as it came. */
+    fun rememberSwitches(everyone: Boolean, testers: Boolean, timing: Boolean) {
+        sp.edit()
+            .putBoolean("steady_live", everyone)
+            .putBoolean("steady_live_testers", testers)
+            .putBoolean("start_timing", timing)
+            .apply()
+    }
 
     /** Whether channel start times are being measured and shown; set from config.json. */
-    var startTiming: Boolean
-        get() = sp.getBoolean("start_timing", false)
-        set(value) = sp.edit().putBoolean("start_timing", value).apply()
+    val startTiming: Boolean
+        get() = tester && sp.getBoolean("start_timing", false)
 
     /** True and false by turns, so the new feed and the old way are timed alternately. */
     fun nextTimingTurn(): Boolean {

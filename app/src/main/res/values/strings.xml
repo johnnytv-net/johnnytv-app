@@ -86,6 +86,9 @@
     <string name="view_grid">Grid</string>
     <string name="minutes_long">%1$d min</string>
     <string name="preview_unavailable">Preview unavailable</string>
+    <string name="tester_title">Try new features early on this box</string>
+    <string name="tester_on">On — this box gets features that are still being tested</string>
+    <string name="tester_off">Off — this box gets what everybody gets</string>
     <string name="channel_preview">Preview channels in list view</string>
     <string name="channel_preview_on">On — the highlighted channel plays silently</string>
     <string name="channel_preview_off">Off — uses no connection while browsing</string>

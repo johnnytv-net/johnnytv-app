@@ -218,8 +218,7 @@ class HomeActivity : AppCompatActivity() {
                 runCatching { RemoteConfigLoader.fetch(Config.CONFIG_URL) }.getOrNull()
             } ?: return@launch
             if (isFinishing || isDestroyed) return@launch
-            prefs.steadyLive = fresh.steadyLive
-            prefs.startTiming = fresh.startTiming
+            prefs.rememberSwitches(fresh.steadyLive, fresh.steadyLiveTesters, fresh.startTiming)
             val notice = fresh.notice.trim()
             if (notice == prefs.message.trim()) return@launch
             prefs.message = notice

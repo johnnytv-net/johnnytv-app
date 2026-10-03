@@ -78,6 +78,18 @@ object Config {
      */
     const val MIN_BUFFER_MS: Int = 15_000
     const val MAX_BUFFER_MS: Int = 60_000
+
+    /*
+     * Films and episodes are files, not broadcasts: everything after the
+     * point being watched already exists and can be fetched ahead of time.
+     * So they hold a good deal more in hand than a live channel can - enough
+     * that a slow patch on the portal passes without the picture stopping.
+     * The size limit is there for boxes with little memory; a very high
+     * bitrate film simply holds fewer seconds.
+     */
+    const val VOD_MIN_BUFFER_MS: Int = 45_000
+    const val VOD_MAX_BUFFER_MS: Int = 150_000
+    const val VOD_BUFFER_BYTES: Int = 64 * 1024 * 1024
     const val BUFFER_FOR_PLAYBACK_MS: Int = 800
     const val BUFFER_AFTER_REBUFFER_MS: Int = 2_500
 
@@ -159,5 +171,5 @@ object Config {
     /** Last wherever it is found, so nobody lands on it by scrolling. */
     val CATEGORY_LAST: List<String> = listOf("ADULT", "XXX", "18+", "FOR ADULTS")
 
-    const val USER_AGENT: String = "JohnnyTV/6.19 (Android)"
+    const val USER_AGENT: String = "JohnnyTV/6.20 (Android)"
 }

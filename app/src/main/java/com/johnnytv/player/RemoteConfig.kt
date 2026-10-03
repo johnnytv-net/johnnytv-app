@@ -39,7 +39,9 @@ data class RemoteConfig(
     /** Per-service lineup rules - see Lineup.kt. Keyed by the service address. */
     val lineups: Map<String, Lineup> = emptyMap(),
     /** The off-switch for the reconnecting live feed; on unless config.json says otherwise. */
-    val steadyLive: Boolean = true,
+    val steadyLive: Boolean = false,
+    /** The same switch for boxes that have asked to try things early. */
+    val steadyLiveTesters: Boolean = true,
     /** Shows how long each channel took to start, while that is being looked into. */
     val startTiming: Boolean = false
 )
@@ -119,7 +121,8 @@ object RemoteConfigLoader {
                     lineups = json.optJSONObject("lineups")
                         ?.let { runCatching { Lineups.read(it) }.getOrDefault(emptyMap()) }
                         ?: emptyMap(),
-                    steadyLive = json.optBoolean("steady_live", true),
+                    steadyLive = json.optBoolean("steady_live", false),
+                    steadyLiveTesters = json.optBoolean("steady_live_testers", true),
                     startTiming = json.optBoolean("start_timing", false)
                 )
             }

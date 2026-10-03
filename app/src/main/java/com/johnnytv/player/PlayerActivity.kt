@@ -787,17 +787,23 @@ class PlayerActivity : AppCompatActivity() {
         // of the usual quick start: a second and a half of extra wait once beats
         // a freeze every few minutes.
         val jumpy = deeperBuffer || prefs.isJumpy(contentId)
+        // A film or an episode loads well ahead; see Config.
+        val film = kind != Kind.LIVE && !playlist
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                if (jumpy) Config.MIN_BUFFER_MS * 2 else Config.MIN_BUFFER_MS,
-                Config.MAX_BUFFER_MS,
+                if (film) Config.VOD_MIN_BUFFER_MS
+                else if (jumpy) Config.MIN_BUFFER_MS * 2 else Config.MIN_BUFFER_MS,
+                if (film) Config.VOD_MAX_BUFFER_MS else Config.MAX_BUFFER_MS,
                 if (jumpy) Config.BUFFER_FOR_PLAYBACK_DEEP_MS else Config.BUFFER_FOR_PLAYBACK_MS,
                 if (jumpy) Config.BUFFER_AFTER_REBUFFER_MS * 2 else Config.BUFFER_AFTER_REBUFFER_MS
             )
             .setBackBuffer(30_000, true)
+            .apply { if (film) setTargetBufferBytes(Config.VOD_BUFFER_BYTES) }
             // Start on a duration of video rather than a number of bytes, so a
             // high-bitrate channel doesn't sit there filling a byte quota first.
-            .setPrioritizeTimeOverSizeThresholds(true)
+            // A film goes by size instead, so loading far ahead cannot outgrow
+            // the memory of a small box.
+            .setPrioritizeTimeOverSizeThresholds(!film)
             .build()
 
         // Http alone was enough while everything played came off a portal. A
