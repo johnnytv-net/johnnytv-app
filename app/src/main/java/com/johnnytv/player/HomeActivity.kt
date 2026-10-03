@@ -219,6 +219,7 @@ class HomeActivity : AppCompatActivity() {
             } ?: return@launch
             if (isFinishing || isDestroyed) return@launch
             prefs.steadyLive = fresh.steadyLive
+            prefs.startTiming = fresh.startTiming
             val notice = fresh.notice.trim()
             if (notice == prefs.message.trim()) return@launch
             prefs.message = notice

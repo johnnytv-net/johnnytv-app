@@ -97,7 +97,10 @@ class LineShare {
                         changed.signalAll()
                         return false
                     }
-                    val wait = freeAt - steadyNow()
+                    // The pause after a handover is for the portal to notice the
+                    // last connection has gone. A channel on its own is handing
+                    // over to nobody, so it does not wait.
+                    val wait = if (members.size <= 1) 0L else freeAt - steadyNow()
                     if (holder == null && queue.firstOrNull() === feed && wait <= 0L) {
                         queue.remove(feed)
                         holder = feed
@@ -883,7 +886,10 @@ class LineFeed(
         http.readTimeout = 12_000
         http.instanceFollowRedirects = true
         http.setRequestProperty("User-Agent", userAgent)
-        http.setRequestProperty("Connection", "close")
+        // Asked for exactly as the player itself asks: as it is, uncompressed.
+        // Left to itself this connection offers to take the stream zipped,
+        // and a server that obliges holds bytes back while it packs them.
+        http.setRequestProperty("Accept-Encoding", "identity")
         connects++
 
         val code = http.responseCode

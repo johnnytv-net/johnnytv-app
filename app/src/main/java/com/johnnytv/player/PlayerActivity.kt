@@ -76,6 +76,20 @@ class PlayerActivity : AppCompatActivity() {
      * player - see the note where it is made.
      */
     private var steadyFeed: LineFeed? = null
+
+    /*
+     * HOW LONG A CHANNEL TAKES TO START, MEASURED.
+     *
+     * Switched on from config.json while the new feed is being judged. Each
+     * channel opened takes it in turn to start the new way and the old way,
+     * and says on screen how long it took and how many goes it needed - so
+     * the two can be compared on the same box, the same line and the same
+     * evening rather than from memory.
+     */
+    private var tuneStartedAt = 0L
+    private var tuneAttempts = 0
+    private var tuneTimed = false
+    private var steadyThisTune = true
     private val steadyLine = LineShare()
 
     /** A recording being played back: a list of chunk files, not a live stream. */
@@ -249,6 +263,7 @@ class PlayerActivity : AppCompatActivity() {
         castAsk?.dismiss()
         castAsk = null
         releasePlayer()
+        tuneStartedAt = 0L
     }
 
     private fun rememberPosition() {
@@ -543,6 +558,7 @@ class PlayerActivity : AppCompatActivity() {
         urlIndex = 0
         retriesOnCurrentUrl = 0
         playedCurrentUrl = false
+        tuneStartedAt = 0L
 
         showChannelLabel(next)
         playerView.hideController()
@@ -746,6 +762,13 @@ class PlayerActivity : AppCompatActivity() {
         // A fresh stream starts the clock again, so the last one's silence is not
         // counted against it.
         resetStallClock()
+        if (tuneStartedAt == 0L) {
+            tuneStartedAt = android.os.SystemClock.elapsedRealtime()
+            tuneAttempts = 0
+            tuneTimed = false
+            steadyThisTune = !prefs.startTiming || prefs.nextTimingTurn()
+        }
+        tuneAttempts++
         if (urlIndex >= urls.size) {
             showStatus(getString(R.string.could_not_play, title))
             return
@@ -908,6 +931,19 @@ class PlayerActivity : AppCompatActivity() {
                         retriesOnCurrentUrl = 0
                         playedCurrentUrl = true
                         hideStatus()
+                        if (prefs.startTiming && kind == Kind.LIVE && !playlist &&
+                            !tuneTimed && tuneStartedAt > 0L
+                        ) {
+                            tuneTimed = true
+                            val seconds = (android.os.SystemClock.elapsedRealtime() - tuneStartedAt) / 1000.0
+                            val how = if (steadyFeed != null) "new feed" else "old way"
+                            val tries = if (tuneAttempts > 1) ", $tuneAttempts tries" else ""
+                            android.widget.Toast.makeText(
+                                this@PlayerActivity,
+                                String.format(java.util.Locale.US, "Started in %.1f s - %s%s", seconds, how, tries),
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        }
                         if (!hasSeeked && resumeFrom > 0L) {
                             hasSeeked = true
                             /*
@@ -1053,7 +1089,7 @@ class PlayerActivity : AppCompatActivity() {
              * over as it always did. The watchdog above stays as it is: if the
              * picture stops anyway, it still starts the channel afresh.
              */
-            val steady = kind == Kind.LIVE && prefs.steadyLive &&
+            val steady = kind == Kind.LIVE && prefs.steadyLive && steadyThisTune &&
                 address.startsWith("http") && !address.contains(".m3u8")
             if (steady) {
                 val feed = LineFeed(address, steadyLine, Config.USER_AGENT, 2, STEADY_QUIET_MS) {

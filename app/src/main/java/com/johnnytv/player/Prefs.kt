@@ -192,6 +192,18 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("steady_live", true)
         set(value) = sp.edit().putBoolean("steady_live", value).apply()
 
+    /** Whether channel start times are being measured and shown; set from config.json. */
+    var startTiming: Boolean
+        get() = sp.getBoolean("start_timing", false)
+        set(value) = sp.edit().putBoolean("start_timing", value).apply()
+
+    /** True and false by turns, so the new feed and the old way are timed alternately. */
+    fun nextTimingTurn(): Boolean {
+        val turn = sp.getInt("timing_turn", 0) + 1
+        sp.edit().putInt("timing_turn", turn).apply()
+        return turn % 2 == 1
+    }
+
     var previewEnabled: Boolean
         get() = sp.getBoolean(KEY_PREVIEW, true)
         set(value) = sp.edit().putBoolean(KEY_PREVIEW, value).apply()
