@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -39,11 +40,21 @@ class MovieActivity : AppCompatActivity() {
     private lateinit var poster: ImageView
     private lateinit var backdrop: ImageView
     private lateinit var titleLabel: TextView
-    private lateinit var metaLabel: TextView
-    private lateinit var ratingLabel: TextView
+    private lateinit var factsRow: LinearLayout
     private lateinit var plotLabel: TextView
-    private lateinit var castLabel: TextView
+    private lateinit var castBlock: View
+    private lateinit var castTitle: View
+    private lateinit var castRow: LinearLayout
     private lateinit var directorLabel: TextView
+    private lateinit var resumeBlock: View
+    private lateinit var resumeText: TextView
+
+    /** The film's length in minutes, once the portal has said. */
+    private var runtimeMinutes = 0
+
+    /** A phone on its side, rather than a television or a tablet. */
+    private val shortScreen: Boolean
+        get() = resources.configuration.screenHeightDp < 430
     private lateinit var watchButton: TextView
     private lateinit var favouriteButton: TextView
     private lateinit var restartButton: TextView
@@ -59,11 +70,23 @@ class MovieActivity : AppCompatActivity() {
         poster = findViewById(R.id.moviePoster)
         backdrop = findViewById(R.id.movieBackdrop)
         titleLabel = findViewById(R.id.movieTitle)
-        metaLabel = findViewById(R.id.movieMeta)
-        ratingLabel = findViewById(R.id.movieRating)
+        factsRow = findViewById(R.id.movieFacts)
         plotLabel = findViewById(R.id.moviePlot)
-        castLabel = findViewById(R.id.movieCast)
+        castBlock = findViewById(R.id.movieCastBlock)
+        castTitle = findViewById(R.id.movieCastTitle)
+        castRow = findViewById(R.id.movieCastRow)
         directorLabel = findViewById(R.id.movieDirector)
+        resumeBlock = findViewById(R.id.movieResumeBlock)
+        resumeText = findViewById(R.id.movieResumeText)
+        // The poster is cut to its card's rounded corners.
+        findViewById<View>(R.id.moviePosterFrame).clipToOutline = true
+        if (shortScreen) {
+            // Two thirds of the height to work with: the same page, a size down.
+            titleLabel.textSize = 24f
+            titleLabel.maxLines = 1
+            plotLabel.textSize = 13f
+            plotLabel.maxLines = 3
+        }
         watchButton = findViewById(R.id.movieWatch)
         favouriteButton = findViewById(R.id.movieFavourite)
         restartButton = findViewById(R.id.movieResume)
@@ -71,18 +94,15 @@ class MovieActivity : AppCompatActivity() {
 
         titleLabel.text = intent.getStringExtra(EXTRA_TITLE) ?: ""
         val cover = intent.getStringExtra(EXTRA_COVER) ?: ""
-        poster.load(cover.ifBlank { null }) {
-            crossfade(true)
-            placeholder(R.drawable.tile_placeholder)
-            error(R.drawable.tile_placeholder)
-            fallback(R.drawable.tile_placeholder)
-        }
+        // No placeholder: the JohnnyTV mark sits underneath and shows wherever
+        // a poster is missing or will not load.
+        if (cover.isNotBlank()) poster.load(cover) { crossfade(true) }
 
         // Nothing is known yet, so nothing is claimed.
-        metaLabel.visibility = View.GONE
+        factsRow.visibility = View.GONE
         plotLabel.visibility = View.GONE
-        castLabel.visibility = View.GONE
-        directorLabel.visibility = View.GONE
+        castBlock.visibility = View.GONE
+        resumeBlock.visibility = View.GONE
 
         watchButton.setOnClickListener { play(fromStart = false) }
         restartButton.setOnClickListener { play(fromStart = true) }
@@ -122,6 +142,56 @@ class MovieActivity : AppCompatActivity() {
         val partWatched = position > 60_000L
         watchButton.setText(if (partWatched) R.string.resume else R.string.watch)
         restartButton.visibility = if (partWatched) View.VISIBLE else View.GONE
+
+        // How far in, and how much is left - when the length is known. Without
+        // it there is still something true to say: how long has been watched.
+        if (!partWatched) {
+            resumeBlock.visibility = View.GONE
+            return
+        }
+        val watched = (position / 60_000L).toInt()
+        val bar = findViewById<View>(R.id.movieBar)
+        if (runtimeMinutes > watched) {
+            val done = findViewById<View>(R.id.movieBarDone)
+            val left = findViewById<View>(R.id.movieBarLeft)
+            (done.layoutParams as LinearLayout.LayoutParams).weight = watched.toFloat()
+            (left.layoutParams as LinearLayout.LayoutParams).weight = (runtimeMinutes - watched).toFloat()
+            done.requestLayout()
+            bar.visibility = View.VISIBLE
+            resumeText.text = getString(
+                R.string.watched_left, spanText(watched), spanText(runtimeMinutes - watched)
+            )
+        } else {
+            bar.visibility = View.GONE
+            resumeText.text = getString(R.string.watched_only, spanText(watched))
+        }
+        resumeBlock.visibility = View.VISIBLE
+    }
+
+    /** "42 min" or "1h 10m". */
+    private fun spanText(minutes: Int): String =
+        if (minutes >= 60) getString(R.string.hours_minutes, minutes / 60, minutes % 60)
+        else getString(R.string.minutes_long, minutes)
+
+    /** One fact, or one name, as a tag. */
+    private fun tag(text: String, background: Int, color: Int, bold: Boolean): TextView {
+        val density = resources.displayMetrics.density
+        val label = TextView(this)
+        label.text = text
+        label.textSize = if (shortScreen) 12f else 15f
+        label.setTextColor(color)
+        if (bold) label.setTypeface(label.typeface, android.graphics.Typeface.BOLD)
+        label.setBackgroundResource(background)
+        label.maxLines = 1
+        val side = (12 * density).toInt()
+        val edge = (5 * density).toInt()
+        label.setPadding(side, edge, side, edge)
+        val params = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        params.marginEnd = (8 * density).toInt()
+        label.layoutParams = params
+        return label
     }
 
     private fun loadDetails() {
@@ -143,40 +213,62 @@ class MovieActivity : AppCompatActivity() {
         if (info.backdrop.isNotBlank()) {
             backdrop.load(info.backdrop) { crossfade(true) }
         }
-        if (info.cover.isNotBlank()) {
-            poster.load(info.cover) {
-                crossfade(true)
-                placeholder(R.drawable.tile_placeholder)
-                error(R.drawable.tile_placeholder)
+        if (info.cover.isNotBlank()) poster.load(info.cover) { crossfade(true) }
+
+        // The facts as tags: the rating first and in gold, then the year, the
+        // length and up to three genres. Only the ones that actually exist.
+        val light = getColor(R.color.text_primary)
+        factsRow.removeAllViews()
+        ratingText(info.rating)?.let {
+            factsRow.addView(tag("\u2605 $it", R.drawable.bg_fact_rating, 0xFF14181D.toInt(), true))
+        }
+        info.releaseDate.take(4).takeIf { it.length == 4 && it.all { c -> c.isDigit() } }
+            ?.let { factsRow.addView(tag(it, R.drawable.bg_fact_chip, light, false)) }
+        runtimeMinutes = runtimeMinutes(info.duration)
+        if (runtimeMinutes > 0) {
+            factsRow.addView(tag(spanText(runtimeMinutes), R.drawable.bg_fact_chip, light, false))
+        }
+        info.genre.split(',', '/', '|').map { it.trim() }.filter { it.isNotBlank() }.take(3)
+            .forEach { factsRow.addView(tag(it, R.drawable.bg_fact_chip, light, false)) }
+        factsRow.visibility = if (factsRow.childCount == 0) View.GONE else View.VISIBLE
+
+        // Five lines at most, so a long description cannot push the buttons
+        // off the screen. Nothing sent is said plainly rather than left blank.
+        if (info.plot.isBlank()) {
+            plotLabel.setText(R.string.no_description)
+            plotLabel.setTextColor(getColor(R.color.text_secondary))
+        } else {
+            plotLabel.text = info.plot
+        }
+        plotLabel.visibility = View.VISIBLE
+
+        directorLabel.text =
+            if (info.director.isBlank()) "" else getString(R.string.directed_by, info.director)
+        directorLabel.visibility = if (info.director.isBlank()) View.GONE else View.VISIBLE
+
+        // Each actor a tag of their own, as many as fit on one line.
+        val names = info.cast.split(',').map { it.trim() }.filter { it.isNotBlank() }
+        castRow.removeAllViews()
+        castTitle.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
+        castRow.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
+        castBlock.visibility =
+            if (shortScreen || (names.isEmpty() && info.director.isBlank())) View.GONE else View.VISIBLE
+        if (names.isNotEmpty() && !shortScreen) {
+            castRow.post {
+                val room = castRow.width
+                var used = 0
+                for (name in names.take(8)) {
+                    val pill = tag(name, R.drawable.bg_cast_pill, light, false)
+                    pill.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+                    val needs = pill.measuredWidth + (8 * resources.displayMetrics.density).toInt()
+                    if (castRow.childCount > 0 && used + needs > room) break
+                    castRow.addView(pill)
+                    used += needs
+                }
             }
         }
 
-        // Year, genre and running time on one line, with dots only between the
-        // parts that actually exist.
-        val bits = ArrayList<String>(3)
-        info.releaseDate.take(4).takeIf { it.length == 4 && it.all { c -> c.isDigit() } }
-            ?.let { bits.add(it) }
-        info.genre.takeIf { it.isNotBlank() }?.let { bits.add(it) }
-        runtimeText(info.duration)?.let { bits.add(it) }
-        metaLabel.text = bits.joinToString("   ·   ")
-        metaLabel.visibility = if (bits.isEmpty()) View.GONE else View.VISIBLE
-
-        val rating = ratingText(info.rating)
-        ratingLabel.text = rating ?: ""
-        ratingLabel.setCompoundDrawablesRelativeWithIntrinsicBounds(
-            R.drawable.ic_star_filled, 0, 0, 0
-        )
-        ratingLabel.visibility = if (rating == null) View.GONE else View.VISIBLE
-
-        plotLabel.text = info.plot
-        plotLabel.visibility = if (info.plot.isBlank()) View.GONE else View.VISIBLE
-
-        castLabel.text = if (info.cast.isBlank()) "" else getString(R.string.cast_line, info.cast)
-        castLabel.visibility = if (info.cast.isBlank()) View.GONE else View.VISIBLE
-
-        directorLabel.text =
-            if (info.director.isBlank()) "" else getString(R.string.director_line, info.director)
-        directorLabel.visibility = if (info.director.isBlank()) View.GONE else View.VISIBLE
+        showResume()
     }
 
     /** "8.4" out of ten, however the portal chose to write it. */
@@ -189,23 +281,18 @@ class MovieActivity : AppCompatActivity() {
         return String.format("%.1f", number)
     }
 
-    /** Minutes or "1h 52m", from whatever the portal wrote. */
-    private fun runtimeText(raw: String): String? {
+    /** The film's length in minutes, from whatever the portal wrote; 0 when it did not say. */
+    private fun runtimeMinutes(raw: String): Int {
         val trimmed = raw.trim()
-        if (trimmed.isBlank()) return null
+        if (trimmed.isBlank()) return 0
         // Already written as a clock: 01:52:30
         val clock = trimmed.split(":").mapNotNull { it.toIntOrNull() }
         val minutes = when {
             clock.size == 3 -> clock[0] * 60 + clock[1]
             clock.size == 2 -> clock[0] * 60 + clock[1]
             else -> trimmed.toIntOrNull()
-        } ?: return null
-        if (minutes <= 0) return null
-        return if (minutes >= 60) {
-            getString(R.string.hours_minutes, minutes / 60, minutes % 60)
-        } else {
-            getString(R.string.minutes_long, minutes)
-        }
+        } ?: return 0
+        return if (minutes <= 0) 0 else minutes
     }
 
     private fun play(fromStart: Boolean) {
