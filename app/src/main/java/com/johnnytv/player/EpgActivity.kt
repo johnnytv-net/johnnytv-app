@@ -112,7 +112,7 @@ class EpgActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         if (!Catalog.isLoaded) Catalog.load(this)
-        EpgCache.load(this)
+        EpgCache.load(this, prefs.client().server)
 
         setContentView(R.layout.activity_epg)
         timeline = Timeline(this)
@@ -416,6 +416,7 @@ class EpgActivity : AppCompatActivity() {
         }
 
         inFlight.clear()
+        waiting.clear()
         clearSelection()
         val anyCached = channels.any { EpgCache.cached(it.streamId) != null }
         progress.visibility = if (channels.isNotEmpty() && !anyCached) View.VISIBLE else View.GONE
@@ -433,11 +434,57 @@ class EpgActivity : AppCompatActivity() {
 
     // ---------- data ----------
 
+    /*
+     * A FEW AT A TIME, NEWEST FIRST.
+     *
+     * Every row that scrolls into view asks for its listings. Left to
+     * themselves those requests all go at once - run down a long folder and
+     * the portal is hit with hundreds together, starts refusing some, and the
+     * rows actually on screen wait at the back of the queue behind rows that
+     * left it seconds ago.
+     *
+     * So only a handful are ever in the air, the most recently asked for goes
+     * first (that is the one being looked at), and a row that has scrolled
+     * well out of sight by the time its turn comes is not fetched at all - it
+     * will ask again if it comes back.
+     */
+    private val waiting = ArrayList<StreamItem>()
+    private var fetching = 0
+
     private fun loadRow(channel: StreamItem, position: Int) {
         if (!inFlight.add(channel.streamId)) return
+        waiting.add(channel)
+        pumpFetches()
+    }
+
+    private fun stillOnScreen(channel: StreamItem): Boolean {
+        val index = channels.indexOfFirst { it.streamId == channel.streamId }
+        if (index < 0) return false
+        val manager = gridRows.layoutManager as? LinearLayoutManager ?: return true
+        val first = manager.findFirstVisibleItemPosition()
+        val last = manager.findLastVisibleItemPosition()
+        if (first < 0 || last < 0) return true
+        return index >= first - FETCH_MARGIN_ROWS && index <= last + FETCH_MARGIN_ROWS
+    }
+
+    private fun pumpFetches() {
+        while (fetching < MAX_FETCHES && waiting.isNotEmpty()) {
+            val channel = waiting.removeAt(waiting.size - 1)
+            if (!stillOnScreen(channel)) {
+                inFlight.remove(channel.streamId)
+                continue
+            }
+            fetching++
+            fetchRow(channel)
+        }
+    }
+
+    private fun fetchRow(channel: StreamItem) {
         lifecycleScope.launch {
             withContext(Dispatchers.IO) { EpgCache.fetch(prefs.client(), channel.streamId) }
+            fetching--
             inFlight.remove(channel.streamId)
+            pumpFetches()
             // The list may have changed category while this was in flight, so find
             // where this channel sits now rather than trusting the old index.
             progress.visibility = View.GONE
@@ -950,6 +997,11 @@ class EpgActivity : AppCompatActivity() {
 
         /** How long the remote must sit still before a preview is worth opening. */
         private const val PREVIEW_SETTLE_MS = 600L
+
+        /** How many channels' listings are asked for at once. */
+        private const val MAX_FETCHES = 4
+        /** Rows this far off screen still get their listings; further out do not. */
+        private const val FETCH_MARGIN_ROWS = 6
 
         private val PREVIEW_AUDIO: AudioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
