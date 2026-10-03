@@ -51,15 +51,47 @@ class SeriesActivity : AppCompatActivity() {
 
         titleLabel.text = intent.getStringExtra(EXTRA_TITLE) ?: ""
         val coverUrl = intent.getStringExtra(EXTRA_COVER) ?: ""
-        cover.load(coverUrl.ifBlank { null }) {
-            crossfade(true)
-            placeholder(R.drawable.tile_placeholder)
-            error(R.drawable.tile_placeholder)
-            fallback(R.drawable.tile_placeholder)
+        // No placeholder: the JohnnyTV mark sits underneath and shows wherever
+        // a poster is missing or will not load. The poster is cut to its
+        // card's rounded corners.
+        findViewById<View>(R.id.seriesCoverFrame).clipToOutline = true
+        if (coverUrl.isNotBlank()) cover.load(coverUrl) { crossfade(true) }
+
+        val shortScreen = resources.configuration.screenHeightDp < 430
+        if (shortScreen) {
+            // A phone on its side: the same page, a size down.
+            titleLabel.textSize = 22f
+            titleLabel.maxLines = 1
+            plotLabel.maxLines = 2
         }
 
-        plotLabel.text = Catalog.series.firstOrNull { it.seriesId == seriesId }?.plot ?: ""
+        val item = Catalog.series.firstOrNull { it.seriesId == seriesId }
+        plotLabel.text = item?.plot ?: ""
         plotLabel.visibility = if (plotLabel.text.isBlank()) View.GONE else View.VISIBLE
+
+        // The series' own backdrop, where the portal sent one.
+        val backdropUrl = item?.backdrop.orEmpty()
+        if (backdropUrl.isNotBlank()) {
+            findViewById<ImageView>(R.id.seriesBackdrop).load(backdropUrl) { crossfade(true) }
+        }
+
+        // The facts as tags, exactly as on a film: the rating first and in
+        // gold, then the year and up to three genres. Only the ones that exist.
+        val facts = findViewById<LinearLayout>(R.id.seriesFacts)
+        val light = getColor(R.color.text_primary)
+        val size = if (shortScreen) 12f else 15f
+        val rating = item?.rating?.trim()?.toDoubleOrNull()
+        if (rating != null && rating > 0.0) {
+            facts.addView(
+                tag("\u2605 " + String.format(java.util.Locale.US, "%.1f", rating),
+                    R.drawable.bg_fact_rating, 0xFF14181D.toInt(), true, size)
+            )
+        }
+        item?.year?.take(4)?.takeIf { it.length == 4 && it.all { c -> c.isDigit() } }
+            ?.let { facts.addView(tag(it, R.drawable.bg_fact_chip, light, false, size)) }
+        item?.genre.orEmpty().split(',', '/', '|').map { it.trim() }.filter { it.isNotBlank() }.take(3)
+            .forEach { facts.addView(tag(it, R.drawable.bg_fact_chip, light, false, size)) }
+        facts.visibility = if (facts.childCount == 0) View.GONE else View.VISIBLE
 
         episodeAdapter = EpisodeAdapter { episode -> play(episode) }
         episodeList.layoutManager = LinearLayoutManager(this)
@@ -169,6 +201,24 @@ class SeriesActivity : AppCompatActivity() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    /** One fact as a tag. */
+    private fun tag(text: String, background: Int, color: Int, bold: Boolean, size: Float): TextView {
+        val label = TextView(this)
+        label.text = text
+        label.textSize = size
+        label.setTextColor(color)
+        if (bold) label.setTypeface(label.typeface, android.graphics.Typeface.BOLD)
+        label.setBackgroundResource(background)
+        label.maxLines = 1
+        label.setPadding(dp(12), dp(5), dp(12), dp(5))
+        val params = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        params.marginEnd = dp(8)
+        label.layoutParams = params
+        return label
+    }
 
     companion object {
         const val EXTRA_SERIES_ID = "series_id"

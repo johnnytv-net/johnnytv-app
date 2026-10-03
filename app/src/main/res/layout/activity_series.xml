@@ -1,111 +1,166 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+    One series, in the same clothes as the film page: its own backdrop behind
+    everything, a tall poster on the left, and on the right the title, the
+    facts as tags, the plot, the seasons across and the episodes below.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg_base"
-    android:orientation="horizontal"
-    android:padding="16dp">
+    android:background="@color/bg_base">
+
+    <ImageView
+        android:id="@+id/seriesBackdrop"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0.6"
+        android:contentDescription="@null"
+        android:scaleType="centerCrop" />
+
+    <!-- Dark where the writing is, clearing to the right so the picture shows. -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_movie_scrim" />
 
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_weight="32"
-        android:orientation="vertical">
+        android:baselineAligned="false"
+        android:orientation="horizontal"
+        android:paddingStart="30dp"
+        android:paddingEnd="30dp"
+        android:paddingTop="27dp"
+        android:paddingBottom="27dp">
 
-        <ImageView
-            android:id="@+id/seriesCover"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:adjustViewBounds="true"
-            android:background="@color/bg_surface"
-            android:contentDescription="@string/series"
-            android:scaleType="fitCenter"
-            android:src="@drawable/tile_placeholder" />
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="30"
+            android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/seriesFavourite"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:background="@drawable/bg_tab"
-            android:clickable="true"
-            android:drawablePadding="9dp"
-            android:focusable="true"
-            android:gravity="center"
-            android:paddingTop="12dp"
-            android:paddingBottom="12dp"
-            android:textColor="@color/text_primary"
-            android:textSize="14sp" />
-    </LinearLayout>
+            <FrameLayout
+                android:id="@+id/seriesCoverFrame"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_poster_frame">
 
-    <LinearLayout
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:layout_marginStart="18dp"
-        android:layout_weight="68"
-        android:orientation="vertical">
+                <!-- Shows through wherever a poster is missing or will not load. -->
+                <ImageView
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@null"
+                    android:padding="36dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/logo" />
 
-        <TextView
-            android:id="@+id/seriesTitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ellipsize="end"
-            android:maxLines="2"
-            android:textColor="@color/text_primary"
-            android:textSize="20sp"
-            android:textStyle="bold" />
+                <ImageView
+                    android:id="@+id/seriesCover"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@string/series"
+                    android:scaleType="centerCrop" />
+            </FrameLayout>
 
-        <TextView
-            android:id="@+id/seriesPlot"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:ellipsize="end"
-            android:maxLines="4"
-            android:textColor="@color/text_secondary"
-            android:textSize="13sp" />
+            <TextView
+                android:id="@+id/seriesFavourite"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_action_button"
+                android:clickable="true"
+                android:drawablePadding="9dp"
+                android:focusable="true"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="12dp"
+                android:textColor="@color/text_primary"
+                android:textSize="15sp" />
+        </LinearLayout>
 
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:scrollbars="none">
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="30dp"
+            android:layout_weight="70"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/seriesTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="2"
+                android:textColor="@color/text_primary"
+                android:textSize="34sp"
+                android:textStyle="bold" />
 
             <LinearLayout
-                android:id="@+id/seasonRow"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal" />
-        </HorizontalScrollView>
-
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_marginTop="12dp"
-            android:layout_weight="1">
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/episodeList"
+                android:id="@+id/seriesFacts"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent" />
-
-            <include
-                android:id="@+id/seriesProgress"
-                layout="@layout/view_loading"
-                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center"
+                android:layout_marginTop="12dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
                 android:visibility="gone" />
 
             <TextView
-                android:id="@+id/seriesStatus"
-                android:layout_width="wrap_content"
+                android:id="@+id/seriesPlot"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:textColor="@color/text_secondary"
-                android:textSize="14sp"
-                android:visibility="gone" />
-        </FrameLayout>
+                android:layout_marginTop="12dp"
+                android:ellipsize="end"
+                android:lineSpacingMultiplier="1.25"
+                android:maxLines="3"
+                android:textColor="#FFE2E8EF"
+                android:textSize="15sp" />
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/seasonRow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_marginTop="12dp"
+                android:layout_weight="1">
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/episodeList"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
+
+                <include
+                    android:id="@+id/seriesProgress"
+                    layout="@layout/view_loading"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/seriesStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="14sp"
+                    android:visibility="gone" />
+            </FrameLayout>
+        </LinearLayout>
     </LinearLayout>
-</LinearLayout>
+</FrameLayout>
