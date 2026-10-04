@@ -491,8 +491,12 @@ class LoginActivity : AppCompatActivity() {
                 sawRefusal ->
                     statusLabel.text = getString(R.string.wrong_login) + whatWasTried(tried)
                 else ->
+                    // Nothing answered. The reason the network gives for that
+                    // usually has the address written into it, so an ordinary
+                    // box is given a plain sentence instead.
                     statusLabel.text =
-                        (problem ?: getString(R.string.wrong_login)) + whatWasTried(tried)
+                        if (prefs.tester) (problem ?: getString(R.string.no_server)) + whatWasTried(tried)
+                        else getString(R.string.no_server)
             }
         }
     }
@@ -507,12 +511,17 @@ class LoginActivity : AppCompatActivity() {
     )
 
     /**
-     * The services asked, and what each answered. Only ever drawn when a
-     * sign-in has already failed - the point is that nobody has to guess
-     * which address a box was talking to, least of all down a telephone.
+     * The services asked, and what each answered - for a box that has asked to
+     * try things early, and nobody else.
+     *
+     * The addresses are the one thing a customer is never meant to see: they
+     * are kept out of the sign-in screen, out of Settings and out of the
+     * download link, and a failed sign-in used to print all of them. So an
+     * ordinary box is told only that it could not sign in. The detail is still
+     * there for working out a fault, on a box set up for that.
      */
     private fun whatWasTried(tried: List<String>): String =
-        if (tried.isEmpty()) "" else "\n(" + tried.joinToString("  ·  ") + ")"
+        if (tried.isEmpty() || !prefs.tester) "" else "\n(" + tried.joinToString("  ·  ") + ")"
 
     private fun isUpdateAvailable(remote: RemoteConfig): Boolean {
         if (remote.latestVersionCode <= 0L || remote.downloadUrl.isBlank()) return false
