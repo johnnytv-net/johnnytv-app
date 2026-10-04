@@ -365,27 +365,102 @@ class LoginActivity : AppCompatActivity() {
                 }
             }
 
+            /*
+             * EVERY ADDRESS AT ONCE.
+             *
+             * Asked one after another, an address that has gone quiet costs
+             * the full connect timeout before the next is even tried - so a
+             * single sulking server used to mean a wait of most of a minute,
+             * and people gave up before the one that worked was reached.
+             *
+             * They are all asked together instead. The first to say yes wins
+             * and the rest are dropped, so a dead address costs nothing at
+             * all. The order still counts for one thing: where two services
+             * both know a username, the one that answers is whichever is
+             * quickest, so the address this login last worked on is asked a
+             * moment ahead of the others to keep that decision stable.
+             */
             withContext(Dispatchers.IO) {
-                for (address in serverList) {
-                    val name = address.substringAfter("://").substringBefore('/')
-                    val client = XtreamClient(address, user, pass)
-                    try {
-                        val status = client.login()
-                        success = client to status
-                        return@withContext
-                    } catch (e: AccountInactive) {
-                        // The line exists here, so this is the right service. Stop.
-                        refusal = e.message
-                        return@withContext
-                    } catch (e: WrongCredentials) {
-                        // Not this one - keep looking, but remember that a portal
-                        // did answer, so an unreachable one does not steal the blame.
-                        tried.add("$name: not here")
-                        sawRefusal = true
-                    } catch (e: Exception) {
-                        // Unreachable or not a portal; remember it in case nothing works.
-                        tried.add("$name: no answer")
-                        lastProblem = e.message
+                val answers = arrayOfNulls<Outcome>(serverList.size)
+                val threads = serverList.mapIndexed { index, address ->
+                    Thread {
+                        // A moment's head start each, in list order.
+                        if (index > 0) {
+                            try {
+                                Thread.sleep(index * HEAD_START_MS)
+                            } catch (stop: InterruptedException) {
+                                return@Thread
+                            }
+                        }
+                        if (Thread.currentThread().isInterrupted) return@Thread
+                        val client = XtreamClient(address, user, pass)
+                        answers[index] = try {
+                            Outcome(address, client, client.login(), null, false)
+                        } catch (e: AccountInactive) {
+                            // The line exists here, so this is the right service.
+                            Outcome(address, null, null, e.message, true)
+                        } catch (e: WrongCredentials) {
+                            // Not this one - but a portal did answer, so an
+                            // unreachable one does not steal the blame.
+                            Outcome(address, null, null, null, false)
+                        } catch (e: Exception) {
+                            // Unreachable, or not a portal at all.
+                            Outcome(address, null, null, e.message, false)
+                        }
+                    }
+                }
+                threads.forEach { it.isDaemon = true; it.start() }
+
+                /*
+                 * Waits for a line that works, or for them all to finish.
+                 *
+                 * An address saying the line has expired is not reason enough
+                 * to stop: the same name can exist on two services, and a line
+                 * that plays somewhere is better news than one that has run
+                 * out elsewhere. So a refusal is noted and the rest are given
+                 * their moment - but only a moment, since in the ordinary case
+                 * of a genuinely expired line there is nothing else coming.
+                 */
+                val until = System.currentTimeMillis() + SIGN_IN_WAIT_MS
+                var refusedAt = 0L
+                var settled = false
+                while (!settled && System.currentTimeMillis() < until) {
+                    val now = System.currentTimeMillis()
+                    if (refusedAt == 0L && answers.any { it != null && it.refused }) refusedAt = now
+                    settled = answers.any { it?.client != null } ||
+                        threads.none { it.isAlive } ||
+                        (refusedAt > 0L && now - refusedAt > REFUSAL_GRACE_MS)
+                    if (!settled) Thread.sleep(80L)
+                }
+                // Nothing more is wanted from the others.
+                threads.forEach { runCatching { it.interrupt() } }
+
+                // Read in list order, so the answer is the same every time
+                // however the race happened to run.
+                // A line that works somewhere beats one that has expired
+                // elsewhere, whichever answered first.
+                for (answer in answers) {
+                    val client = answer?.client ?: continue
+                    if (success == null) success = client to (answer.status ?: "")
+                }
+                if (success == null) {
+                    for (answer in answers) {
+                        if (answer != null && answer.refused && refusal == null) refusal = answer.problem
+                    }
+                }
+                for (answer in answers) {
+                    if (answer == null) continue
+                    val name = answer.address.substringAfter("://").substringBefore('/')
+                    when {
+                        answer.client != null || answer.refused -> {}
+                        answer.problem == null -> {
+                            tried.add("$name: not here")
+                            sawRefusal = true
+                        }
+                        else -> {
+                            tried.add("$name: no answer")
+                            lastProblem = answer.problem
+                        }
                     }
                 }
             }
@@ -421,6 +496,15 @@ class LoginActivity : AppCompatActivity() {
             }
         }
     }
+
+    /** What one address had to say for itself. */
+    private class Outcome(
+        val address: String,
+        val client: XtreamClient?,
+        val status: String?,
+        val problem: String?,
+        val refused: Boolean
+    )
 
     /**
      * The services asked, and what each answered. Only ever drawn when a
@@ -604,5 +688,14 @@ class LoginActivity : AppCompatActivity() {
 
     private companion object {
         const val KEY_AWAITING_INSTALL = "awaiting_install_permission"
+
+        /** Each address is asked this far behind the one before it. */
+        const val HEAD_START_MS = 250L
+
+        /** The longest a sign-in waits for the addresses to answer. */
+        const val SIGN_IN_WAIT_MS = 22_000L
+
+        /** How long the others get after one says the line has expired. */
+        const val REFUSAL_GRACE_MS = 2_500L
     }
 }
