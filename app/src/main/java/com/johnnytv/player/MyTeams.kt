@@ -22,13 +22,22 @@ data class TeamGame(val team: Team, val channel: StreamItem, val startsAt: Long,
  * Pick the teams you follow, and their games come to you: on the home screen
  * for today, and as a nudge ten minutes before the start.
  *
- * WHERE THE GAMES COME FROM. Nothing is fetched to find them. Portals list
- * events as channels and write the teams and the start time into the channel's
- * name, because the name is the only field they have - the same names the app
- * already reads to put those folders in time order. A team's game is a channel
- * whose name carries the team and a time. So this finds what the portal lists
- * that way, and cannot find a game that is simply on an ordinary channel with
- * no team in its name.
+ * WHERE THE GAMES COME FROM. The league's own schedule says who is playing
+ * and when; the portal's channel list only says where to watch it.
+ *
+ * It was the other way round at first - the start time read out of the channel
+ * name, since the name is the only field a portal has. That is how the folders
+ * are put in time order and it works well enough for sorting, but it is no
+ * basis for telling somebody when a game starts: portals write those times in
+ * whatever zone their server keeps, so a name saying 04:00 can mean nine in
+ * the evening here, and the countdown is hours out. Worse, a name is just
+ * text, and a replay or a 24/7 channel carrying a team's name reads exactly
+ * like a fixture.
+ *
+ * So the schedule is asked, and the channel list is searched only for a
+ * channel whose name carries both teams. A game with nowhere to watch it is
+ * not shown, and if the schedule cannot be reached the old reading of the
+ * names takes over, countdown and all.
  *
  * WHERE THE TEAMS COME FROM. The league's own list, with proper names and
  * logos, fetched once and kept for a week. If that cannot be had, a list of
@@ -46,6 +55,9 @@ object MyTeams {
         "MLS" to "soccer/usa.1",
         "CFL" to "football/cfl"
     )
+
+    /** How long a day's fixtures are kept before asking again. */
+    private const val FIXTURES_AGE_MS = 20L * 60L * 1000L
 
     private const val STORE = "my_teams"
     private const val KEY_CHOSEN = "chosen"
@@ -162,14 +174,122 @@ object MyTeams {
             else Team(league, parts[0].trim() + " " + parts[1].trim(), parts[1].trim(), "")
         }.sortedBy { it.name }
 
+    // ---------- the leagues' schedules ----------
+
+    /** One fixture from the league's own schedule. */
+    private class Fixture(val league: String, val sides: List<String>, val startsAt: Long)
+
+    private val fixtures = HashMap<String, Pair<Long, List<Fixture>>>()
+
+    /** Blocking. Today and tomorrow, as the league has them. */
+    private fun fixtures(league: String, now: Long): List<Fixture> {
+        synchronized(fixtures) {
+            val held = fixtures[league]
+            if (held != null && now - held.first < FIXTURES_AGE_MS) return held.second
+        }
+        val fetched = runCatching { fetchFixtures(league, now) }.getOrNull()
+        synchronized(fixtures) {
+            // Nothing came back: keep what there was rather than claim no games.
+            if (fetched == null) return fixtures[league]?.second ?: emptyList()
+            fixtures[league] = now to fetched
+            return fetched
+        }
+    }
+
+    private fun fetchFixtures(league: String, now: Long): List<Fixture> {
+        val path = PATHS[league] ?: return emptyList()
+        // Asked in the league's own terms: whole days, by the clock in London,
+        // since that is what the schedule is written against.
+        val stamp = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US)
+        stamp.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        val from = stamp.format(java.util.Date(now - 24L * 60L * 60L * 1000L))
+        val to = stamp.format(java.util.Date(now + 48L * 60L * 60L * 1000L))
+        val http = URL("https://site.api.espn.com/apis/site/v2/sports/$path/scoreboard?dates=$from-$to")
+            .openConnection() as HttpURLConnection
+        try {
+            http.connectTimeout = 8_000
+            http.readTimeout = 10_000
+            http.setRequestProperty("User-Agent", Config.USER_AGENT)
+            if (http.responseCode !in 200..299) return emptyList()
+            val body = http.inputStream.bufferedReader().use { it.readText() }
+            val events = JSONObject(body).optJSONArray("events") ?: return emptyList()
+            val when_ = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm'Z'", java.util.Locale.US)
+            when_.timeZone = java.util.TimeZone.getTimeZone("UTC")
+            val out = ArrayList<Fixture>(events.length())
+            for (i in 0 until events.length()) {
+                val event = events.optJSONObject(i) ?: continue
+                val at = runCatching { when_.parse(event.optString("date", ""))?.time }.getOrNull() ?: continue
+                val sides = ArrayList<String>(2)
+                val teams = event.optJSONArray("competitions")?.optJSONObject(0)
+                    ?.optJSONArray("competitors")
+                for (k in 0 until (teams?.length() ?: 0)) {
+                    val team = teams?.optJSONObject(k)?.optJSONObject("team") ?: continue
+                    val nickname = team.optString("name", "").trim()
+                        .ifBlank { team.optString("shortDisplayName", "").trim() }
+                    if (nickname.isNotBlank()) sides.add(nickname)
+                }
+                if (sides.size >= 2) out.add(Fixture(league, sides, at))
+            }
+            return out
+        } finally {
+            http.disconnect()
+        }
+    }
+
     // ---------- their games ----------
 
     fun games(context: Context, now: Long = System.currentTimeMillis()): List<TeamGame> {
         val mine = chosen(context)
         if (mine.isEmpty()) return emptyList()
+        val scheduled = fromSchedule(mine, now)
+        if (scheduled.isNotEmpty()) return scheduled
+        return fromNames(mine, now)
+    }
+
+    /**
+     * The league's fixtures for the teams being followed, each paired with a
+     * channel whose name carries both sides.
+     */
+    private fun fromSchedule(mine: List<Team>, now: Long): List<TeamGame> {
+        val out = ArrayList<TeamGame>()
+        val seen = HashSet<String>()
+        for (league in mine.map { it.league }.distinct()) {
+            val list = fixtures(league, now)
+            if (list.isEmpty()) continue
+            for (fixture in list) {
+                if (fixture.startsAt < now - ON_NOW_MS || fixture.startsAt > now + AHEAD_MS) continue
+                val team = mine.firstOrNull { me ->
+                    me.league == league && fixture.sides.any { it.equals(me.nickname, true) }
+                } ?: continue
+                if (!seen.add(team.key + "@" + (fixture.startsAt / 600_000L))) continue
+                val channel = channelFor(fixture) ?: continue
+                out.add(TeamGame(team, channel, fixture.startsAt, fixture.sides.joinToString(" v ")))
+            }
+        }
+        return out.sortedBy { it.startsAt }
+    }
+
+    /** A channel whose name carries both sides of this fixture. */
+    private fun channelFor(fixture: Fixture): StreamItem? {
+        val both = fixture.sides.map {
+            Pattern.compile("\\b" + Pattern.quote(it) + "\\b", Pattern.CASE_INSENSITIVE)
+        }
+        var fallback: StreamItem? = null
+        for (channel in Catalog.live) {
+            if (!both.all { it.matcher(channel.name).find() }) continue
+            // A listing for this particular game beats a channel that merely
+            // mentions the two teams, so one carrying a time wins.
+            if (EventOrder.timeIn(channel.name) != null) return channel
+            if (fallback == null) fallback = channel
+        }
+        return fallback
+    }
+
+    /** What the channel names alone can tell us, when the schedule cannot be had. */
+    private fun fromNames(mine: List<Team>, now: Long): List<TeamGame> {
         val folders = HashMap<String, String>()
         for (category in Catalog.liveCategories) folders[category.id] = category.name
-        val patterns = mine.map { team ->
+        val patterns: List<Pair<Team, Pattern>> = mine.map { team ->
             team to Pattern.compile("\\b" + Pattern.quote(team.nickname) + "\\b", Pattern.CASE_INSENSITIVE)
         }
         val out = ArrayList<TeamGame>()
