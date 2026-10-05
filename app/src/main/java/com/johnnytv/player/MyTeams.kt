@@ -181,16 +181,23 @@ object MyTeams {
 
     private val fixtures = HashMap<String, Pair<Long, List<Fixture>>>()
 
-    /** Blocking. Today and tomorrow, as the league has them. */
-    private fun fixtures(league: String, now: Long): List<Fixture> {
+    /**
+     * Blocking. The league's fixtures around now, or null when the schedule
+     * could not be reached at all.
+     *
+     * The difference matters: no fixtures for a team means they are not
+     * playing today, which is a real answer. Not being able to ask is not an
+     * answer, and only then is there any reason to go back to reading names.
+     */
+    private fun fixtures(league: String, now: Long): List<Fixture>? {
         synchronized(fixtures) {
             val held = fixtures[league]
             if (held != null && now - held.first < FIXTURES_AGE_MS) return held.second
         }
         val fetched = runCatching { fetchFixtures(league, now) }.getOrNull()
         synchronized(fixtures) {
-            // Nothing came back: keep what there was rather than claim no games.
-            if (fetched == null) return fixtures[league]?.second ?: emptyList()
+            // Nothing came back: an answer from earlier today still stands.
+            if (fetched == null) return fixtures[league]?.second
             fixtures[league] = now to fetched
             return fetched
         }
@@ -242,20 +249,24 @@ object MyTeams {
         val mine = chosen(context)
         if (mine.isEmpty()) return emptyList()
         val scheduled = fromSchedule(mine, now)
-        if (scheduled.isNotEmpty()) return scheduled
-        return fromNames(mine, now)
+        // Null means not one league could be asked. An empty list is an answer:
+        // nobody they follow is playing, and inventing a game from a channel
+        // name - a replay, or a team's own 24/7 channel - is worse than saying
+        // nothing at all.
+        return scheduled ?: fromNames(mine, now)
     }
 
     /**
      * The league's fixtures for the teams being followed, each paired with a
      * channel whose name carries both sides.
      */
-    private fun fromSchedule(mine: List<Team>, now: Long): List<TeamGame> {
+    private fun fromSchedule(mine: List<Team>, now: Long): List<TeamGame>? {
         val out = ArrayList<TeamGame>()
         val seen = HashSet<String>()
+        var asked = false
         for (league in mine.map { it.league }.distinct()) {
-            val list = fixtures(league, now)
-            if (list.isEmpty()) continue
+            val list = fixtures(league, now) ?: continue
+            asked = true
             for (fixture in list) {
                 if (fixture.startsAt < now - ON_NOW_MS || fixture.startsAt > now + AHEAD_MS) continue
                 val team = mine.firstOrNull { me ->
@@ -266,7 +277,7 @@ object MyTeams {
                 out.add(TeamGame(team, channel, fixture.startsAt, fixture.sides.joinToString(" v ")))
             }
         }
-        return out.sortedBy { it.startsAt }
+        return if (asked) out.sortedBy { it.startsAt } else null
     }
 
     /** A channel whose name carries both sides of this fixture. */
