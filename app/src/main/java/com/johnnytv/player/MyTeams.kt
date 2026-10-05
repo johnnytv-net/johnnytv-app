@@ -77,6 +77,7 @@ object MyTeams {
     private const val STORE = "my_teams"
     private const val KEY_CHOSEN = "chosen"
     private const val KEY_REMINDED = "reminded"
+    private const val KEY_CARRIED = "carried"
 
     private const val LIST_AGE_MS = 7L * 24L * 60L * 60L * 1000L
 
@@ -94,8 +95,48 @@ object MyTeams {
 
     // ---------- the teams somebody follows ----------
 
-    fun chosen(context: Context): List<Team> =
-        (store(context).getString(KEY_CHOSEN, "") ?: "").split("\n").mapNotNull { parse(it) }
+    /*
+     * A LIST PER SERVICE.
+     *
+     * The teams followed on one line are not necessarily the teams wanted on
+     * another - one service may be the house's main one and the other kept
+     * for a single sport. So each service keeps its own list, and changing
+     * line changes the list with it. The list from before they were kept
+     * apart goes, once, to the first service that asks for it.
+     */
+    private fun serviceTag(context: Context): String {
+        val host = runCatching { Prefs(context).client().server }.getOrDefault("")
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .substringBefore('/')
+            .substringBefore(':')
+            .lowercase()
+            .trim()
+        return when {
+            host.isEmpty() -> ""
+            // Every door into the same panel shares one list.
+            host.contains("dino") || host.contains("bq-lines") || host.contains("joy8k") -> "dn"
+            else -> host
+        }
+    }
+
+    private fun chosenKey(context: Context): String {
+        val tag = serviceTag(context)
+        return if (tag.isEmpty()) KEY_CHOSEN else "$KEY_CHOSEN@$tag"
+    }
+
+    fun chosen(context: Context): List<Team> {
+        val sp = store(context)
+        val key = chosenKey(context)
+        val own = sp.getString(key, null)
+        if (own != null) return own.split("\n").mapNotNull { parse(it) }
+        if (key == KEY_CHOSEN || sp.getBoolean(KEY_CARRIED, false)) return emptyList()
+        // First service to ask since the lists were separated: it inherits
+        // what was chosen before, and nobody else does.
+        val before = sp.getString(KEY_CHOSEN, "") ?: ""
+        sp.edit().putString(key, before).putBoolean(KEY_CARRIED, true).apply()
+        return before.split("\n").mapNotNull { parse(it) }
+    }
 
     private fun parse(line: String): Team? {
         val parts = line.split("\t")
@@ -109,7 +150,7 @@ object MyTeams {
         val had = list.removeAll { it.key == team.key }
         if (!had) list.add(team)
         val text = list.joinToString("\n") { listOf(it.league, it.name, it.nickname, it.logo).joinToString("\t") }
-        store(context).edit().putString(KEY_CHOSEN, text).apply()
+        store(context).edit().putString(chosenKey(context), text).apply()
         return !had
     }
 
