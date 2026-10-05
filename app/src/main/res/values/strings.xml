@@ -97,6 +97,7 @@
         <item quantity="other">%1$d teams chosen</item>
     </plurals>
     <string name="team_game_on_now">ON NOW</string>
+    <string name="team_game_next">Next game  ·  %1$s</string>
     <string name="team_game_started">started %1$s</string>
     <string name="team_game_in_hours">in %1$d h %2$d min</string>
     <string name="team_game_in_minutes">in %1$d min</string>

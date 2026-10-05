@@ -13,6 +13,9 @@ data class Team(val league: String, val name: String, val nickname: String, val 
     val key: String get() = "$league|$nickname"
 }
 
+/** A team's next game, when it is not today. Nothing to watch yet - just when. */
+data class TeamNext(val team: Team, val startsAt: Long, val title: String)
+
 /** One of their games, and the channel it is on. */
 data class TeamGame(val team: Team, val channel: StreamItem, val startsAt: Long, val title: String)
 
@@ -231,7 +234,7 @@ object MyTeams {
         val from = stamp.format(java.util.Date(now - 24L * 60L * 60L * 1000L))
         // Cards are announced weeks out and there is one every week or two, so
         // a fight promotion is asked about the month ahead rather than tomorrow.
-        val ahead = if (PROMOTIONS.containsKey(league)) 31L else 2L
+        val ahead = if (PROMOTIONS.containsKey(league)) 31L else 8L
         val to = stamp.format(java.util.Date(now + ahead * 24L * 60L * 60L * 1000L))
         val http = URL("https://site.api.espn.com/apis/site/v2/sports/$path/scoreboard?dates=$from-$to")
             .openConnection() as HttpURLConnection
@@ -282,6 +285,28 @@ object MyTeams {
         // name - a replay, or a team's own 24/7 channel - is worse than saying
         // nothing at all.
         return scheduled ?: fromNames(mine, now)
+    }
+
+    /**
+     * Each followed team's next game in the coming week, soonest first.
+     *
+     * The home screen used to show a team only on the day it played, and
+     * nothing at all otherwise - so picking five teams on a quiet day looked
+     * exactly like the feature being broken. Now every team chosen has a line:
+     * today's game to watch, or failing that when they play next.
+     */
+    fun upcoming(context: Context, now: Long = System.currentTimeMillis()): List<TeamNext> {
+        val mine = chosen(context)
+        val out = ArrayList<TeamNext>()
+        for (team in mine) {
+            val list = fixtures(team.league, now) ?: continue
+            val next = list.filter { fixture ->
+                fixture.startsAt > now && fixture.sides.any { it.equals(team.nickname, true) }
+            }.minByOrNull { it.startsAt } ?: continue
+            val title = if (next.card.isNotBlank()) next.card else next.sides.joinToString(" v ")
+            out.add(TeamNext(team, next.startsAt, title))
+        }
+        return out.sortedBy { it.startsAt }
     }
 
     /**

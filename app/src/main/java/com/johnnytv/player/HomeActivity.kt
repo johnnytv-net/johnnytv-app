@@ -374,6 +374,11 @@ class HomeActivity : AppCompatActivity() {
             val games = withContext(Dispatchers.Default) {
                 runCatching { MyTeams.games(this@HomeActivity, now) }.getOrDefault(emptyList())
             }.take(3)
+            // Teams with nothing on today still get a line: when they play next.
+            val later = withContext(Dispatchers.Default) {
+                runCatching { MyTeams.upcoming(this@HomeActivity, now) }.getOrDefault(emptyList())
+            }.filter { next -> games.none { it.team.key == next.team.key } }
+            val following = withContext(Dispatchers.Default) { MyTeams.chosen(this@HomeActivity).size }
             if (isFinishing || isDestroyed) return@launch
             val folders = HashMap<String, String>()
             for (category in Catalog.liveCategories) folders[category.id] = category.name
@@ -383,7 +388,24 @@ class HomeActivity : AppCompatActivity() {
                 val row = findViewById<View>(id)
                 val game = games.getOrNull(index)
                 if (game == null) {
-                    row.visibility = View.GONE
+                    val next = later.getOrNull(index - games.size)
+                    if (next == null) {
+                        row.visibility = View.GONE
+                        return@forEachIndexed
+                    }
+                    // Not today: say when. There is nothing to watch yet, so
+                    // pressing it does nothing.
+                    row.visibility = View.VISIBLE
+                    val badge = row.findViewById<ImageView>(R.id.gameLogo)
+                    if (next.team.logo.isBlank()) badge.setImageResource(R.drawable.logo)
+                    else badge.load(next.team.logo) { crossfade(true) }
+                    val day = java.text.SimpleDateFormat("EEE d MMM", java.util.Locale.getDefault())
+                    row.findViewById<TextView>(R.id.gameTitle).text = next.title
+                    row.findViewById<TextView>(R.id.gameSub).text =
+                        getString(R.string.team_game_next, day.format(Date(next.startsAt)))
+                    row.findViewById<TextView>(R.id.gameTime).text = clock.format(Date(next.startsAt))
+                    row.setOnClickListener(null)
+                    row.setOnLongClickListener(null)
                     return@forEachIndexed
                 }
                 row.visibility = View.VISIBLE
@@ -422,7 +444,9 @@ class HomeActivity : AppCompatActivity() {
                     true
                 }
             }
-            panel.visibility = if (games.isEmpty()) View.GONE else View.VISIBLE
+            // There whenever a team is followed and there is anything to say.
+            panel.visibility =
+                if (following > 0 && (games.isNotEmpty() || later.isNotEmpty())) View.VISIBLE else View.GONE
         }
     }
 
