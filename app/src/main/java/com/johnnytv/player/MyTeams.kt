@@ -301,7 +301,7 @@ object MyTeams {
                     me.league == league && fixture.sides.any { it.equals(me.nickname, true) }
                 } ?: continue
                 if (!seen.add(team.key + "@" + (fixture.startsAt / 600_000L))) continue
-                val channel = channelFor(fixture) ?: continue
+                val channel = channelFor(fixture, team) ?: continue
                 val title = if (fixture.card.isNotBlank()) fixture.card
                     else fixture.sides.joinToString(" v ")
                 out.add(TeamGame(team, channel, fixture.startsAt, title))
@@ -310,21 +310,52 @@ object MyTeams {
         return if (asked) out.sortedBy { it.startsAt } else null
     }
 
-    /** A channel whose name carries both sides of this fixture. */
-    private fun channelFor(fixture: Fixture): StreamItem? {
+    /**
+     * Where to watch this fixture.
+     *
+     * A channel naming both sides is the right answer and is taken first. But
+     * portals write these names every way there is - "Canucks vs Golden
+     * Knights", "VAN vs VGK", "Vancouver @ Vegas" - and insisting on both
+     * names in full meant a real game, with a real time from the schedule,
+     * was quietly dropped because the channel said it differently. So failing
+     * that, any channel naming the team being followed will do: the worst case
+     * is their own channel rather than tonight's game, which is still a
+     * sensible place to send somebody at kick-off.
+     */
+    private fun channelFor(fixture: Fixture, team: Team): StreamItem? {
         if (fixture.card.isNotBlank()) return channelForCard(fixture)
-        val both = fixture.sides.map {
-            Pattern.compile("\\b" + Pattern.quote(it) + "\\b", Pattern.CASE_INSENSITIVE)
-        }
-        var fallback: StreamItem? = null
+        val words = fixture.sides.map { nameParts(it) }
+        var loose: StreamItem? = null
+        var mine: StreamItem? = null
+        val team_ = Pattern.compile("\\b" + Pattern.quote(team.nickname) + "\\b", Pattern.CASE_INSENSITIVE)
         for (channel in Catalog.live) {
-            if (!both.all { it.matcher(channel.name).find() }) continue
-            // A listing for this particular game beats a channel that merely
-            // mentions the two teams, so one carrying a time wins.
-            if (EventOrder.timeIn(channel.name) != null) return channel
-            if (fallback == null) fallback = channel
+            val name = channel.name
+            val bothNamed = words.all { side -> side.any { it.matcher(name).find() } }
+            if (bothNamed) {
+                // A listing for this particular game beats a channel that
+                // merely mentions the two teams, so one carrying a time wins.
+                if (EventOrder.timeIn(name) != null) return channel
+                if (loose == null) loose = channel
+            } else if (mine == null && team_.matcher(name).find()) {
+                mine = channel
+            }
         }
-        return fallback
+        return loose ?: mine
+    }
+
+    /**
+     * The ways a side's name might be written. "Golden Knights" is also
+     * "Knights"; "Maple Leafs" is also "Leafs" - so each word of three
+     * letters or more counts, as well as the whole.
+     */
+    private fun nameParts(side: String): List<Pattern> {
+        val out = ArrayList<Pattern>(3)
+        out.add(Pattern.compile("\\b" + Pattern.quote(side) + "\\b", Pattern.CASE_INSENSITIVE))
+        val words = side.split(' ').filter { it.length >= 3 }
+        if (words.size > 1) {
+            words.forEach { out.add(Pattern.compile("\\b" + Pattern.quote(it) + "\\b", Pattern.CASE_INSENSITIVE)) }
+        }
+        return out
     }
 
     /**
