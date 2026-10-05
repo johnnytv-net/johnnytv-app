@@ -72,7 +72,7 @@ object MyTeams {
     )
 
     /** How long a day's fixtures are kept before asking again. */
-    private const val FIXTURES_AGE_MS = 20L * 60L * 1000L
+    private const val FIXTURES_AGE_MS = 45L * 60L * 1000L
 
     private const val STORE = "my_teams"
     private const val KEY_CHOSEN = "chosen"
@@ -231,18 +231,44 @@ object MyTeams {
         // since that is what the schedule is written against.
         val stamp = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US)
         stamp.timeZone = java.util.TimeZone.getTimeZone("UTC")
-        val from = stamp.format(java.util.Date(now - 24L * 60L * 60L * 1000L))
-        // Cards are announced weeks out and there is one every week or two, so
-        // a fight promotion is asked about the month ahead rather than tomorrow.
-        val ahead = if (PROMOTIONS.containsKey(league)) 31L else 8L
-        val to = stamp.format(java.util.Date(now + ahead * 24L * 60L * 60L * 1000L))
-        val http = URL("https://site.api.espn.com/apis/site/v2/sports/$path/scoreboard?dates=$from-$to")
+        val day = 24L * 60L * 60L * 1000L
+        if (PROMOTIONS.containsKey(league)) {
+            // Cards are announced weeks out and there is one every week or
+            // two, so a fight promotion is asked about the month ahead.
+            val from = stamp.format(java.util.Date(now - day))
+            val to = stamp.format(java.util.Date(now + 31L * day))
+            return fetchSpan(league, path, "$from-$to")
+        }
+        /*
+         * A league with teams is asked one day at a time. Asked for a span of
+         * days in one go, the schedule answers fight promotions happily and
+         * refuses the team leagues outright - which, read as "no fixtures",
+         * is why hockey showed nothing while UFC next door worked.
+         */
+        val out = ArrayList<Fixture>()
+        var answered = 0
+        for (offset in -1L..7L) {
+            val one = runCatching { fetchSpan(league, path, stamp.format(java.util.Date(now + offset * day))) }
+                .getOrNull() ?: continue
+            answered++
+            out.addAll(one)
+        }
+        // Not one day could be had: that is not being able to ask, not an
+        // empty week.
+        if (answered == 0) throw java.io.IOException("schedule unavailable")
+        return out
+    }
+
+    /** One request to the schedule. Throws when it is refused or cannot be reached. */
+    private fun fetchSpan(league: String, path: String, dates: String): List<Fixture> {
+        val http = URL("https://site.api.espn.com/apis/site/v2/sports/$path/scoreboard?dates=$dates")
             .openConnection() as HttpURLConnection
         try {
             http.connectTimeout = 8_000
             http.readTimeout = 10_000
             http.setRequestProperty("User-Agent", Config.USER_AGENT)
-            if (http.responseCode !in 200..299) return emptyList()
+            // A refusal is a failure to ask, never "nothing on".
+            if (http.responseCode !in 200..299) throw java.io.IOException("HTTP " + http.responseCode)
             val body = http.inputStream.bufferedReader().use { it.readText() }
             val events = JSONObject(body).optJSONArray("events") ?: return emptyList()
             val when_ = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm'Z'", java.util.Locale.US)
