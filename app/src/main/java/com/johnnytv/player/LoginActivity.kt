@@ -74,6 +74,14 @@ class LoginActivity : AppCompatActivity() {
         statusLabel = findViewById(R.id.loginStatus)
         savedLabel = findViewById(R.id.savedLabel)
         savedList = findViewById(R.id.savedLogins)
+        findViewById<TextView>(R.id.loginVersion).text = getString(
+            R.string.login_version,
+            try {
+                packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+            } catch (e: Exception) {
+                ""
+            }
+        )
 
         signInButton.setOnClickListener {
             // Typed by hand, so no remembered address applies.

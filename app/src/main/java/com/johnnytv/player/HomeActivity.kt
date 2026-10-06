@@ -25,7 +25,19 @@ class HomeActivity : AppCompatActivity() {
     private lateinit var clock: TextView
     private lateinit var today: TextView
 
-    private var featured: SeriesItem? = null
+    /** What the artwork panel is showing, and what opening it should do. */
+    private class Feature(
+        val film: Boolean,
+        val id: String,
+        val name: String,
+        val cover: String,
+        val extension: String = ""
+    )
+
+    private var featured: Feature? = null
+
+    /** Which choice of artwork is current, so a slow one cannot land on top of a newer. */
+    private var featureTurn = 0
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -520,23 +532,72 @@ class HomeActivity : AppCompatActivity() {
         val choice = recent.filter { it.backdrop.isNotBlank() }.randomOrNull()
             ?: recent.filter { it.cover.isNotBlank() }.randomOrNull()
             ?: Catalog.series.firstOrNull { it.cover.isNotBlank() }
+        val films = Catalog.vod.filter { it.icon.isNotBlank() }.sortedByDescending { it.added }.take(40)
 
-        featured = choice
-        val art = findViewById<ImageView>(R.id.featuredArt)
-        val title = findViewById<TextView>(R.id.featuredTitle)
-        val meta = findViewById<TextView>(R.id.featuredMeta)
-
-        findViewById<View>(R.id.featuredTag).visibility = if (choice == null) View.GONE else View.VISIBLE
-        if (choice == null) {
-            art.setImageResource(R.drawable.tile_placeholder)
-            title.text = getString(R.string.app_name)
-            meta.text = ""
+        /*
+         * Every other time, a recently added film instead of a series. A
+         * film's entry in the list has a poster and no wide picture, so its
+         * wide picture is asked for; if none of a few tries has one, the
+         * series is shown after all rather than a poster stretched across.
+         */
+        val turn = ++featureTurn
+        if (films.isNotEmpty() && kotlin.random.Random.nextBoolean()) {
+            val candidates = films.shuffled().take(3)
+            lifecycleScope.launch {
+                for (film in candidates) {
+                    val info = withContext(Dispatchers.IO) {
+                        runCatching { prefs.client().movieInfo(film.streamId) }.getOrNull()
+                    } ?: continue
+                    if (info.backdrop.isBlank()) continue
+                    if (isFinishing || isDestroyed || turn != featureTurn) return@launch
+                    showFeature(
+                        Feature(true, film.streamId, film.name, film.icon, film.containerExtension),
+                        info.backdrop,
+                        filmMeta(info)
+                    )
+                    return@launch
+                }
+                if (!isFinishing && !isDestroyed && turn == featureTurn) showSeries(choice)
+            }
             return
         }
+        showSeries(choice)
+    }
 
-        setArt(art, choice.backdrop.ifBlank { choice.cover })
-        title.text = choice.name
-        meta.text = choice.metaLine()
+    private fun showSeries(choice: SeriesItem?) {
+        if (choice == null) {
+            featured = null
+            findViewById<View>(R.id.featuredTag).visibility = View.GONE
+            findViewById<ImageView>(R.id.featuredArt).setImageResource(R.drawable.tile_placeholder)
+            findViewById<TextView>(R.id.featuredTitle).text = getString(R.string.app_name)
+            findViewById<TextView>(R.id.featuredMeta).text = ""
+            return
+        }
+        showFeature(
+            Feature(false, choice.seriesId, choice.name, choice.cover),
+            choice.backdrop.ifBlank { choice.cover },
+            choice.metaLine()
+        )
+    }
+
+    private fun showFeature(feature: Feature, artUrl: String, metaText: String) {
+        featured = feature
+        findViewById<View>(R.id.featuredTag).visibility = View.VISIBLE
+        setArt(findViewById(R.id.featuredArt), artUrl)
+        findViewById<TextView>(R.id.featuredTitle).text = feature.name
+        findViewById<TextView>(R.id.featuredMeta).text = metaText
+    }
+
+    /** The star, the year and a genre, with only the ones the portal sent. */
+    private fun filmMeta(info: MovieInfo): String {
+        val bits = ArrayList<String>(3)
+        info.releaseDate.take(4).takeIf { it.length == 4 && it.all { c -> c.isDigit() } }
+            ?.let { bits.add(it) }
+        info.genre.split(',', '/', '|').map { it.trim() }.firstOrNull { it.isNotBlank() }
+            ?.let { bits.add(it) }
+        info.rating.trim().toDoubleOrNull()?.takeIf { it > 0.0 }
+            ?.let { bits.add("\u2605 " + String.format(java.util.Locale.US, "%.1f", it)) }
+        return bits.joinToString("  \u00B7  ")
     }
 
     // ---------- navigation ----------
@@ -551,9 +612,13 @@ class HomeActivity : AppCompatActivity() {
 
     private fun openFeatured() {
         val choice = featured ?: return
+        if (choice.film) {
+            MovieActivity.start(this, choice.id, choice.name, choice.cover, choice.extension)
+            return
+        }
         startActivity(
             Intent(this, SeriesActivity::class.java)
-                .putExtra(SeriesActivity.EXTRA_SERIES_ID, choice.seriesId)
+                .putExtra(SeriesActivity.EXTRA_SERIES_ID, choice.id)
                 .putExtra(SeriesActivity.EXTRA_TITLE, choice.name)
                 .putExtra(SeriesActivity.EXTRA_COVER, choice.cover)
         )

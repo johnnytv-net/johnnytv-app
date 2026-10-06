@@ -33,6 +33,15 @@
             android:textAllCaps="true"
             android:textColor="@color/text_secondary"
             android:textSize="14sp" />
+
+        <!-- Readable by somebody who cannot get in, to say down a telephone. -->
+        <TextView
+            android:id="@+id/loginVersion"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textColor="#FF5D6874"
+            android:textSize="12sp" />
     </LinearLayout>
 
     <!-- sign-in side -->

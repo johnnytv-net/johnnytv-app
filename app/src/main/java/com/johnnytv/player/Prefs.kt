@@ -317,19 +317,55 @@ class Prefs(context: Context) {
      * re-learned every time, because the second stall is the one the viewer
      * notices and there is no reason to make them sit through it twice.
      */
-    fun isJumpy(streamId: String): Boolean = jumpySet().contains(streamId)
+    /*
+     * The mark wears off. One bad evening on the portal used to leave a channel
+     * on the slower, deeper start for good; now a channel that has gone a week
+     * without stalling is given its normal start back, and stalls from long ago
+     * do not add up with one today. A channel that really is a poor one stalls
+     * again, is marked again after two, and stays marked while it keeps doing it.
+     */
+    fun isJumpy(streamId: String): Boolean {
+        if (!jumpySet().contains(streamId)) return false
+        val now = System.currentTimeMillis()
+        val last = sp.getLong(stallAtKey(streamId), 0L)
+        if (last == 0L) {
+            // Marked before marks were dated: its week starts now.
+            sp.edit().putLong(stallAtKey(streamId), now).apply()
+            return true
+        }
+        if (now - last > STALL_MEMORY_MS) {
+            forgetStalls(streamId)
+            return false
+        }
+        return true
+    }
 
     fun noteStall(streamId: String): Boolean {
         if (streamId.isBlank()) return false
-        val counted = sp.getInt(stallKey(streamId), 0) + 1
-        sp.edit().putInt(stallKey(streamId), counted).apply()
+        val now = System.currentTimeMillis()
+        val last = sp.getLong(stallAtKey(streamId), 0L)
+        val before = if (last > 0L && now - last > STALL_MEMORY_MS) 0 else sp.getInt(stallKey(streamId), 0)
+        val counted = before + 1
+        sp.edit().putInt(stallKey(streamId), counted).putLong(stallAtKey(streamId), now).apply()
         if (counted < STALLS_BEFORE_DEEPER_BUFFER) return false
         val set = HashSet(jumpySet())
         if (set.add(streamId)) sp.edit().putStringSet(KEY_JUMPY, set).apply()
         return true
     }
 
+    private fun forgetStalls(streamId: String) {
+        val set = HashSet(jumpySet())
+        set.remove(streamId)
+        sp.edit()
+            .putStringSet(KEY_JUMPY, set)
+            .remove(stallKey(streamId))
+            .remove(stallAtKey(streamId))
+            .apply()
+    }
+
     private fun stallKey(streamId: String) = "stalls:" + streamId
+
+    private fun stallAtKey(streamId: String) = "stallat:" + streamId
 
     private fun jumpySet(): Set<String> = sp.getStringSet(KEY_JUMPY, emptySet()) ?: emptySet()
 
@@ -528,8 +564,8 @@ class Prefs(context: Context) {
         }
         val map = positionMap()
         map.put(favouriteKey(kind, id), positionMs)
-        sp.edit().putString(KEY_POSITIONS, map.toString()).apply()
-        pushRecent(KEY_CONTINUE, favouriteKey(kind, id), 30)
+        sp.edit().putString(positionsKey(), map.toString()).apply()
+        pushRecent(continueKey(), favouriteKey(kind, id), 30)
     }
 
     fun position(kind: Kind, id: String): Long = positionMap().optLong(favouriteKey(kind, id), 0L)
@@ -537,21 +573,50 @@ class Prefs(context: Context) {
     fun removePosition(kind: Kind, id: String) {
         val map = positionMap()
         map.remove(favouriteKey(kind, id))
-        sp.edit().putString(KEY_POSITIONS, map.toString()).apply()
-        val remaining = recentList(KEY_CONTINUE).filter { it != favouriteKey(kind, id) }
-        sp.edit().putString(KEY_CONTINUE, remaining.joinToString("\n")).apply()
+        sp.edit().putString(positionsKey(), map.toString()).apply()
+        val remaining = recentList(continueKey()).filter { it != favouriteKey(kind, id) }
+        sp.edit().putString(continueKey(), remaining.joinToString("\n")).apply()
     }
 
     /** Ids of things part-watched, most recent first, for the given kind. */
     fun continueWatching(kind: Kind): List<String> {
         val prefix = "${kind.name}:"
-        return recentList(KEY_CONTINUE).filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }
+        return recentList(continueKey()).filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }
     }
 
     private fun positionMap(): JSONObject = try {
-        JSONObject(sp.getString(KEY_POSITIONS, "{}") ?: "{}")
+        JSONObject(sp.getString(positionsKey(), "{}") ?: "{}")
     } catch (e: Exception) {
         JSONObject()
+    }
+
+    /*
+     * WHERE YOU GOT TO, PER SERVICE.
+     *
+     * A film is remembered by its number, and a number means a different film
+     * on every portal. Kept in one list, a box that changed line would offer
+     * to resume film 4471 from forty minutes in on a film that is not the one
+     * that was being watched - the same flaw the favourites had, and the same
+     * cure: each service keeps its own, and the list from before they were
+     * apart goes, once, to the first service that asks for it.
+     */
+    private fun positionsKey(): String = perService(KEY_POSITIONS)
+
+    private fun continueKey(): String = perService(KEY_CONTINUE)
+
+    private fun perService(base: String): String {
+        val tag = serviceTag()
+        if (tag.isEmpty()) return base
+        val key = "$base@$tag"
+        if (sp.contains(key)) return key
+        val handedOn = "$base:handed_on"
+        if (!sp.getBoolean(handedOn, false)) {
+            val before = sp.getString(base, null)
+            val edit = sp.edit().putBoolean(handedOn, true)
+            if (before != null) edit.putString(key, before)
+            edit.apply()
+        }
+        return key
     }
 
     // ---------- recent searches ----------
@@ -615,6 +680,9 @@ class Prefs(context: Context) {
         const val KEY_WEATHER_LAT = "weather_lat"
         const val KEY_WEATHER_LON = "weather_lon"
         const val KEY_JUMPY = "jumpy_channels"
+
+        /** How long a channel can go without stalling before it is given its normal start back. */
+        const val STALL_MEMORY_MS = 7L * 24L * 60L * 60L * 1000L
 
         /** How many stalls before a channel gets the deeper buffer for good. */
         const val STALLS_BEFORE_DEEPER_BUFFER = 2
