@@ -375,17 +375,20 @@ class HomeActivity : AppCompatActivity() {
      * teams chosen, or nothing on, the panel is not there and the artwork has
      * the whole column - nobody is shown an empty box.
      */
+    /*
+     * The games panel used to be hidden outright on a short screen, on the
+     * assumption that a phone had no room for it. It has room for one line,
+     * and one line is the whole point of the thing - so a phone gets the next
+     * game rather than nothing at all, and the panel is simply smaller.
+     */
     private fun showTeams() {
         val panel = findViewById<View>(R.id.teamsPanel)
-        if (shortScreen()) {
-            panel.visibility = View.GONE
-            return
-        }
+        val room = if (shortScreen()) 1 else 3
         lifecycleScope.launch {
             val now = System.currentTimeMillis()
             val games = withContext(Dispatchers.Default) {
                 runCatching { MyTeams.games(this@HomeActivity, now) }.getOrDefault(emptyList())
-            }.take(3)
+            }.take(room)
             // Teams with nothing on today still get a line: when they play next.
             val later = withContext(Dispatchers.Default) {
                 runCatching { MyTeams.upcoming(this@HomeActivity, now) }.getOrDefault(emptyList())
@@ -398,6 +401,11 @@ class HomeActivity : AppCompatActivity() {
             val rows = intArrayOf(R.id.teamGame1, R.id.teamGame2, R.id.teamGame3)
             rows.forEachIndexed { index, id ->
                 val row = findViewById<View>(id)
+                if (index >= room) {
+                    row.visibility = View.GONE
+                    return@forEachIndexed
+                }
+                if (shortScreen()) fitRowToScreen(row)
                 val game = games.getOrNull(index)
                 if (game == null) {
                     val next = later.getOrNull(index - games.size)
@@ -488,6 +496,22 @@ class HomeActivity : AppCompatActivity() {
 
     /** A phone on its side, rather than a television or a tablet. */
     private fun shortScreen(): Boolean = resources.configuration.screenHeightDp < 430
+
+    /** The same game line, a size down, so it fits a phone held sideways. */
+    private fun fitRowToScreen(row: View) {
+        val density = resources.displayMetrics.density
+        val badge = row.findViewById<ImageView>(R.id.gameLogo)
+        val params = badge.layoutParams
+        params.width = (24 * density).toInt()
+        params.height = (24 * density).toInt()
+        badge.layoutParams = params
+        row.findViewById<TextView>(R.id.gameTitle).textSize = 13f
+        row.findViewById<TextView>(R.id.gameSub).textSize = 10f
+        row.findViewById<TextView>(R.id.gameTime).textSize = 13f
+        val side = (9 * density).toInt()
+        val edge = (6 * density).toInt()
+        row.setPadding(side, edge, side, edge)
+    }
 
     /**
      * The layout is drawn for a television. On a phone held sideways there is
