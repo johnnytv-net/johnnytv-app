@@ -57,6 +57,7 @@
     <string name="count_series">%1$s series</string>
     <string name="sync_empty">Nothing came back from the server. Check your account and try again.</string>
     <string name="sync_failed">Could not load your content.</string>
+    <string name="sync_sign_in_again">Tap here or press OK to sign in again.</string>
 
     <!-- sections -->
     <string name="live_tv">Live TV</string>
