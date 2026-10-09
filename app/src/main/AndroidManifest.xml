@@ -37,7 +37,7 @@
 
     <application
         android:name=".JohnnyTvApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:largeHeap="true"
         android:banner="@drawable/tv_banner"
         android:icon="@mipmap/ic_launcher"
