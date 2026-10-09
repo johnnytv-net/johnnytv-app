@@ -40,7 +40,9 @@ class XtreamClient(
 
     private val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
+        // The full film list is a big download from a server a long way off; a
+        // slow path to it is not a dead one. Give a list two minutes to arrive.
+        .readTimeout(120, TimeUnit.SECONDS)
         .followRedirects(true)
         .build()
 
