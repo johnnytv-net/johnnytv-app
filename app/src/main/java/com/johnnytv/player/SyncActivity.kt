@@ -2,6 +2,7 @@ package com.johnnytv.player
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.View
 import android.widget.ImageView
 import android.widget.ProgressBar
@@ -35,6 +36,9 @@ class SyncActivity : AppCompatActivity() {
     private lateinit var vod: Row
     private lateinit var series: Row
 
+    /** Set once the sync has given up, when any press means "let me sign in again". */
+    private var stuck = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
@@ -47,6 +51,7 @@ class SyncActivity : AppCompatActivity() {
         setContentView(R.layout.activity_sync)
         message = findViewById(R.id.syncMessage)
         spinner = findViewById(R.id.syncSpinner)
+        message.setOnClickListener { if (stuck) signInAgain() }
 
         live = Row(findViewById(R.id.rowLive), findViewById(R.id.countLive), findViewById(R.id.tickLive), findViewById(R.id.barLive))
         vod = Row(findViewById(R.id.rowVod), findViewById(R.id.countVod), findViewById(R.id.tickVod), findViewById(R.id.barVod))
@@ -95,7 +100,7 @@ class SyncActivity : AppCompatActivity() {
                 if (Catalog.isLoaded) {
                     goTo(HomeActivity::class.java)
                 } else {
-                    fail(getString(R.string.sync_empty))
+                    fail(getString(R.string.sync_empty) + whatWentWrong())
                 }
             }.onFailure { error ->
                 // A cached copy is better than a dead end.
@@ -103,7 +108,7 @@ class SyncActivity : AppCompatActivity() {
                 if (cached) {
                     goTo(HomeActivity::class.java)
                 } else {
-                    fail(error.message ?: getString(R.string.sync_failed))
+                    fail((error.message ?: getString(R.string.sync_failed)) + whatWentWrong())
                 }
             }
         }
@@ -170,9 +175,41 @@ class SyncActivity : AppCompatActivity() {
         row.count.text = count
     }
 
+    /*
+     * A sync that ends with nothing used to be a locked room: the screen said
+     * "check your account" and offered no way to. A login restored by the
+     * device after a reinstall, pointing at a server that has since moved,
+     * sat there for good. So the dead end now says what each section ran
+     * into, and any press - a tap on the message, Back, OK - drops the saved
+     * login and goes back to the sign-in screen.
+     */
     private fun fail(text: String) {
-        message.text = text
+        stuck = true
+        message.text = text + "\n\n" + getString(R.string.sync_sign_in_again)
         message.visibility = View.VISIBLE
+    }
+
+    /** What the sections that came back empty actually said, one line each. */
+    private fun whatWentWrong(): String {
+        val reasons = Catalog.reasons
+        if (reasons.isEmpty()) return ""
+        return "\n" + reasons.entries.joinToString("\n") { (section, why) ->
+            section.lowercase().replaceFirstChar { it.uppercase() } + ": " + why
+        }
+    }
+
+    private fun signInAgain() {
+        prefs.clearCredentials()
+        goTo(LoginActivity::class.java)
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (stuck && (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+            signInAgain()
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     private fun goTo(target: Class<*>) {
