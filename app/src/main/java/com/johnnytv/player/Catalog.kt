@@ -60,21 +60,22 @@ object Catalog {
      * it: the section that has just finished says how much it found.
      */
     fun sync(context: Context, client: XtreamClient, progress: (String, String) -> Unit) {
+        reasons = emptyMap()
         progress(SECTION_LIVE, STATUS_WORKING)
-        val liveCats = runCatching { client.liveCategories() }.getOrDefault(emptyList())
-        val liveStreams = runCatching { client.allLiveStreams() }.getOrDefault(emptyList())
+        val liveCats = fetched(SECTION_LIVE) { client.liveCategories() }
+        val liveStreams = fetched(SECTION_LIVE) { client.allLiveStreams() }
         counted = counted + (SECTION_LIVE to liveStreams.size)
         progress(SECTION_LIVE, if (liveStreams.isEmpty()) STATUS_EMPTY else STATUS_DONE)
 
         progress(SECTION_VOD, STATUS_WORKING)
-        val vodCats = runCatching { client.vodCategories() }.getOrDefault(emptyList())
-        val vodStreams = runCatching { client.allVodStreams() }.getOrDefault(emptyList())
+        val vodCats = fetched(SECTION_VOD) { client.vodCategories() }
+        val vodStreams = fetched(SECTION_VOD) { client.allVodStreams() }
         counted = counted + (SECTION_VOD to vodStreams.size)
         progress(SECTION_VOD, if (vodStreams.isEmpty()) STATUS_EMPTY else STATUS_DONE)
 
         progress(SECTION_SERIES, STATUS_WORKING)
-        val seriesCats = runCatching { client.seriesCategories() }.getOrDefault(emptyList())
-        val seriesList = runCatching { client.allSeries() }.getOrDefault(emptyList())
+        val seriesCats = fetched(SECTION_SERIES) { client.seriesCategories() }
+        val seriesList = fetched(SECTION_SERIES) { client.allSeries() }
         counted = counted + (SECTION_SERIES to seriesList.size)
         progress(SECTION_SERIES, if (seriesList.isEmpty()) STATUS_EMPTY else STATUS_DONE)
 
@@ -274,6 +275,23 @@ object Catalog {
      */
     var counted: Map<String, Int> = emptyMap()
         private set
+
+    /**
+     * Why a section came back with nothing, when it did. A failed fetch used
+     * to be quietly treated as an empty one, which left the sync screen saying
+     * "check your account" over what was really a timeout or a server that had
+     * moved. The first thing each section ran into is kept here instead.
+     */
+    var reasons: Map<String, String> = emptyMap()
+        private set
+
+    private fun <T> fetched(section: String, call: () -> List<T>): List<T> = try {
+        call()
+    } catch (e: Throwable) {
+        val why = e.message?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
+        if (!reasons.containsKey(section)) reasons = reasons + (section to why)
+        emptyList()
+    }
 
     const val SECTION_LIVE = "LIVE TV"
     const val SECTION_VOD = "MOVIES"
