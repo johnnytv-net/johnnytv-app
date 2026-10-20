@@ -251,7 +251,7 @@
     <string name="guide_check_row">Refresh the guide</string>
     <string name="guide_check_working">Asking the service for listings…</string>
     <string name="playback_log_row">Last playback, step by step</string>
-    <string name="playback_log_empty">Nothing recorded yet. Try playing a recording, then look here.</string>
+    <string name="playback_log_empty">Nothing yet. Play a recording or a live channel, then look here.</string>
     <string name="clear_favourites">Clear all favourites</string>
     <string name="clear_favourites_confirm">Remove every channel, film and series from Favourites? Nothing else is affected.</string>
     <string name="clear_favourites_show">Show what is stored</string>

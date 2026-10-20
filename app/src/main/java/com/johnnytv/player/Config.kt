@@ -90,19 +90,32 @@ object Config {
     const val VOD_MIN_BUFFER_MS: Int = 45_000
     const val VOD_MAX_BUFFER_MS: Int = 150_000
     const val VOD_BUFFER_BYTES: Int = 64 * 1024 * 1024
-    const val BUFFER_FOR_PLAYBACK_MS: Int = 800
-    const val BUFFER_AFTER_REBUFFER_MS: Int = 2_500
+    /*
+     * HOW MUCH IS IN HAND WHEN THE PICTURE APPEARS.
+     *
+     * This number is the whole story of live buffering. The portal sends a
+     * burst when a channel opens and then only as fast as the programme plays,
+     * so the lead the player holds while watching is the burst plus however
+     * long it waited before starting - and nothing ever adds to it. Eight
+     * tenths of a second, the old figure, meant any wobble longer than that
+     * emptied the buffer and put the spinner up, which is why the bought
+     * players (which wait several seconds) rode out hiccups ours did not.
+     * Three seconds costs about two seconds once per channel change and buys
+     * them back on every wobble after.
+     */
+    const val BUFFER_FOR_PLAYBACK_MS: Int = 3_000
+    const val BUFFER_AFTER_REBUFFER_MS: Int = 5_000
 
     /**
      * The head start given to a channel that has stalled on this line before.
      *
-     * Three seconds of video in hand before the picture appears, rather than
-     * eight tenths. It costs a couple of seconds when the channel opens and it
+     * Six seconds of video in hand before the picture appears, rather than
+     * three. It costs a couple of seconds when the channel opens and it
      * buys back every freeze that would otherwise have happened while watching,
      * which is the trade anybody would take on a channel that has already
      * misbehaved twice.
      */
-    const val BUFFER_FOR_PLAYBACK_DEEP_MS: Int = 3_000
+    const val BUFFER_FOR_PLAYBACK_DEEP_MS: Int = 6_000
 
     /**
      * Live streams are tried in this order until one plays.
@@ -171,5 +184,5 @@ object Config {
     /** Last wherever it is found, so nobody lands on it by scrolling. */
     val CATEGORY_LAST: List<String> = listOf("ADULT", "XXX", "18+", "FOR ADULTS")
 
-    const val USER_AGENT: String = "JohnnyTV/6.35 (Android)"
+    const val USER_AGENT: String = "JohnnyTV/6.37 (Android)"
 }

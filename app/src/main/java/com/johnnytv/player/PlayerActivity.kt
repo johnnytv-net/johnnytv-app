@@ -421,6 +421,7 @@ class PlayerActivity : AppCompatActivity() {
                 event.keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
         ) {
             android.widget.Toast.makeText(this, R.string.refreshing_picture, android.widget.Toast.LENGTH_SHORT).show()
+            liveLog("viewer pressed refresh")
             retune()
             return true
         }
@@ -729,6 +730,10 @@ class PlayerActivity : AppCompatActivity() {
                         val patience = if (state == Player.STATE_BUFFERING) STALL_MS else FROZEN_MS
                         if (still >= patience) {
                             resetStallClock()
+                            liveLog(
+                                (if (state == Player.STATE_BUFFERING) "spinner" else "frozen picture") +
+                                    " for " + (still / 1000L) + "s - reconnecting"
+                            )
                             if (prefs.noteStall(contentId)) deeperBuffer = true
                             // Exactly what changing channel and changing back
                             // does, minus the viewer having to think of it.
@@ -779,6 +784,14 @@ class PlayerActivity : AppCompatActivity() {
             steadyThisTune = !prefs.startTiming || prefs.nextTimingTurn()
         }
         tuneAttempts++
+        if (kind == Kind.LIVE && !playlist && urlIndex < urls.size) {
+            if (tuneAttempts == 1) PlaybackLog.start(this, "live: " + title)
+            liveLog(
+                "opening " + (if (urls[urlIndex].contains(".m3u8")) "playlist form" else "raw feed") +
+                    ", try " + tuneAttempts +
+                    (if (deeperBuffer || prefs.isJumpy(contentId)) ", deep buffer" else "")
+            )
+        }
         if (urlIndex >= urls.size) {
             showStatus(getString(R.string.could_not_play, title))
             return
@@ -888,6 +901,12 @@ class PlayerActivity : AppCompatActivity() {
                 // Late word from a player we have already moved on from - a
                 // channel change tearing one down often ends in an error.
                 if (player !== exo) return
+                if (!playlist) {
+                    liveLog(
+                        "ERROR " + error.errorCodeName + ": " + (error.message ?: "no detail") +
+                            " (" + (error.cause?.message ?: "") + ")"
+                    )
+                }
                 if (playlist) {
                     // Say which part it choked on and why; "could not play"
                     // on its own has never helped anybody work out what to do.
@@ -940,6 +959,20 @@ class PlayerActivity : AppCompatActivity() {
                             exo.currentMediaItemIndex + " of " + exo.mediaItemCount +
                             "  length " + exo.duration + "ms"
                     )
+                }
+                if (!playlist && kind == Kind.LIVE) {
+                    val ahead = (exo.bufferedPosition - exo.currentPosition).coerceAtLeast(0L)
+                    val named = when (playbackState) {
+                        Player.STATE_BUFFERING -> "spinner"
+                        Player.STATE_READY -> "picture"
+                        Player.STATE_ENDED -> "feed ended"
+                        Player.STATE_IDLE -> "idle"
+                        else -> playbackState.toString()
+                    }
+                    val since = if (tuneStartedAt > 0L)
+                        String.format(java.util.Locale.US, "%.1f", (android.os.SystemClock.elapsedRealtime() - tuneStartedAt) / 1000.0)
+                    else "?"
+                    liveLog(named + "  " + since + "s after opening, " + (ahead / 100L) / 10.0 + "s in hand")
                 }
                 when (playbackState) {
                     Player.STATE_BUFFERING -> showLoading()
@@ -1237,6 +1270,19 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * The live channel's own line in the playback log.
+     *
+     * The recordings log ended a run of wrong theories in one reading; live
+     * television had nothing of the kind, so "it buffers" could only ever be
+     * argued about. Every spinner, every picture, every reconnect and the
+     * seconds in hand at each - read from Settings, Last playback.
+     */
+    private fun liveLog(line: String) {
+        if (kind != Kind.LIVE || playlist) return
+        PlaybackLog.add(this, line)
+    }
+
     private fun showLoading() {
         // Deliberately does not touch the controls: a rebuffer must not snatch
         // them away from under someone reaching for the subtitles button.
@@ -1292,7 +1338,18 @@ class PlayerActivity : AppCompatActivity() {
         /** How often to look for a recording having started underneath us. */
         private const val RECORDING_CHECK_MS = 2_000L
 
-        private const val STALL_MS = 3_000L
+        /**
+         * How long the spinner may sit before the connection is thrown away.
+         *
+         * This used to be three seconds, and it was the other half of the
+         * buffering: a feed catching its breath for four seconds - which the
+         * bought players simply wait out - was treated as dead, torn down and
+         * opened again from scratch, so the viewer got a spinner, a reconnect,
+         * a fresh short start and often a second spinner. Ten seconds is
+         * still well short of the socket's own timeout, and a feed that has
+         * sent nothing for ten seconds really has gone.
+         */
+        private const val STALL_MS = 10_000L
 
         /**
          * How long a picture may sit frozen while the player insists it is
