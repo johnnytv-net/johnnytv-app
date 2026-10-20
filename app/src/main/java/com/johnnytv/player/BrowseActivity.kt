@@ -504,14 +504,14 @@ class BrowseActivity : AppCompatActivity() {
     private fun defaultStartIndex(specialsCount: Int, categories: List<Category>): Int {
         if (kind == Kind.LIVE) {
             /*
-             * FAVOURITES FIRST, FOR ANYONE WHO HAS SOME.
+             * FAVOURITES FIRST, ALWAYS.
              *
              * The channels a person starred are the ones they open Live TV
              * for, so that is where it opens - at the top, where the folder
-             * already sits. A box with no favourites yet falls through to a
-             * real category as before, rather than landing on "Nothing here".
+             * already sits. Asked for outright, so it does not depend on the
+             * count: v6.38 checked it and still landed on Sports.
              */
-            if (favouritesOnScreen() > 0) {
+            run {
                 val favourites = sidebarCategories().indexOfFirst { it.id == CATEGORY_FAVOURITES }
                 if (favourites >= 0) return favourites
             }
