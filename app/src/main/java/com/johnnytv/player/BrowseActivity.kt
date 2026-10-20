@@ -503,6 +503,18 @@ class BrowseActivity : AppCompatActivity() {
      */
     private fun defaultStartIndex(specialsCount: Int, categories: List<Category>): Int {
         if (kind == Kind.LIVE) {
+            /*
+             * FAVOURITES FIRST, FOR ANYONE WHO HAS SOME.
+             *
+             * The channels a person starred are the ones they open Live TV
+             * for, so that is where it opens - at the top, where the folder
+             * already sits. A box with no favourites yet falls through to a
+             * real category as before, rather than landing on "Nothing here".
+             */
+            if (favouritesOnScreen() > 0) {
+                val favourites = sidebarCategories().indexOfFirst { it.id == CATEGORY_FAVOURITES }
+                if (favourites >= 0) return favourites
+            }
             val wanted = Config.PREFERRED_LIVE_CATEGORIES
             // Only the portal's own categories are considered - never Favourites,
             // All and friends, whose names are translated and could collide.
