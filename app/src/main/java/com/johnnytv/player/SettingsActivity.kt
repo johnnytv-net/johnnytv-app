@@ -1,6 +1,7 @@
 package com.johnnytv.player
 
 import android.content.Intent
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.text.InputFilter
 import android.text.InputType
@@ -346,48 +347,66 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     /**
-     * Turning the lock on asks for a new PIN; turning it off asks for that PIN.
-     * Either way the channel list is fetched again straight away, because the
-     * adult folders are left out while it is being fetched, not hidden after.
+     * Turning the lock on goes straight to choosing folders - the PIN starts as
+     * 0000 so nobody is held up inventing one, and the customer changes it
+     * afterwards from the same row. Turning it off, or changing the PIN, asks
+     * for the current one. Either way the channel list is fetched again
+     * straight away, because locked folders are left out while it is being
+     * fetched, not hidden after.
      *
      * A forgotten PIN is a support call, not a reinstall: the master code
      * turns the lock off on any box.
      */
     private fun changeParentalLock(label: TextView) {
-        val input = pinBox()
         if (!prefs.parentalLock) {
-            AlertDialog.Builder(this)
-                .setTitle(R.string.parental_title)
-                .setMessage(R.string.parental_set_help)
-                .setView(input)
-                .setPositiveButton(R.string.parental_turn_on) { _, _ ->
-                    val pin = input.text.toString().trim()
-                    if (pin.length != 4) {
-                        Toast.makeText(this, R.string.parental_pin_short, Toast.LENGTH_LONG).show()
-                    } else {
-                        chooseLockedFolders(pin, label)
-                    }
-                }
-                .setNegativeButton(R.string.cancel, null)
-                .show()
-        } else {
-            AlertDialog.Builder(this)
-                .setTitle(R.string.parental_title)
-                .setMessage(R.string.parental_enter_help)
-                .setView(input)
-                .setPositiveButton(R.string.parental_turn_off) { _, _ ->
-                    val pin = input.text.toString().trim()
-                    if (pin == prefs.parentalPin || pin == PARENTAL_MASTER) {
-                        prefs.parentalLock = false
-                        showParentalState(label)
-                        refreshCatalogue()
-                    } else {
-                        Toast.makeText(this, R.string.parental_pin_wrong, Toast.LENGTH_LONG).show()
-                    }
-                }
-                .setNegativeButton(R.string.cancel, null)
-                .show()
+            chooseLockedFolders(currentPin(), label)
+            return
         }
+        val input = pinBox()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.parental_title)
+            .setMessage(R.string.parental_enter_help)
+            .setView(input)
+            .setPositiveButton(R.string.parental_turn_off) { _, _ ->
+                if (pinIsRight(input.text.toString())) {
+                    prefs.parentalLock = false
+                    showParentalState(label)
+                    refreshCatalogue()
+                } else {
+                    Toast.makeText(this, R.string.parental_pin_wrong, Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNeutralButton(R.string.parental_change_pin) { _, _ ->
+                if (pinIsRight(input.text.toString())) askForNewPin()
+                else Toast.makeText(this, R.string.parental_pin_wrong, Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun currentPin(): String = prefs.parentalPin.ifBlank { DEFAULT_PIN }
+
+    private fun pinIsRight(typed: String): Boolean {
+        val pin = typed.trim()
+        return pin == currentPin() || pin == PARENTAL_MASTER
+    }
+
+    private fun askForNewPin() {
+        val input = pinBox()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.parental_new_pin)
+            .setView(input)
+            .setPositiveButton(R.string.save) { _, _ ->
+                val pin = input.text.toString().trim()
+                if (pin.length != 4) {
+                    Toast.makeText(this, R.string.parental_pin_short, Toast.LENGTH_LONG).show()
+                } else {
+                    prefs.parentalPin = pin
+                    Toast.makeText(this, R.string.parental_pin_changed, Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     /**
@@ -420,7 +439,7 @@ class SettingsActivity : AppCompatActivity() {
             }
             val before = prefs.lockedFolders
             val ticked = BooleanArray(keys.size) { before.contains(keys[it]) }
-            AlertDialog.Builder(this@SettingsActivity)
+            val dialog = AlertDialog.Builder(this@SettingsActivity)
                 .setTitle(R.string.parental_choose_title)
                 .setMultiChoiceItems(names.toTypedArray(), ticked) { _, which, isChecked -> ticked[which] = isChecked }
                 .setPositiveButton(R.string.parental_turn_on) { _, _ ->
@@ -428,10 +447,22 @@ class SettingsActivity : AppCompatActivity() {
                     prefs.parentalPin = pin
                     prefs.parentalLock = true
                     showParentalState(label)
+                    Toast.makeText(this@SettingsActivity, R.string.parental_on_toast, Toast.LENGTH_LONG).show()
                     refreshCatalogue()
                 }
                 .setNegativeButton(R.string.cancel, null)
-                .show()
+                .create()
+            dialog.show()
+            // On a television the remote moves a highlight down the list; the
+            // dialog's own one is invisible against this theme, so the row the
+            // remote is on gets the app's selection colour instead.
+            dialog.listView?.let { list ->
+                list.selector = ColorDrawable(getColor(R.color.focus_fill))
+                list.drawSelectorOnTop = false
+                list.itemsCanFocus = false
+                list.requestFocus()
+                if (list.count > 0) list.setSelection(0)
+            }
         }
     }
 
@@ -701,3 +732,6 @@ class SettingsActivity : AppCompatActivity() {
 
 /** Turns the parental lock off on any box, for a customer who forgot their PIN. */
 private const val PARENTAL_MASTER = "9992"
+
+/** What the lock opens with until the customer chooses their own. */
+private const val DEFAULT_PIN = "0000"
