@@ -65,6 +65,7 @@
     <string name="series">Series</string>
     <string name="favourites">Favourites</string>
     <string name="recently_added">Recently added</string>
+    <string name="resume_minutes_in">%1$d min in</string>
     <string name="continue_watching">Continue watching</string>
     <string name="all_items">All</string>
     <string name="featured">Featured</string>

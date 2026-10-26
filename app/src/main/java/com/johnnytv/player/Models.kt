@@ -91,6 +91,23 @@ data class SeriesItem(
     }
 }
 
+/** The episode a series was last playing, and how far into it. */
+data class LastEpisode(
+    val episodeId: String,
+    val season: Int,
+    val episodeNum: Int,
+    val title: String,
+    val containerExtension: String,
+    val positionMs: Long
+) {
+    /** "S2 E5", or just the title when the portal numbered neither. */
+    fun label(): String = when {
+        season > 0 && episodeNum > 0 -> "S" + season + " E" + episodeNum
+        episodeNum > 0 -> "E" + episodeNum
+        else -> title
+    }
+}
+
 data class Episode(
     val episodeId: String,
     val title: String,

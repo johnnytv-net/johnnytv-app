@@ -578,6 +578,54 @@ class Prefs(context: Context) {
         sp.edit().putString(continueKey(), remaining.joinToString("\n")).apply()
     }
 
+    /*
+     * WHICH EPISODE, AND WHERE IN IT.
+     *
+     * Continue Watching knew a series had been started and nothing more - not
+     * the episode, not the place. So the row showed a poster and a name, and
+     * pressing it dropped you at season one to work out for yourself where you
+     * had got to.
+     *
+     * The series now remembers the last episode played against it: enough to
+     * put "S2 E5" under the poster and to carry on from the right second
+     * without anybody hunting for it.
+     */
+    fun noteEpisode(seriesId: String, episode: Episode, extension: String) {
+        if (seriesId.isBlank() || episode.episodeId.isBlank()) return
+        val map = episodeMap()
+        map.put(
+            seriesId,
+            JSONObject()
+                .put("i", episode.episodeId)
+                .put("s", episode.season)
+                .put("e", episode.episodeNum)
+                .put("t", episode.title)
+                .put("x", extension)
+        )
+        sp.edit().putString(perService(KEY_LAST_EPISODE), map.toString()).apply()
+    }
+
+    /** The episode this series was last playing, or null if it has never been played. */
+    fun lastEpisode(seriesId: String): LastEpisode? {
+        val o = episodeMap().optJSONObject(seriesId) ?: return null
+        val id = o.optString("i", "")
+        if (id.isBlank()) return null
+        return LastEpisode(
+            episodeId = id,
+            season = o.optInt("s", 0),
+            episodeNum = o.optInt("e", 0),
+            title = o.optString("t", ""),
+            containerExtension = o.optString("x", "mp4").ifBlank { "mp4" },
+            positionMs = position(Kind.SERIES, id)
+        )
+    }
+
+    private fun episodeMap(): JSONObject = try {
+        JSONObject(sp.getString(perService(KEY_LAST_EPISODE), "{}") ?: "{}")
+    } catch (e: Exception) {
+        JSONObject()
+    }
+
     /** Ids of things part-watched, most recent first, for the given kind. */
     fun continueWatching(kind: Kind): List<String> {
         val prefix = "${kind.name}:"
@@ -666,6 +714,7 @@ class Prefs(context: Context) {
         const val KEY_FAVS_CARRIED = "favourites_carried"  // the shared list has been handed on
         const val KEY_POSITIONS = "positions"
         const val KEY_CONTINUE = "continue_watching"
+        const val KEY_LAST_EPISODE = "last_episode"
         const val KEY_SEARCHES = "recent_searches"
         const val KEY_LOGINS = "saved_logins"
         const val MAX_LOGINS = 8

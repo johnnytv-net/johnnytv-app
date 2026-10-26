@@ -143,7 +143,11 @@ class SeriesActivity : AppCompatActivity() {
                     return@onSuccess
                 }
                 buildSeasonRow()
-                showSeason(loaded.keys.first())
+                // Open on the season of the episode last watched, not season
+                // one - otherwise somebody four seasons in starts every visit
+                // with the same walk along the row.
+                val wasOn = prefs.lastEpisode(seriesId)?.season
+                showSeason(loaded.keys.firstOrNull { it == wasOn } ?: loaded.keys.first())
             }.onFailure { error ->
                 statusLabel.text = error.message ?: getString(R.string.no_episodes)
                 statusLabel.visibility = View.VISIBLE
@@ -189,8 +193,11 @@ class SeriesActivity : AppCompatActivity() {
     }
 
     private fun play(episode: Episode) {
-        // Remember the series itself as part-watched so it shows in Continue Watching.
+        // Remember the series itself as part-watched so it shows in Continue
+        // Watching, and which episode it was, so the row can say so and
+        // pressing it can carry on rather than start the hunt again.
         prefs.savePosition(Kind.SERIES, seriesId, 60_001L, 0L)
+        prefs.noteEpisode(seriesId, episode, episode.containerExtension)
         PlayerActivity.start(
             this,
             urls = prefs.client().episodeUrls(episode.episodeId, episode.containerExtension),

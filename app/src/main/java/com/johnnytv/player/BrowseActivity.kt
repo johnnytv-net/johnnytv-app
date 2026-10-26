@@ -747,16 +747,28 @@ class BrowseActivity : AppCompatActivity() {
             CATEGORY_RECENT -> source.sortedByDescending { it.added }.take(RECENT_LIMIT)
             else -> source.filter { it.categoryId == categoryId }
         }
+        val continuing = categoryId == CATEGORY_CONTINUE
         return filtered.map {
             Tile(
                 id = it.seriesId,
                 title = it.name,
-                subtitle = "",
+                // In Continue Watching, say which episode and how far in -
+                // a poster and a name told nobody where they had got to.
+                subtitle = if (continuing) resumeLine(it.seriesId) else "",
                 image = it.cover,
                 kind = Kind.SERIES,
                 added = it.added
             )
         }
+    }
+
+    /** "S2 E5  ·  23 min in", as far as what is known allows. */
+    private fun resumeLine(seriesId: String): String {
+        val last = prefs.lastEpisode(seriesId) ?: return ""
+        val label = last.label()
+        val minutes = (last.positionMs / 60_000L).toInt()
+        if (minutes < 1) return label
+        return label + "  \u00B7  " + getString(R.string.resume_minutes_in, minutes)
     }
 
     /**
@@ -1152,12 +1164,35 @@ class BrowseActivity : AppCompatActivity() {
         lastOpenedId = tile.id
         lastOpenedKind = tile.kind
         when (tile.kind) {
-            Kind.SERIES -> startActivity(
-                Intent(this, SeriesActivity::class.java)
-                    .putExtra(SeriesActivity.EXTRA_SERIES_ID, tile.id)
-                    .putExtra(SeriesActivity.EXTRA_TITLE, tile.title)
-                    .putExtra(SeriesActivity.EXTRA_COVER, tile.image)
-            )
+            Kind.SERIES -> {
+                /*
+                 * The row is called Continue Watching, so it continues: the
+                 * episode it names starts again from where it stopped. From
+                 * anywhere else a series still opens its own page, because
+                 * there the poster is a way in rather than a promise.
+                 */
+                val last = if (currentCategoryId == CATEGORY_CONTINUE && !searchEverything) {
+                    prefs.lastEpisode(tile.id)
+                } else {
+                    null
+                }
+                if (last != null) {
+                    PlayerActivity.start(
+                        this,
+                        urls = client.episodeUrls(last.episodeId, last.containerExtension),
+                        title = tile.title + " - " + last.label(),
+                        kind = Kind.SERIES,
+                        contentId = last.episodeId
+                    )
+                } else {
+                    startActivity(
+                        Intent(this, SeriesActivity::class.java)
+                            .putExtra(SeriesActivity.EXTRA_SERIES_ID, tile.id)
+                            .putExtra(SeriesActivity.EXTRA_TITLE, tile.title)
+                            .putExtra(SeriesActivity.EXTRA_COVER, tile.image)
+                    )
+                }
+            }
             Kind.LIVE -> {
                 Catalog.playbackQueue = liveQueue()
                 PlayerActivity.start(
