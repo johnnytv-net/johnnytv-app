@@ -84,7 +84,15 @@ data class Lineup(
      * marked strict is shown exactly as it is arranged here, with nothing
      * built in laid over the top of it.
      */
-    val strict: Boolean = false
+    val strict: Boolean = false,
+    /**
+     * No adult content on this account: every folder - live, films, series -
+     * whose name says adult, XXX or 18+ is dropped, along with any channel
+     * named XXX or 18+ wherever it was filed. Meant for an account entry
+     * ("account:<username>"), for the one household that wants it gone, on a
+     * panel that will not let a single line's packages be edited.
+     */
+    val noAdult: Boolean = false
 ) {
     data class Merge(val into: String, val from: List<String>)
     data class Move(val into: String, val channels: List<String>)
@@ -93,7 +101,7 @@ data class Lineup(
     val isEmpty: Boolean
         get() = hide.isEmpty() && merge.isEmpty() && move.isEmpty() && order.isEmpty() &&
             hideSeries.isEmpty() && hideMovies.isEmpty() && hideChannels.isEmpty() && sort.isEmpty() &&
-            last.isEmpty() && !strict
+            last.isEmpty() && !strict && !noAdult
 }
 
 object Lineups {
@@ -161,6 +169,58 @@ object Lineups {
         }
         return null
     }
+
+    /**
+     * The rules for one service as one particular account should see them.
+     *
+     * A lineup belongs to a service, and every customer on it gets the same
+     * one. Now and again a single household wants something different - no
+     * adult folders, say - on a panel that will not edit one line's packages.
+     * Those go in config.json under "account:<username>", and are laid on top
+     * of the service's own rules: whatever that entry hides is hidden as well,
+     * and nothing the service does is lost. The key cannot be mistaken for a
+     * service address, so older versions of the app simply ignore it.
+     *
+     * Either name finds it - the friendly one the customer types or the line
+     * the panel issued - with spaces and capitals ignored.
+     */
+    fun forAccount(server: String, names: List<String>, hideAdult: Boolean = false): Lineup? {
+        val base = forServer(server)
+        val wanted = names.map { tidy(it) }.filter { it.isNotEmpty() }.toSet()
+        val extra = if (wanted.isEmpty()) null else rules.entries.firstOrNull { (key, _) ->
+            key.trim().lowercase().startsWith(ACCOUNT_PREFIX) &&
+                wanted.contains(tidy(key.trim().substring(ACCOUNT_PREFIX.length)))
+        }?.value
+        // The box's own parental lock does the same as an account entry saying so.
+        val noAdult = hideAdult || extra?.noAdult == true
+        if (extra == null && !noAdult) return base
+        val start = base ?: Lineup()
+        val more = extra ?: Lineup()
+        val adultFolders = if (noAdult) ADULT_FOLDERS else emptyList()
+        val adultChannels = if (noAdult) ADULT_CHANNELS else emptyList()
+        val merged = start.copy(
+            hide = start.hide + more.hide + adultFolders,
+            hideMovies = start.hideMovies + more.hideMovies + adultFolders,
+            hideSeries = start.hideSeries + more.hideSeries + adultFolders,
+            hideChannels = start.hideChannels + more.hideChannels + adultChannels,
+            noAdult = noAdult
+        )
+        return if (merged.isEmpty) null else merged
+    }
+
+    private fun tidy(name: String): String =
+        name.lowercase().filter { !it.isWhitespace() }
+
+    private const val ACCOUNT_PREFIX = "account:"
+
+    /** Folder names that mean adult content, matched anywhere in the name. */
+    private val ADULT_FOLDERS = listOf("*ADULT*", "*XXX*", "*18+*", "*PORN*")
+
+    /**
+     * Channels are matched more narrowly than folders: "Adult Swim" is a
+     * cartoon channel and has to stay.
+     */
+    private val ADULT_CHANNELS = listOf("*XXX*", "*18+*", "*PORN*")
 
     /**
      * Whether two addresses mean the same service.
@@ -336,6 +396,27 @@ object Lineups {
         return kept to dropped
     }
 
+    /** Whether a folder's name says it holds adult content. */
+    fun looksAdult(name: String): Boolean = ADULT_FOLDERS.any { matches(name, it) }
+
+    /**
+     * Folders a customer has locked on their own box, taken out by the name
+     * they saw on screen - which, for a folder this app built by merging
+     * several, is not a name the panel ever used. So this runs on the finished
+     * list rather than the raw one, and takes the folder's channels with it.
+     */
+    fun dropFolders(
+        arranged: Pair<List<Category>, List<StreamItem>>,
+        names: Collection<String>
+    ): Pair<List<Category>, List<StreamItem>> {
+        if (names.isEmpty()) return arranged
+        val wanted = names.map { it.trim().lowercase() }.toHashSet()
+        val gone = arranged.first.filter { wanted.contains(it.name.trim().lowercase()) }.map { it.id }.toHashSet()
+        if (gone.isEmpty()) return arranged
+        return arranged.first.filter { !gone.contains(it.id) } to
+            arranged.second.filter { !gone.contains(it.categoryId) }
+    }
+
     /**
      * Channels to drop outright, by name, wherever the panel filed them.
      *
@@ -427,7 +508,8 @@ object Lineups {
                 hideChannels.filter { it.isNotBlank() },
                 sort,
                 last.filter { it.isNotBlank() },
-                one.optBoolean("strict", false)
+                one.optBoolean("strict", false),
+                one.optBoolean("no_adult", false)
             )
             if (!lineup.isEmpty) out[address] = lineup
         }
@@ -451,6 +533,7 @@ object Lineups {
             one.put("hide_channels", strings(lineup.hideChannels))
             one.put("last", strings(lineup.last))
             one.put("strict", lineup.strict)
+            one.put("no_adult", lineup.noAdult)
             val merges = org.json.JSONArray()
             for (m in lineup.merge) {
                 merges.put(JSONObject().put("into", m.into).put("from", strings(m.from)))
