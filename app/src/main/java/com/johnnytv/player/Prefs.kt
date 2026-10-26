@@ -201,6 +201,23 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("tester", false)
         set(value) = sp.edit().putBoolean("tester", value).apply()
 
+    /**
+     * Parental lock. While it is on, adult folders - live, films and series -
+     * are left out of the catalogue on this box, and only the PIN turns it off.
+     */
+    var parentalLock: Boolean
+        get() = sp.getBoolean("parental_lock", false)
+        set(value) = sp.edit().putBoolean("parental_lock", value).apply()
+
+    var parentalPin: String
+        get() = sp.getString("parental_pin", "") ?: ""
+        set(value) = sp.edit().putString("parental_pin", value).apply()
+
+    /** The folders the customer chose to lock, as "live|name", "vod|name" or "series|name". */
+    var lockedFolders: Set<String>
+        get() = HashSet(sp.getStringSet("parental_folders", emptySet()) ?: emptySet())
+        set(value) = sp.edit().putStringSet("parental_folders", HashSet(value)).apply()
+
     /** What config.json last said, kept as it came. */
     fun rememberSwitches(everyone: Boolean, testers: Boolean, timing: Boolean) {
         sp.edit()
