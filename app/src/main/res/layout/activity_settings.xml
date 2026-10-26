@@ -111,6 +111,34 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
+        <!-- Parental lock: adult folders hidden until the PIN is entered. -->
+        <LinearLayout
+            android:id="@+id/parentalRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_row"
+            android:clickable="true"
+            android:focusable="true"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/parental_title"
+                android:textColor="@color/text_primary"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/parentalState"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp" />
+        </LinearLayout>
+
         <!-- Features still being proved run only on boxes that ask for them. -->
         <LinearLayout
             android:id="@+id/testerRow"
