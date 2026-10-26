@@ -401,15 +401,21 @@ class SettingsActivity : AppCompatActivity() {
             val keys = ArrayList<String>()
             val names = ArrayList<String>()
             for (c in Catalog.liveCategories) {
-                if (Lineups.looksAdult(c.name)) continue
+                // Only folders this customer actually receives - a panel lists every
+                // folder it has, even ones their package leaves empty.
+                if (c.count == 0 || Lineups.looksAdult(c.name)) continue
                 keys.add("live|" + c.name); names.add(c.name)
             }
             for (c in Catalog.vodCategories) {
-                if (Lineups.looksAdult(c.name)) continue
+                // Only folders this customer actually receives - a panel lists every
+                // folder it has, even ones their package leaves empty.
+                if (c.count == 0 || Lineups.looksAdult(c.name)) continue
                 keys.add("vod|" + c.name); names.add(getString(R.string.parental_films_folder, c.name))
             }
             for (c in Catalog.seriesCategories) {
-                if (Lineups.looksAdult(c.name)) continue
+                // Only folders this customer actually receives - a panel lists every
+                // folder it has, even ones their package leaves empty.
+                if (c.count == 0 || Lineups.looksAdult(c.name)) continue
                 keys.add("series|" + c.name); names.add(getString(R.string.parental_series_folder, c.name))
             }
             val before = prefs.lockedFolders
