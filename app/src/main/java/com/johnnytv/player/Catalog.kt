@@ -87,11 +87,20 @@ object Catalog {
          * browse screen, the guide, the search box and the player all agree
          * without any of them knowing the rules exist.
          */
-        val lineup = Lineups.forServer(client.server)
+        // The service's rules, plus anything set for this one account.
+        val boxPrefs = Prefs(context)
+        val lineup = Lineups.forAccount(
+            client.server,
+            listOf(client.username, boxPrefs.username, boxPrefs.friendlyName),
+            hideAdult = boxPrefs.parentalLock
+        )
         // Named channels go first, so none of the arranging below ever sees
         // them - a signpost row at the top of a folder is not a channel.
         val keptLive = Lineups.dropChannels(lineup?.hideChannels ?: emptyList(), liveStreams)
-        val arranged = Lineups.apply(lineup, liveCats, keptLive)
+        // Folders the customer locked on this box, by the names they chose from.
+        val locked = if (boxPrefs.parentalLock) boxPrefs.lockedFolders else emptySet()
+        fun lockedIn(kind: String) = locked.filter { it.startsWith("$kind|") }.map { it.substringAfter('|') }
+        val arranged = Lineups.dropFolders(Lineups.apply(lineup, liveCats, keptLive), lockedIn("live"))
 
         /*
          * Films and series get the blunt half of the rules: folders named there
@@ -100,8 +109,8 @@ object Catalog {
          * for and played but that belong nowhere, which is worse than leaving
          * the folder alone.
          */
-        val prunedVod = Lineups.prune(lineup?.hideMovies ?: emptyList(), vodCats)
-        val prunedSeries = Lineups.prune(lineup?.hideSeries ?: emptyList(), seriesCats)
+        val prunedVod = Lineups.prune((lineup?.hideMovies ?: emptyList()) + lockedIn("vod"), vodCats)
+        val prunedSeries = Lineups.prune((lineup?.hideSeries ?: emptyList()) + lockedIn("series"), seriesCats)
 
         liveOrderFixed = lineup?.strict == true
         liveCategories = arranged.first
