@@ -2,6 +2,8 @@ package com.johnnytv.player
 
 import android.content.Intent
 import android.os.Bundle
+import android.text.InputFilter
+import android.text.InputType
 import android.view.View
 import android.widget.EditText
 import android.widget.ScrollView
@@ -55,6 +57,9 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.myTeamsRow).setOnClickListener {
             startActivity(android.content.Intent(this, MyTeamsActivity::class.java))
         }
+        val parentalState = findViewById<TextView>(R.id.parentalState)
+        showParentalState(parentalState)
+        findViewById<View>(R.id.parentalRow).setOnClickListener { changeParentalLock(parentalState) }
         val testerState = findViewById<TextView>(R.id.testerState)
         testerState.setText(if (prefs.tester) R.string.tester_on else R.string.tester_off)
         findViewById<View>(R.id.testerRow).setOnClickListener {
@@ -327,6 +332,103 @@ class SettingsActivity : AppCompatActivity() {
         return out.toString()
     }
 
+    private fun showParentalState(label: TextView) {
+        label.setText(if (prefs.parentalLock) R.string.parental_on else R.string.parental_off)
+    }
+
+    private fun pinBox(): EditText = EditText(this).apply {
+        inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        filters = arrayOf(InputFilter.LengthFilter(4))
+        hint = "••••"
+        setSingleLine()
+        setTextColor(getColor(R.color.text_primary))
+        setPadding(48, 24, 48, 24)
+    }
+
+    /**
+     * Turning the lock on asks for a new PIN; turning it off asks for that PIN.
+     * Either way the channel list is fetched again straight away, because the
+     * adult folders are left out while it is being fetched, not hidden after.
+     *
+     * A forgotten PIN is a support call, not a reinstall: the master code
+     * turns the lock off on any box.
+     */
+    private fun changeParentalLock(label: TextView) {
+        val input = pinBox()
+        if (!prefs.parentalLock) {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.parental_title)
+                .setMessage(R.string.parental_set_help)
+                .setView(input)
+                .setPositiveButton(R.string.parental_turn_on) { _, _ ->
+                    val pin = input.text.toString().trim()
+                    if (pin.length != 4) {
+                        Toast.makeText(this, R.string.parental_pin_short, Toast.LENGTH_LONG).show()
+                    } else {
+                        chooseLockedFolders(pin, label)
+                    }
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+        } else {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.parental_title)
+                .setMessage(R.string.parental_enter_help)
+                .setView(input)
+                .setPositiveButton(R.string.parental_turn_off) { _, _ ->
+                    val pin = input.text.toString().trim()
+                    if (pin == prefs.parentalPin || pin == PARENTAL_MASTER) {
+                        prefs.parentalLock = false
+                        showParentalState(label)
+                        refreshCatalogue()
+                    } else {
+                        Toast.makeText(this, R.string.parental_pin_wrong, Toast.LENGTH_LONG).show()
+                    }
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+        }
+    }
+
+    /**
+     * The folders to lock besides the adult ones, chosen from what this box
+     * is showing now. Adult folders are not offered: they are locked whatever
+     * is ticked here, including ones the panel adds later.
+     */
+    private fun chooseLockedFolders(pin: String, label: TextView) {
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) { if (!Catalog.isLoaded) Catalog.load(this@SettingsActivity) }
+            val keys = ArrayList<String>()
+            val names = ArrayList<String>()
+            for (c in Catalog.liveCategories) {
+                if (Lineups.looksAdult(c.name)) continue
+                keys.add("live|" + c.name); names.add(c.name)
+            }
+            for (c in Catalog.vodCategories) {
+                if (Lineups.looksAdult(c.name)) continue
+                keys.add("vod|" + c.name); names.add(getString(R.string.parental_films_folder, c.name))
+            }
+            for (c in Catalog.seriesCategories) {
+                if (Lineups.looksAdult(c.name)) continue
+                keys.add("series|" + c.name); names.add(getString(R.string.parental_series_folder, c.name))
+            }
+            val before = prefs.lockedFolders
+            val ticked = BooleanArray(keys.size) { before.contains(keys[it]) }
+            AlertDialog.Builder(this@SettingsActivity)
+                .setTitle(R.string.parental_choose_title)
+                .setMultiChoiceItems(names.toTypedArray(), ticked) { _, which, isChecked -> ticked[which] = isChecked }
+                .setPositiveButton(R.string.parental_turn_on) { _, _ ->
+                    prefs.lockedFolders = keys.filterIndexed { i, _ -> ticked[i] }.toSet()
+                    prefs.parentalPin = pin
+                    prefs.parentalLock = true
+                    showParentalState(label)
+                    refreshCatalogue()
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+        }
+    }
+
     private fun showAwayState(label: TextView) {
         val typed = prefs.awayBox
         label.text = if (typed.isBlank()) getString(R.string.away_off) else typed
@@ -590,3 +692,6 @@ class SettingsActivity : AppCompatActivity() {
         0L
     }
 }
+
+/** Turns the parental lock off on any box, for a customer who forgot their PIN. */
+private const val PARENTAL_MASTER = "9992"
