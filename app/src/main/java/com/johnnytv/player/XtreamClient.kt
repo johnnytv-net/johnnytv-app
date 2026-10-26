@@ -32,7 +32,7 @@ class AccountInactive(message: String) : XtreamException(message)
  */
 class XtreamClient(
     rawServer: String,
-    private val username: String,
+    val username: String,
     private val password: String
 ) {
 
