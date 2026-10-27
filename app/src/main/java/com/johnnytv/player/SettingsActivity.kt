@@ -457,9 +457,9 @@ class SettingsActivity : AppCompatActivity() {
             // dialog's own one is invisible against this theme, so the row the
             // remote is on gets the app's selection colour instead.
             dialog.listView?.let { list ->
-                list.selector = ColorDrawable(getColor(R.color.focus_fill))
-                list.drawSelectorOnTop = false
-                list.itemsCanFocus = false
+                list.setSelector(ColorDrawable(getColor(R.color.focus_fill)))
+                list.setDrawSelectorOnTop(false)
+                list.setItemsCanFocus(false)
                 list.requestFocus()
                 if (list.count > 0) list.setSelection(0)
             }
