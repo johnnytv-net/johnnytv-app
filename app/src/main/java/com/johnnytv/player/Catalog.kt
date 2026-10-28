@@ -99,8 +99,21 @@ object Catalog {
         val keptLive = Lineups.dropChannels(lineup?.hideChannels ?: emptyList(), liveStreams)
         // Folders the customer locked on this box, by the names they chose from.
         val locked = if (boxPrefs.parentalLock) boxPrefs.lockedFolders else emptySet()
-        fun lockedIn(kind: String) = locked.filter { it.startsWith("$kind|") }.map { it.substringAfter('|') }
-        val arranged = Lineups.dropFolders(Lineups.apply(lineup, liveCats, keptLive), lockedIn("live"))
+        val offered = boxPrefs.offeredFolders
+        /*
+         * The chosen folders, plus any adult folder nobody has been shown yet.
+         * The customer ticks the adult ones themselves - they arrive already
+         * ticked - but a panel can add a new one at any time, and a folder that
+         * was never on the list could not have been ticked.
+         */
+        fun lockedIn(kind: String, all: List<Category>): List<String> {
+            val chosen = locked.filter { it.startsWith("$kind|") }.map { it.substringAfter('|') }
+            if (!boxPrefs.parentalLock) return chosen
+            val unseen = all.filter { Lineups.looksAdult(it.name) && !offered.contains("$kind|" + it.name) }
+                .map { it.name }
+            return chosen + unseen
+        }
+        val arranged = Lineups.dropFolders(Lineups.apply(lineup, liveCats, keptLive), lockedIn("live", liveCats))
 
         /*
          * Films and series get the blunt half of the rules: folders named there
@@ -109,8 +122,8 @@ object Catalog {
          * for and played but that belong nowhere, which is worse than leaving
          * the folder alone.
          */
-        val prunedVod = Lineups.prune((lineup?.hideMovies ?: emptyList()) + lockedIn("vod"), vodCats)
-        val prunedSeries = Lineups.prune((lineup?.hideSeries ?: emptyList()) + lockedIn("series"), seriesCats)
+        val prunedVod = Lineups.prune((lineup?.hideMovies ?: emptyList()) + lockedIn("vod", vodCats), vodCats)
+        val prunedSeries = Lineups.prune((lineup?.hideSeries ?: emptyList()) + lockedIn("series", seriesCats), seriesCats)
 
         liveOrderFixed = lineup?.strict == true
         liveCategories = arranged.first

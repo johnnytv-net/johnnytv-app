@@ -191,12 +191,16 @@ object Lineups {
             key.trim().lowercase().startsWith(ACCOUNT_PREFIX) &&
                 wanted.contains(tidy(key.trim().substring(ACCOUNT_PREFIX.length)))
         }?.value
-        // The box's own parental lock does the same as an account entry saying so.
-        val noAdult = hideAdult || extra?.noAdult == true
+        // An account entry saying "no adult" takes the folders away outright.
+        // The box's own parental lock leaves the folders to its own list -
+        // where they appear like any other folder, already ticked - and only
+        // sweeps up stray channels filed outside them.
+        val accountNoAdult = extra?.noAdult == true
+        val noAdult = hideAdult || accountNoAdult
         if (extra == null && !noAdult) return base
         val start = base ?: Lineup()
         val more = extra ?: Lineup()
-        val adultFolders = if (noAdult) ADULT_FOLDERS else emptyList()
+        val adultFolders = if (accountNoAdult) ADULT_FOLDERS else emptyList()
         val adultChannels = if (noAdult) ADULT_CHANNELS else emptyList()
         val merged = start.copy(
             hide = start.hide + more.hide + adultFolders,

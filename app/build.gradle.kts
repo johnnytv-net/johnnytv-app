@@ -44,8 +44,8 @@ android {
          */
         minSdk = 25
         targetSdk = 34
-        versionCode = 175
-        versionName = "6.43"
+        versionCode = 176
+        versionName = "6.44"
     }
 
     signingConfigs {

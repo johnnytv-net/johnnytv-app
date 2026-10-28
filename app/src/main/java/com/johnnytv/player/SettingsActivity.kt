@@ -1,12 +1,18 @@
 package com.johnnytv.player
 
 import android.content.Intent
+import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.text.InputFilter
 import android.text.InputType
 import android.view.View
+import android.view.ViewGroup
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
+import android.widget.CheckedTextView
 import android.widget.EditText
+import android.widget.ListView
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -410,40 +416,91 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     /**
-     * The folders to lock besides the adult ones, chosen from what this box
-     * is showing now. Adult folders are not offered: they are locked whatever
-     * is ticked here, including ones the panel adds later.
+     * The folders to lock, chosen from what this box is showing now.
+     *
+     * Every folder the customer receives is on the list, adult ones included
+     * and sitting at the top already ticked - a folder nobody can see is a
+     * folder nobody can be sure of, and the panel's own naming is the only
+     * thing that marks one as adult. Untick one and it stays; a folder the
+     * panel adds afterwards is locked without being asked, because it was
+     * never on the list to tick.
      */
     private fun chooseLockedFolders(pin: String, label: TextView) {
         lifecycleScope.launch {
             withContext(Dispatchers.IO) { if (!Catalog.isLoaded) Catalog.load(this@SettingsActivity) }
+            val before = prefs.lockedFolders
+            val seen = prefs.offeredFolders
             val keys = ArrayList<String>()
             val names = ArrayList<String>()
-            for (c in Catalog.liveCategories) {
-                // Only folders this customer actually receives - a panel lists every
-                // folder it has, even ones their package leaves empty.
-                if (c.count == 0 || Lineups.looksAdult(c.name)) continue
-                keys.add("live|" + c.name); names.add(c.name)
+            val ticked = ArrayList<Boolean>()
+            // Adult folders first, so the ones most people came here for are
+            // the ones the remote lands on.
+            fun add(kind: String, c: Category, shown: String) {
+                val key = "$kind|" + c.name
+                keys.add(key)
+                names.add(shown)
+                // Already chosen, or an adult folder being offered for the
+                // first time - those arrive ticked.
+                ticked.add(before.contains(key) || (Lineups.looksAdult(c.name) && !seen.contains(key)))
             }
-            for (c in Catalog.vodCategories) {
-                // Only folders this customer actually receives - a panel lists every
-                // folder it has, even ones their package leaves empty.
-                if (c.count == 0 || Lineups.looksAdult(c.name)) continue
-                keys.add("vod|" + c.name); names.add(getString(R.string.parental_films_folder, c.name))
+            // Only folders this customer actually receives - a panel lists every
+            // folder it has, even ones their package leaves empty.
+            for (c in Catalog.liveCategories) if (c.count > 0 && Lineups.looksAdult(c.name)) add("live", c, c.name)
+            for (c in Catalog.vodCategories) if (c.count > 0 && Lineups.looksAdult(c.name))
+                add("vod", c, getString(R.string.parental_films_folder, c.name))
+            for (c in Catalog.seriesCategories) if (c.count > 0 && Lineups.looksAdult(c.name))
+                add("series", c, getString(R.string.parental_series_folder, c.name))
+            for (c in Catalog.liveCategories) if (c.count > 0 && !Lineups.looksAdult(c.name)) add("live", c, c.name)
+            for (c in Catalog.vodCategories) if (c.count > 0 && !Lineups.looksAdult(c.name))
+                add("vod", c, getString(R.string.parental_films_folder, c.name))
+            for (c in Catalog.seriesCategories) if (c.count > 0 && !Lineups.looksAdult(c.name))
+                add("series", c, getString(R.string.parental_series_folder, c.name))
+
+            /*
+             * The list is built by hand rather than with setMultiChoiceItems,
+             * because the dialog's own highlight does not show on a television
+             * - the remote moves a selection the customer cannot see, and they
+             * are ticking folders blind. Here the row the remote is on is
+             * painted by the adapter itself, so it cannot be missed.
+             */
+            var on = 0
+            val list = ListView(this@SettingsActivity)
+            val adapter = object : ArrayAdapter<String>(
+                this@SettingsActivity, android.R.layout.simple_list_item_multiple_choice, names
+            ) {
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                    val row = super.getView(position, convertView, parent)
+                    row.setBackgroundColor(
+                        if (position == on) this@SettingsActivity.getColor(R.color.focus_fill)
+                        else Color.TRANSPARENT
+                    )
+                    (row as? CheckedTextView)?.setTextColor(
+                        this@SettingsActivity.getColor(R.color.text_primary)
+                    )
+                    return row
+                }
             }
-            for (c in Catalog.seriesCategories) {
-                // Only folders this customer actually receives - a panel lists every
-                // folder it has, even ones their package leaves empty.
-                if (c.count == 0 || Lineups.looksAdult(c.name)) continue
-                keys.add("series|" + c.name); names.add(getString(R.string.parental_series_folder, c.name))
-            }
-            val before = prefs.lockedFolders
-            val ticked = BooleanArray(keys.size) { before.contains(keys[it]) }
+            list.setAdapter(adapter)
+            list.setChoiceMode(ListView.CHOICE_MODE_MULTIPLE)
+            list.setItemsCanFocus(false)
+            list.setFocusable(true)
+            list.setSelector(ColorDrawable(Color.TRANSPARENT))
+            for (i in ticked.indices) if (ticked[i]) list.setItemChecked(i, true)
+            list.setOnItemSelectedListener(object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    on = position
+                    adapter.notifyDataSetChanged()
+                }
+                override fun onNothingSelected(parent: AdapterView<*>?) {}
+            })
+
             val dialog = AlertDialog.Builder(this@SettingsActivity)
                 .setTitle(R.string.parental_choose_title)
-                .setMultiChoiceItems(names.toTypedArray(), ticked) { _, which, isChecked -> ticked[which] = isChecked }
+                .setView(list)
                 .setPositiveButton(R.string.parental_turn_on) { _, _ ->
-                    prefs.lockedFolders = keys.filterIndexed { i, _ -> ticked[i] }.toSet()
+                    val checked = list.checkedItemPositions
+                    prefs.lockedFolders = keys.filterIndexed { i, _ -> checked.get(i) }.toSet()
+                    prefs.offeredFolders = keys.toSet()
                     prefs.parentalPin = pin
                     prefs.parentalLock = true
                     showParentalState(label)
@@ -453,16 +510,8 @@ class SettingsActivity : AppCompatActivity() {
                 .setNegativeButton(R.string.cancel, null)
                 .create()
             dialog.show()
-            // On a television the remote moves a highlight down the list; the
-            // dialog's own one is invisible against this theme, so the row the
-            // remote is on gets the app's selection colour instead.
-            dialog.listView?.let { list ->
-                list.setSelector(ColorDrawable(getColor(R.color.focus_fill)))
-                list.setDrawSelectorOnTop(false)
-                list.setItemsCanFocus(false)
-                list.requestFocus()
-                if (list.count > 0) list.setSelection(0)
-            }
+            list.requestFocus()
+            if (list.count > 0) list.setSelection(0)
         }
     }
 

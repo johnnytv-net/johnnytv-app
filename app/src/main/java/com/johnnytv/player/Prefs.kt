@@ -218,6 +218,18 @@ class Prefs(context: Context) {
         get() = HashSet(sp.getStringSet("parental_folders", emptySet()) ?: emptySet())
         set(value) = sp.edit().putStringSet("parental_folders", HashSet(value)).apply()
 
+    /**
+     * Every folder the customer was shown the last time they set the lock up,
+     * in the same form as lockedFolders.
+     *
+     * It is the difference between "they looked at this folder and left it
+     * open" and "the panel added this folder afterwards and nobody has seen
+     * it". An adult folder in the second group is locked anyway.
+     */
+    var offeredFolders: Set<String>
+        get() = HashSet(sp.getStringSet("parental_offered", emptySet()) ?: emptySet())
+        set(value) = sp.edit().putStringSet("parental_offered", HashSet(value)).apply()
+
     /** What config.json last said, kept as it came. */
     fun rememberSwitches(everyone: Boolean, testers: Boolean, timing: Boolean) {
         sp.edit()

@@ -111,9 +111,9 @@
     <string name="tester_on">On — this box gets features that are still being tested</string>
     <string name="tester_off">Off — this box gets what everybody gets</string>
     <string name="parental_title">Parental lock</string>
-    <string name="parental_on">On — adult and chosen folders are hidden. The PIN turns it off</string>
+    <string name="parental_on">On — the chosen folders are hidden. The PIN turns it off</string>
     <string name="parental_off">Off — every folder is shown</string>
-    <string name="parental_set_help">Choose a 4-digit PIN. Adult channels, films and series are always hidden while the lock is on, and next you can pick any other folders to hide as well. Only the PIN turns it off.</string>
+    <string name="parental_set_help">Choose a 4-digit PIN. Next you pick the folders to hide — the adult ones are ticked already. Only the PIN turns it off.</string>
     <string name="parental_enter_help">Enter the PIN to turn the lock off or to change the PIN. It starts as 0000.</string>
     <string name="parental_turn_on">Turn on</string>
     <string name="parental_turn_off">Turn off</string>
@@ -123,7 +123,7 @@
     <string name="parental_new_pin">Choose a new 4-digit PIN</string>
     <string name="parental_pin_changed">PIN changed.</string>
     <string name="parental_on_toast">Parental lock is on. The PIN is 0000 until it is changed under Parental lock.</string>
-    <string name="parental_choose_title">Lock these folders too</string>
+    <string name="parental_choose_title">Tick the folders to hide</string>
     <string name="parental_films_folder">Films · %1$s</string>
     <string name="parental_series_folder">Series · %1$s</string>
     <string name="channel_preview">Preview channels in list view</string>
