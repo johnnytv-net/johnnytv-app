@@ -100,6 +100,23 @@ class EpgActivity : AppCompatActivity() {
     /** What is waiting to be recorded, re-read whenever this screen comes back. */
     private var scheduledNow: List<Scheduled> = emptyList()
 
+    /**
+     * A FIRESTICK IS NOT A SHIELD.
+     *
+     * The guide ran a second video decoder for the preview in the corner, on
+     * top of the catalogue, the logos and the rows themselves. On a Shield
+     * that is nothing. On a Firestick with a gigabyte and a half, shared with
+     * Fire OS, it was enough that scrolling down a long category went black
+     * and the app vanished - no error, no crash report, because the box killed
+     * it for memory rather than the app failing. Two customers reported it and
+     * it reproduced on a fresh Firestick 4K at the first attempt.
+     *
+     * So on a light box the guide shows the channel's logo in that corner
+     * instead of a live picture, and the preview's video surface is not even
+     * created. Everything else about the guide is the same.
+     */
+    private var lightBox = false
+
     private val handler = Handler(Looper.getMainLooper())
     private val tick = object : Runnable {
         override fun run() {
@@ -141,6 +158,14 @@ class EpgActivity : AppCompatActivity() {
         previewFrame.setOnClickListener { previewing?.let { play(it) } }
         watchHint = findViewById(R.id.watchHint)
         guideDate = findViewById(R.id.guideDate)
+
+        lightBox = BoxMemory.isLight(this)
+        GuideLog.start(this, "guide opened, service " + prefs.client().server.substringAfter("://").substringBefore("/"))
+        if (lightBox) {
+            // No surface, no decoder: the corner is a logo on this box.
+            previewVideo.visibility = View.GONE
+            GuideLog.add(this, "light box: guide preview off, logo shown instead")
+        }
 
         buildTimeHeader()
         pinGridWidth()
@@ -284,6 +309,7 @@ class EpgActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         handler.removeCallbacks(tick)
+        GuideLog.addWithMemory(this, "guide left")
         // Going to the player, or away from the app entirely - either way the
         // connection this was holding has to go back.
         previewJob?.cancel()
@@ -294,7 +320,29 @@ class EpgActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        GuideLog.add(this, "guide closed")
         releasePreviewPlayer()
+    }
+
+    /**
+     * THE BOX SAYING IT IS SHORT OF MEMORY.
+     *
+     * Android says so in stages before it takes an app away, and the guide
+     * is the one screen with something expensive it can give up on the spot:
+     * the preview's decoder and connection. Written to the log either way, so
+     * that if the app does vanish the warning is the line before it.
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        GuideLog.addWithMemory(this, "box short of memory, level $level")
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            previewJob?.cancel()
+            if (previewPlayer != null) {
+                releasePreviewPlayer()
+                previewLogo.visibility = View.VISIBLE
+                GuideLog.add(this, "preview released to make room")
+            }
+        }
     }
 
     // ---------- header ----------
@@ -419,6 +467,10 @@ class EpgActivity : AppCompatActivity() {
         waiting.clear()
         clearSelection()
         val anyCached = channels.any { EpgCache.cached(it.streamId) != null }
+        GuideLog.addWithMemory(
+            this,
+            "category $categoryId: ${channels.size} channels" + if (anyCached) ", some listings cached" else ""
+        )
         progress.visibility = if (channels.isNotEmpty() && !anyCached) View.VISIBLE else View.GONE
         channelAdapter.submit(channels)
         rowAdapter.submit(channels)
@@ -481,9 +533,18 @@ class EpgActivity : AppCompatActivity() {
 
     private fun fetchRow(channel: StreamItem) {
         lifecycleScope.launch {
-            withContext(Dispatchers.IO) { EpgCache.fetch(prefs.client(), channel.streamId) }
+            val began = System.currentTimeMillis()
+            val got = withContext(Dispatchers.IO) {
+                runCatching { EpgCache.fetch(prefs.client(), channel.streamId) }.getOrNull()
+            }
             fetching--
             inFlight.remove(channel.streamId)
+            GuideLog.addWithMemory(
+                this@EpgActivity,
+                "listings ${channel.num} ${channel.name}: " +
+                    (if (got == null) "failed" else "${got.size} programmes") +
+                    " in ${System.currentTimeMillis() - began}ms, ${waiting.size} waiting"
+            )
             pumpFetches()
             // The list may have changed category while this was in flight, so find
             // where this channel sits now rather than trusting the old index.
@@ -595,10 +656,6 @@ class EpgActivity : AppCompatActivity() {
        ===================================================================== */
 
     private fun queuePreview(channel: StreamItem) {
-        if (!prefs.previewEnabled) return
-        // A preview is a whole stream. While something is recording, that is
-        // the line's one connection already spoken for.
-        if (RecorderService.isRecording) return
         if (previewing?.streamId == channel.streamId) return
         previewing = channel
         previewLogo.visibility = View.VISIBLE
@@ -607,6 +664,12 @@ class EpgActivity : AppCompatActivity() {
             error(R.drawable.tile_placeholder)
         }
         previewNote.visibility = View.GONE
+        // On a light box the logo IS the preview; no decoder is started.
+        if (lightBox) return
+        if (!prefs.previewEnabled) return
+        // A preview is a whole stream. While something is recording, that is
+        // the line's one connection already spoken for.
+        if (RecorderService.isRecording) return
         stopPreview()
         previewJob?.cancel()
         previewJob = lifecycleScope.launch {
@@ -658,6 +721,7 @@ class EpgActivity : AppCompatActivity() {
                 // the connection retrying.
                 val channel = previewing ?: return
                 val next = previewUrlIndex + 1
+                GuideLog.add(this@EpgActivity, "preview error: ${error.errorCodeName}")
                 previewVideo.post {
                     if (isFinishing || isDestroyed) return@post
                     if (previewing?.streamId != channel.streamId) return@post
@@ -669,6 +733,7 @@ class EpgActivity : AppCompatActivity() {
                 if (playbackState == Player.STATE_READY) {
                     previewLogo.visibility = View.GONE
                     previewNote.visibility = View.GONE
+                    GuideLog.addWithMemory(this@EpgActivity, "preview playing")
                 }
             }
         })
@@ -697,6 +762,7 @@ class EpgActivity : AppCompatActivity() {
         }
         previewUrlIndex = urlIndex
         watchForRecording()
+        GuideLog.addWithMemory(this, "preview start ${channel.num} ${channel.name} (address ${urlIndex + 1})")
         val exo = ensurePreviewPlayer()
         exo.stop()
         exo.setMediaItem(MediaItem.fromUri(urls[urlIndex]))
@@ -1000,8 +1066,13 @@ class EpgActivity : AppCompatActivity() {
 
         /** How many channels' listings are asked for at once. */
         private const val MAX_FETCHES = 4
-        /** Rows this far off screen still get their listings; further out do not. */
-        private const val FETCH_MARGIN_ROWS = 6
+        /**
+         * Rows this far off screen still get their listings; further out do not.
+         * Was six: with four requests in the air, rows already scrolled past
+         * were being fetched while the rows actually on screen sat on
+         * "Loading..." for seconds after the remote stopped.
+         */
+        private const val FETCH_MARGIN_ROWS = 2
 
         private val PREVIEW_AUDIO: AudioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
