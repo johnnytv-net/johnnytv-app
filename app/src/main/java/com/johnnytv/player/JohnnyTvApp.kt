@@ -110,7 +110,7 @@ class JohnnyTvApp : Application(), ImageLoaderFactory {
             MemoryCache.Builder(this)
                 // A light box (a Firestick) keeps less artwork in memory and
                 // leans on the disk cache instead - see BoxMemory.
-                .maxSizePercent(if (BoxMemory.isLight(this@JohnnyTvApp)) 0.10 else 0.25)
+                .maxSizePercent(if (BoxMemory.isLight(this@JohnnyTvApp)) 0.05 else 0.25)
                 .build()
         }
         .diskCache {

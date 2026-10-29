@@ -212,6 +212,16 @@ class EpgRowAdapter(
 
     class VH(val row: FrameLayout) : RecyclerView.ViewHolder(row)
 
+    /**
+     * A row that has scrolled away gives its blocks back at once, rather than
+     * holding up to ninety of them until it is next bound. On a 1 GB box the
+     * blocks are what the guide costs.
+     */
+    override fun onViewRecycled(holder: VH) {
+        holder.row.removeAllViews()
+        super.onViewRecycled(holder)
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         val row = FrameLayout(parent.context)
         row.layoutParams = ViewGroup.LayoutParams(timeline.widthPx, timeline.rowHeightPx)
