@@ -81,6 +81,7 @@ class SettingsActivity : AppCompatActivity() {
 
         findViewById<View>(R.id.clearFavouritesRow).setOnClickListener { clearFavourites() }
         findViewById<View>(R.id.playbackLogRow).setOnClickListener { showPlaybackLog() }
+        findViewById<View>(R.id.guideLogRow).setOnClickListener { showGuideLog() }
         findViewById<View>(R.id.guideCheckRow).setOnClickListener { checkTheGuide() }
 
         val awayState = findViewById<TextView>(R.id.awayState)
@@ -272,6 +273,17 @@ class SettingsActivity : AppCompatActivity() {
             .setMessage(text)
             .setPositiveButton(R.string.close, null)
             .setNeutralButton(R.string.clear_favourites_yes) { _, _ -> PlaybackLog.clear(this) }
+            .show()
+    }
+
+    /** The last visit to the guide, step by step - the same idea, for the same reason. */
+    private fun showGuideLog() {
+        val text = GuideLog.read(this) ?: getString(R.string.guide_log_empty)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.guide_log_row)
+            .setMessage(text)
+            .setPositiveButton(R.string.close, null)
+            .setNeutralButton(R.string.clear_favourites_yes) { _, _ -> GuideLog.clear(this) }
             .show()
     }
 

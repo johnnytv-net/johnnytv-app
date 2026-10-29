@@ -108,7 +108,9 @@ class JohnnyTvApp : Application(), ImageLoaderFactory {
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
         .memoryCache {
             MemoryCache.Builder(this)
-                .maxSizePercent(0.25)
+                // A light box (a Firestick) keeps less artwork in memory and
+                // leans on the disk cache instead - see BoxMemory.
+                .maxSizePercent(if (BoxMemory.isLight(this@JohnnyTvApp)) 0.10 else 0.25)
                 .build()
         }
         .diskCache {
