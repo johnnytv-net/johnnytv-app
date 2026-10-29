@@ -2,6 +2,7 @@ package com.johnnytv.player
 
 import android.app.ActivityManager
 import android.content.Context
+import android.os.Debug
 
 /**
  * HOW MUCH ROOM THIS BOX HAS.
@@ -50,6 +51,25 @@ object BoxMemory {
         }
         val availMb = info.availMem / (1024L * 1024L)
         val low = if (info.lowMemory) ", box says LOW" else ""
-        return "heap ${usedMb}/${maxMb}MB, box free ${availMb}MB of ${totalMb(context)}MB$low"
+        return "heap ${usedMb}/${maxMb}MB, ${footprint()}, box free ${availMb}MB of ${totalMb(context)}MB$low"
+    }
+
+    /**
+     * WHAT THE WHOLE PROCESS WEIGHS, NOT JUST THE HEAP.
+     *
+     * The first guide log from a 1 GB stick showed the heap sitting at 20 MB
+     * while the box's free memory fell by sixty - so the cost was somewhere
+     * the heap figure does not see: pictures and the drawing of the screen,
+     * which Android keeps outside it. This asks the system for the real
+     * total and the pieces it is made of, in megabytes.
+     */
+    fun footprint(): String {
+        val mi = Debug.MemoryInfo()
+        runCatching { Debug.getMemoryInfo(mi) }
+        fun stat(key: String): Long =
+            runCatching { mi.getMemoryStat(key)?.toLongOrNull() }.getOrNull()?.div(1024L) ?: -1L
+        return "app ${stat("summary.total-pss")}MB (java ${stat("summary.java-heap")}, " +
+            "native ${stat("summary.native-heap")}, graphics ${stat("summary.graphics")}, " +
+            "code ${stat("summary.code")})"
     }
 }

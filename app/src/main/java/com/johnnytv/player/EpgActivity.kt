@@ -132,7 +132,20 @@ class EpgActivity : AppCompatActivity() {
         EpgCache.load(this, prefs.client().server)
 
         setContentView(R.layout.activity_epg)
-        timeline = Timeline(this)
+        /*
+         * SIX HOURS ON A SMALL BOX.
+         *
+         * The guide log from a 1 GB Firestick showed the app's own heap at
+         * twenty megabytes while the box's free memory fell by sixty as rows
+         * loaded - the cost is in drawing the rows, not in holding the
+         * listings. Every programme is its own block and a row is twelve
+         * hours wide, so a news channel is ninety blocks, and the list keeps
+         * a dozen rows alive. Half the width is half the blocks - six hours
+         * ahead rather than twelve, which is still further than anyone
+         * reads a guide on a stick.
+         */
+        lightBox = BoxMemory.isLight(this)
+        timeline = Timeline(this, hoursShown = if (lightBox) 6 else 12)
 
         categoryRow = findViewById(R.id.categoryRow)
         timeHeader = findViewById(R.id.timeHeader)
@@ -159,7 +172,6 @@ class EpgActivity : AppCompatActivity() {
         watchHint = findViewById(R.id.watchHint)
         guideDate = findViewById(R.id.guideDate)
 
-        lightBox = BoxMemory.isLight(this)
         GuideLog.start(this, "guide opened, service " + prefs.client().server.substringAfter("://").substringBefore("/"))
         if (lightBox) {
             // No surface, no decoder: the corner is a logo on this box.
@@ -200,6 +212,14 @@ class EpgActivity : AppCompatActivity() {
 
         gridRows.layoutManager = LinearLayoutManager(this)
         gridRows.adapter = rowAdapter
+        if (lightBox) {
+            // Rows that leave the screen are not kept ready for a return; the
+            // blocks they hold are the expensive part and the row is cheap to
+            // rebuild from the cached listings.
+            gridRows.setItemViewCacheSize(0)
+            gridRows.recycledViewPool.setMaxRecycledViews(0, 3)
+            channelColumn.setItemViewCacheSize(0)
+        }
 
         // Both lists used to declare setHasFixedSize(true). It was wrong on the
         // grid - its width is wrap_content, so it genuinely does resize when a
@@ -543,7 +563,8 @@ class EpgActivity : AppCompatActivity() {
                 this@EpgActivity,
                 "listings ${channel.num} ${channel.name}: " +
                     (if (got == null) "failed" else "${got.size} programmes") +
-                    " in ${System.currentTimeMillis() - began}ms, ${waiting.size} waiting"
+                    " in ${System.currentTimeMillis() - began}ms, ${waiting.size} waiting, " +
+                    "${blocksOnScreen()} blocks drawn"
             )
             pumpFetches()
             // The list may have changed category while this was in flight, so find
@@ -563,6 +584,15 @@ class EpgActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /** How many programme blocks the grid is holding right now, for the log. */
+    private fun blocksOnScreen(): Int {
+        var count = 0
+        for (i in 0 until gridRows.childCount) {
+            (gridRows.getChildAt(i) as? ViewGroup)?.let { count += it.childCount }
+        }
+        return count
     }
 
     /** Which programme the panel is describing, so a second press can watch it. */
@@ -662,6 +692,9 @@ class EpgActivity : AppCompatActivity() {
         previewLogo.load(channel.icon) {
             placeholder(R.drawable.tile_placeholder)
             error(R.drawable.tile_placeholder)
+            // Decoded small on a light box: a logo the size of the panel is a
+            // quarter of a megabyte each, held outside the heap on Android 8+.
+            if (lightBox) size(240, 135)
         }
         previewNote.visibility = View.GONE
         // On a light box the logo IS the preview; no decoder is started.
