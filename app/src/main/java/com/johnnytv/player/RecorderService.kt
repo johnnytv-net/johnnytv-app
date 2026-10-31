@@ -748,7 +748,25 @@ class RecorderService : Service() {
             text.append(part.first).append("\n")
         }
         if (finished) text.append("#EXT-X-ENDLIST\n")
-        runCatching { File(folder, PLAYLIST_NAME).writeText(text.toString()) }
+        /*
+         * WRITTEN WHOLE, NEVER HALF.
+         *
+         * Somebody may be watching this recording while it is still being
+         * made: the player re-reads this playlist every minute to find the
+         * next part. Rewriting the file in place empties it for an instant,
+         * and a player that reads it in that instant sees a playlist with
+         * nothing on it. So it is written beside the old one and swapped in,
+         * which the drive does in one step.
+         */
+        runCatching {
+            val target = File(folder, PLAYLIST_NAME)
+            val fresh = File(folder, "$PLAYLIST_NAME.new")
+            fresh.writeText(text.toString())
+            if (!fresh.renameTo(target)) {
+                target.delete()
+                if (!fresh.renameTo(target)) target.writeText(text.toString())
+            }
+        }
     }
 
     /** Back on air after being away: that is a gap worth reporting. */
