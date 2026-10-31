@@ -214,6 +214,9 @@
     <string name="recordings_keep">Keep — never delete automatically</string>
     <string name="recordings_unkeep">Stop keeping</string>
     <string name="recordings_stop">Stop recording</string>
+    <string name="recordings_watch_now">Watch from the beginning</string>
+    <string name="recordings_first_minute">The first minute is still being written — try again in a moment</string>
+    <string name="recording_caught_up">Caught up with the recording — the next minute is on its way…</string>
     <string name="recordings_delete">Delete</string>
     <string name="recordings_delete_confirm">Delete %1$s? The video file goes with it.</string>
     <string name="recordings_delete_all">Delete all (%1$d)</string>
