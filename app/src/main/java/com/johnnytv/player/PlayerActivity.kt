@@ -22,6 +22,8 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistTracker
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
@@ -348,6 +350,63 @@ class PlayerActivity : AppCompatActivity() {
 
     /** How many of the recording's parts the player has been handed so far. */
     private var queued = 0
+
+    /**
+     * WATCHING A RECORDING WHILE IT IS STILL BEING MADE.
+     *
+     * True when the thing on screen is the playlist of a recording the
+     * recorder is still writing. The player is then following a growing
+     * file rather than playing a finished one, and three things change:
+     * it starts at the beginning rather than at the live edge, it is never
+     * hurried to catch up, and a hiccup reading the playlist restarts it
+     * where it was rather than ending the show.
+     */
+    private val chasing: Boolean
+        get() = playlist && contentId.startsWith("rec:") &&
+            urls.size == 1 && urls[0].endsWith(".m3u8") &&
+            RecorderService.isRecording &&
+            RecorderService.activeId == contentId.removePrefix("rec:")
+
+    private var chaseRestarts = 0
+    private var chaseFactory: DataSource.Factory? = null
+
+    /**
+     * The growing playlist as a source the player will follow patiently.
+     *
+     * Two settings differ from the player's own defaults for live playlists.
+     * The player gives up on a playlist that has not changed for three and a
+     * half parts - fair for a broadcaster, wrong for a recorder waiting out a
+     * dropped feed - so that limit is lifted. And a live playlist is normally
+     * played a touch fast or slow to settle at a set distance behind the
+     * edge; this one is watched from wherever the viewer is, at normal speed.
+     */
+    private fun chaseSource(factory: DataSource.Factory, url: String): HlsMediaSource {
+        val item = MediaItem.Builder()
+            .setUri(url)
+            .setLiveConfiguration(
+                MediaItem.LiveConfiguration.Builder()
+                    .setMinPlaybackSpeed(1f)
+                    .setMaxPlaybackSpeed(1f)
+                    .build()
+            )
+            .build()
+        return HlsMediaSource.Factory(factory)
+            .setPlaylistTrackerFactory { dataSourceFactory, policy, parserFactory ->
+                DefaultHlsPlaylistTracker(dataSourceFactory, policy, parserFactory, 1_000_000.0)
+            }
+            .createMediaSource(item)
+    }
+
+    /** Opens the growing playlist again at the position it was at. */
+    private fun restartChase(exo: ExoPlayer, at: Long) {
+        val factory = chaseFactory ?: return
+        chaseRestarts++
+        PlaybackLog.add(this, "reopening the recording at " + at + "ms (" + chaseRestarts + ")")
+        exo.setMediaSource(chaseSource(factory, urls[0]))
+        exo.seekTo(at.coerceAtLeast(0L))
+        exo.prepare()
+        exo.playWhenReady = true
+    }
 
     /*
      * WATCHING FOR A FROZEN PICTURE.
@@ -907,6 +966,13 @@ class PlayerActivity : AppCompatActivity() {
                             " (" + (error.cause?.message ?: "") + ")"
                     )
                 }
+                if (chasing && chaseRestarts < 5) {
+                    // Still being recorded: a bad read of a playlist that is
+                    // being rewritten every minute is not the end of the
+                    // programme. Pick up where it was.
+                    restartChase(exo, exo.currentPosition)
+                    return
+                }
                 if (playlist) {
                     // Say which part it choked on and why; "could not play"
                     // on its own has never helped anybody work out what to do.
@@ -975,7 +1041,15 @@ class PlayerActivity : AppCompatActivity() {
                     liveLog(named + "  " + since + "s after opening, " + (ahead / 100L) / 10.0 + "s in hand")
                 }
                 when (playbackState) {
-                    Player.STATE_BUFFERING -> showLoading()
+                    Player.STATE_BUFFERING -> {
+                        showLoading()
+                        // At the end of what has been recorded so far: the
+                        // spinner is the recorder, not a fault, and it says so.
+                        val length = exo.duration
+                        if (chasing && length > 0L && length - exo.currentPosition < 5_000L) {
+                            showStatus(getString(R.string.recording_caught_up))
+                        }
+                    }
                     Player.STATE_READY -> {
                         retriesOnCurrentUrl = 0
                         playedCurrentUrl = true
@@ -1043,8 +1117,11 @@ class PlayerActivity : AppCompatActivity() {
                         }
                     }
                     Player.STATE_ENDED -> {
+                        // (The playlist route never ends while the recorder
+                        // runs - it waits for the next part itself - so an
+                        // end there means the recording has just finished.)
                         if (playlist && contentId.startsWith("rec:") &&
-                            RecorderService.isRecording
+                            RecorderService.isRecording && !chasing
                         ) {
                             // Caught up with a recording that is still being
                             // written. The end of the file is not the end of the
@@ -1114,7 +1191,27 @@ class PlayerActivity : AppCompatActivity() {
             PlaybackLog.start(this, "recording: " + title + " - " + urls.size + " item(s)")
             PlaybackLog.add(this, "first: " + (urls.firstOrNull() ?: "none"))
             PlaybackLog.add(this, "resume point: " + resumeFrom + "ms")
-            addNextBatch(exo)
+            if (chasing) {
+                /*
+                 * STILL BEING RECORDED.
+                 *
+                 * The playlist has no end yet, so the player would treat it
+                 * as live television and open at the newest part. The viewer
+                 * asked for the beginning, so that is asked for before the
+                 * playlist is even read - a position given early is kept as
+                 * "this far from the start" once the length is known. A
+                 * remembered position, if there is one, takes over when the
+                 * picture arrives, exactly as for a finished recording.
+                 */
+                PlaybackLog.add(this, "recording still running - following the playlist from the start")
+                chaseFactory = sourceFactory
+                chaseRestarts = 0
+                queued = urls.size
+                exo.setMediaSource(chaseSource(sourceFactory, urls[0]))
+                exo.seekTo(0L)
+            } else {
+                addNextBatch(exo)
+            }
         } else {
             val address = urls[urlIndex]
             /*
