@@ -388,6 +388,37 @@ class RecordingsActivity : AppCompatActivity() {
         )
     }
 
+    /**
+     * WATCHING A RECORDING THAT IS STILL BEING MADE.
+     *
+     * The playlist beside the parts is left open while the recorder runs -
+     * no end marker, marked EVENT - which to a player means "there is more
+     * to come, keep checking". So the same playlist that plays a finished
+     * recording plays a running one: the player reads it, plays what is
+     * there from the beginning, and re-reads it every minute to pick up the
+     * next part. The recorder is never touched and uses no extra connection
+     * on the line; this is a file on the drive, read behind the writer.
+     *
+     * The only time it cannot start is the first minute: the playlist is
+     * written when the first part is finished, so before then there is
+     * nothing on it to play.
+     */
+    private fun playWhileRecording(recording: Recording) {
+        val playlist = recording.playlistFile(this)
+        if (playlist == null || !playlistLooksUsable(playlist)) {
+            android.widget.Toast.makeText(
+                this, R.string.recordings_first_minute, android.widget.Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        PlayerActivity.startPlaylist(
+            this,
+            urls = listOf(android.net.Uri.fromFile(playlist).toString()),
+            title = recording.title,
+            contentId = "rec:" + recording.id
+        )
+    }
+
     /** Every part, in order, straight to the player - no playlist involved. */
     private fun playParts(recording: Recording) {
         val files = recording.playableFiles(this)
@@ -614,6 +645,12 @@ class RecordingsActivity : AppCompatActivity() {
         val actions = ArrayList<() -> Unit>()
 
         if (recording.isRecording) {
+            // Watching while it records: from the start, while the recorder
+            // carries on behind it. First on the list because it is what
+            // somebody pressing a running recording most often wants.
+            options.add(getString(R.string.recordings_watch_now))
+            actions.add { playWhileRecording(recording) }
+
             options.add(getString(R.string.recordings_stop))
             actions.add {
                 RecorderService.stop(this)
