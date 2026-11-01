@@ -563,3 +563,69 @@ object Storage {
         }
     }
 }
+
+/**
+ * A PART'S OWN CLOCK, READ OFF THE DRIVE.
+ *
+ * Every part carries its timestamps inside it, so the questions that matter
+ * for a playlist - how long is it, and does it run on from the one before -
+ * can be answered from the file rather than guessed from its size or trusted
+ * from a playlist that may be wrong. Only the first and last stretch of the
+ * file are read, which keeps a three hundred part recording to a few seconds
+ * on a USB drive.
+ */
+internal object PartClock {
+    private const val WINDOW = 2 * 1024 * 1024
+
+    /** First and newest timestamp in the part, in 90 kHz ticks, or null if it has none. */
+    fun read(file: File): Pair<Long, Long>? = runCatching {
+        val length = file.length()
+        if (length < RecorderService.TS_PACKET) return null
+        java.io.RandomAccessFile(file, "r").use { raf ->
+            val headLen = minOf(length, WINDOW.toLong()).toInt()
+            val head = ByteArray(headLen)
+            raf.seek(0)
+            raf.readFully(head)
+            val first = firstIn(head)
+            if (first < 0L) return null
+
+            val tailStart = ((length - WINDOW).coerceAtLeast(0L) / RecorderService.TS_PACKET) *
+                RecorderService.TS_PACKET
+            val tail = if (tailStart == 0L) head else ByteArray((length - tailStart).toInt()).also {
+                raf.seek(tailStart)
+                raf.readFully(it)
+            }
+            val newest = newestIn(tail)
+            if (newest < 0L) return null
+            Pair(first, newest)
+        }
+    }.getOrNull()
+
+    private fun firstIn(data: ByteArray): Long {
+        var i = 0
+        while (i + RecorderService.TS_PACKET <= data.size) {
+            val pts = RecorderService.ptsAt(data, i)
+            if (pts >= 0L) return pts
+            i += RecorderService.TS_PACKET
+        }
+        return -1L
+    }
+
+    private fun newestIn(data: ByteArray): Long {
+        var i = 0
+        var best = -1L
+        while (i + RecorderService.TS_PACKET <= data.size) {
+            val pts = RecorderService.ptsAt(data, i)
+            if (pts >= 0L && (best < 0L || pts > best)) best = pts
+            i += RecorderService.TS_PACKET
+        }
+        return best
+    }
+
+    /** Seconds between two timestamps, allowing for the clock wrapping round. */
+    fun seconds(from: Long, to: Long): Double {
+        var ticks = to - from
+        if (ticks < -(RecorderService.PTS_WRAP / 2)) ticks += RecorderService.PTS_WRAP
+        return ticks / 90_000.0
+    }
+}

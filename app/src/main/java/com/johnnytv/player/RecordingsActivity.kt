@@ -579,6 +579,27 @@ class RecordingsActivity : AppCompatActivity() {
             )
         }
 
+        /*
+         * ONE FILE CANNOT CARRY A BREAK.
+         *
+         * The playlist tells the player where the clock jumps; a single file
+         * has no way to. Joined up, a recording with breaks stops dead at the
+         * first one - which is how a five hour fight became a thirty minute
+         * one. So where there are breaks the join is refused and the playlist,
+         * which plays all of it, stays in charge.
+         */
+        var previousEnd = -1L
+        var jumps = 0
+        for (part in parts) {
+            val clock = PartClock.read(part) ?: continue
+            if (previousEnd >= 0L) {
+                val drift = PartClock.seconds(previousEnd, clock.first)
+                if (drift > 1.0 || drift < -1.0) jumps++
+            }
+            previousEnd = clock.second
+        }
+        if (jumps > 0) return getString(R.string.recordings_join_has_breaks, jumps)
+
         val whole = File(folder, WHOLE_NAME)
         runCatching { whole.delete() }
 
@@ -858,12 +879,51 @@ class RecordingsActivity : AppCompatActivity() {
             else -> rates[rates.size / 2]
         }.coerceIn(50_000.0, 4_000_000.0)
 
-        val lengths = parts.map { part ->
-            val seconds = known[part.name] ?: (part.length() / bytesPerSecond * 0.97)
-            // Nothing here is longer than two minutes; the recorder writes in
-            // thirty-second pieces and a reconnect makes them shorter, never
-            // longer.
-            part.name to seconds.coerceIn(1.0, 120.0)
+        /*
+         * MEASURED, NOT ESTIMATED - AND THE BREAKS PUT BACK.
+         *
+         * Each part's clock is read off the drive: where it starts, where it
+         * ends. That gives a length nothing can argue with, and it gives the
+         * one thing the old Repair could not know - where the recording's
+         * clock jumped. The old version claimed no breaks at all, because
+         * claiming one between every part stops playback; but claiming none
+         * where the server handed back two clocks half an hour apart stops
+         * it just as surely. A five hour fight stopped at twenty-five
+         * minutes, with every second of it on the drive, for exactly that
+         * reason. Now a break is declared where the clock actually jumps
+         * and nowhere else.
+         *
+         * A part whose clock cannot be read falls back to the old estimate
+         * and is treated as running on.
+         */
+        val lengths = ArrayList<Pair<String, Double>>()
+        val breaks = HashSet<String>()
+        var previousEnd = -1L
+        var measuredParts = 0
+        for (part in parts) {
+            val clock = PartClock.read(part)
+            var seconds = known[part.name] ?: (part.length() / bytesPerSecond * 0.97)
+            if (clock != null) {
+                val span = PartClock.seconds(clock.first, clock.second)
+                if (span in 0.5..600.0) {
+                    seconds = span
+                    measuredParts++
+                }
+                if (previousEnd >= 0L) {
+                    val drift = PartClock.seconds(previousEnd, clock.first)
+                    if (drift > 1.0 || drift < -1.0) breaks.add(part.name)
+                }
+                previousEnd = clock.second
+            }
+            if (seconds < 1.0) continue
+            lengths.add(part.name to seconds.coerceAtMost(600.0))
+        }
+        if (lengths.isEmpty()) {
+            return getString(
+                R.string.recordings_repair_nothing,
+                folder.absolutePath,
+                if (folder.exists()) "yes" else "no"
+            )
         }
 
         val text = StringBuilder()
@@ -871,24 +931,23 @@ class RecordingsActivity : AppCompatActivity() {
         text.append("#EXT-X-TARGETDURATION:")
             .append(Math.ceil(lengths.maxOf { it.second }).toInt()).append("\n")
         text.append("#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n")
-        /*
-         * A DISCONTINUITY BETWEEN EVERY PART IS ITS OWN PROBLEM.
-         *
-         * It tells the player to throw away its timing and start again, which
-         * is right where the recording genuinely jumped and wrong everywhere
-         * else. Across two thousand parts it is thousands of restarts, and
-         * enough on its own to stop a recording playing.
-         *
-         * Repair cannot know where the real gaps were - that knowledge was in
-         * the playlist it is replacing - so it claims none, which plays through
-         * cleanly and at worst gets the clock slightly wrong over a join.
-         */
         for ((index, part) in lengths.withIndex()) {
+            if (index > 0 && part.first in breaks) text.append("#EXT-X-DISCONTINUITY\n")
             text.append("#EXTINF:")
                 .append(String.format(Locale.US, "%.3f", part.second))
                 .append(",\n").append(part.first).append("\n")
         }
         text.append("#EXT-X-ENDLIST\n")
+
+        // A joined file made before the breaks were known carries the same
+        // jumps inside it and is preferred over the playlist - so it is set
+        // aside, not deleted, and the playlist gets its turn.
+        if (breaks.isNotEmpty()) {
+            val whole = File(folder, WHOLE_NAME)
+            if (whole.exists()) runCatching { whole.renameTo(File(folder, "$WHOLE_NAME.unfixed")) }
+            val mp4 = File(folder, Remux.MP4_NAME)
+            if (mp4.exists()) runCatching { mp4.renameTo(File(folder, Remux.MP4_NAME + ".unfixed")) }
+        }
 
         val written = runCatching {
             File(folder, RecorderService.PLAYLIST_NAME).writeText(text.toString())
@@ -897,8 +956,10 @@ class RecordingsActivity : AppCompatActivity() {
 
         return getString(
             R.string.recordings_repair_done,
-            parts.size,
+            lengths.size,
             (lengths.sumOf { it.second } / 60).toInt(),
+            measuredParts,
+            breaks.size,
             if (written) "written" else "COULD NOT WRITE",
             folder.absolutePath
         )

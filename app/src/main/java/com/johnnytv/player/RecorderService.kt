@@ -626,6 +626,9 @@ class RecorderService : Service() {
 
     /** The first timestamp in the part being written, for its true length. */
     private var partFirstPts = -1L
+
+    /** Where the previous part's clock stopped, to check the next one against. */
+    private var previousPartLastPts = -1L
     /** The newest timestamp in the part being written. */
     private var partLastPts = -1L
 
@@ -651,6 +654,7 @@ class RecorderService : Service() {
         nextPartIsBreak = false
         currentPartSeconds = nextPartSeconds
         nextPartSeconds = 0.0
+        previousPartLastPts = partLastPts
         partFirstPts = -1L
         partLastPts = -1L
         val name = String.format("part%03d.ts", partIndex)
@@ -1013,6 +1017,24 @@ class RecorderService : Service() {
             }
         }
 
+        /*
+         * OPENED BEFORE THE CLOCK IS READ, NOT AFTER.
+         *
+         * The timestamps below belong to the part this batch is going into.
+         * Read before the new part was opened, they landed on the old one -
+         * which then claimed the new part's seconds as its own. A part of
+         * twenty seconds announced as a hundred and twenty is a player
+         * waiting at its end for material that was never there.
+         */
+        if (startFreshChunk) {
+            // Opened here, with data in hand, rather than the moment a
+            // reconnection is noticed - so a connection that brings nothing
+            // back leaves no empty file behind it.
+            startFreshChunk = false
+            rotateWhenReady = false
+            openNewPart()
+        }
+
         // The part's length is measured from the timestamps actually written
         // into it. Taken any later than this - or skipped on the passes that
         // return early - a part ends up claiming seconds it does not contain,
@@ -1025,17 +1047,34 @@ class RecorderService : Service() {
         }
         if (partFirstPts < 0L) {
             val firstHere = firstPts(data, start, start + whole)
-            if (firstHere >= 0L) partFirstPts = firstHere
+            if (firstHere >= 0L) {
+                partFirstPts = firstHere
+                /*
+                 * THE CLOCK, CHECKED AT EVERY PART, NOT ONLY WHERE A JUMP WAS
+                 * EXPECTED.
+                 *
+                 * A reconnect is where the clock usually changes, and the
+                 * reconnect code marks it. But a five hour fight came back
+                 * with forty-two reconnects and the server alternating
+                 * between two clocks half an hour apart - and not one of
+                 * those breaks ended up in the playlist. A player reaching
+                 * the first of them saw time leap forward thirty minutes
+                 * and sat waiting for it.
+                 *
+                 * So every new part is held against the end of the last one,
+                 * whatever path opened it. More than a second adrift is a
+                 * break, and the playlist says so.
+                 */
+                if (!currentPartIsBreak && previousPartLastPts >= 0L) {
+                    val drift = firstHere - previousPartLastPts
+                    val wrapped = drift < -(PTS_WRAP / 2) || drift > PTS_WRAP / 2
+                    if (wrapped || drift > PART_SEAM_TICKS || drift < -PART_SEAM_TICKS) {
+                        currentPartIsBreak = true
+                    }
+                }
+            }
         }
 
-        if (startFreshChunk) {
-            // Opened here, with data in hand, rather than the moment a
-            // reconnection is noticed - so a connection that brings nothing
-            // back leaves no empty file behind it.
-            startFreshChunk = false
-            rotateWhenReady = false
-            openNewPart()
-        }
 
         // A new chunk has to begin at a point the player can start reading cold,
         // which means a PAT packet - the stream's own table of contents.
@@ -1342,7 +1381,7 @@ class RecorderService : Service() {
         private val EMPTY = ByteArray(0)
 
         /** The size of one transport-stream packet. Not negotiable; it is the format. */
-        private const val TS_PACKET = 188
+        internal const val TS_PACKET = 188
 
         /** How much of an unsynced read to keep while waiting for more. */
         private const val SYNC_LOOKBACK = TS_PACKET * 4
@@ -1389,7 +1428,7 @@ class RecorderService : Service() {
         private const val SYNC_BYTE: Byte = 0x47
 
         /** A stream's clock wraps after about 26 hours. */
-        private const val PTS_WRAP = 1L shl 33
+        internal const val PTS_WRAP = 1L shl 33
 
         /**
          * The timestamp on a packet, or -1 if it has none.
@@ -1399,7 +1438,7 @@ class RecorderService : Service() {
          * that doesn't match that shape exactly is left alone rather than guessed
          * at - a misread timestamp would be worse than no timestamp.
          */
-        private fun ptsAt(data: ByteArray, packet: Int): Long {
+        internal fun ptsAt(data: ByteArray, packet: Int): Long {
             if (data[packet] != SYNC_BYTE) return -1L
             val unitStart = (data[packet + 1].toInt() and 0x40) != 0
             if (!unitStart) return -1L
@@ -1433,6 +1472,9 @@ class RecorderService : Service() {
 
         /** More than this far from the last timestamp is a new clock, not a programme. */
         private const val CLOCK_JUMP_TICKS = 10L * 90_000L
+
+        /** How far apart two neighbouring parts' clocks may be and still run on. */
+        private const val PART_SEAM_TICKS = 90_000L
 
         /**
          * The first packet whose timestamp does not follow on from [after].
