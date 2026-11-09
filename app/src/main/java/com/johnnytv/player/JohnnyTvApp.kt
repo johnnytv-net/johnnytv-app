@@ -11,6 +11,7 @@ class JohnnyTvApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         CrashReporter.install(this)
+        MyTeams.appContext = applicationContext
         // Whatever logo overrides were downloaded last time, ready before any screen draws.
         LogoPack.load(this)
         Lineups.load(this)
@@ -35,6 +36,11 @@ class JohnnyTvApp : Application(), ImageLoaderFactory {
         runCatching { RecordScheduler.armAll(this) }
         // And go looking for anything set from a phone while this box was off.
         runCatching { Postman.start(this) }
+        // If the last guide visit ended with the box killing the app, the log
+        // of that visit goes home - off the main thread, silent either way.
+        Thread {
+            runCatching { GuideReporter.checkAndSend(applicationContext) }
+        }.apply { isDaemon = true; priority = Thread.MIN_PRIORITY }.start()
         // Sharing, if it is switched on, comes back with the app.
         runCatching { ShareService.apply(this) }
 

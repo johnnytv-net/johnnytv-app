@@ -586,9 +586,10 @@ class Prefs(context: Context) {
     /** Playback position in milliseconds, keyed by kind + id. Live is never stored. */
     fun savePosition(kind: Kind, id: String, positionMs: Long, durationMs: Long) {
         if (kind == Kind.LIVE || positionMs < 60_000L) return
-        // Finished (or nearly) - drop it rather than offering to resume the credits.
+        // Finished (or nearly) - drop it rather than offering to resume the
+        // credits, and remember that it was seen through to the end.
         if (durationMs > 0 && positionMs > durationMs - 120_000L) {
-            removePosition(kind, id)
+            markWatched(kind, id)
             return
         }
         val map = positionMap()
@@ -598,6 +599,38 @@ class Prefs(context: Context) {
     }
 
     fun position(kind: Kind, id: String): Long = positionMap().optLong(favouriteKey(kind, id), 0L)
+
+    /*
+     * WATCHED, AS OPPOSED TO STARTED.
+     *
+     * Finishing an episode used to leave no trace at all: its place was
+     * forgotten so the credits would not be offered again, and that was that.
+     * So the episode list could say "Resume" on one row and nothing on the
+     * rest, and the viewer had to remember which of the nothings they had
+     * already seen. Now a finished film or episode is kept in a list of its
+     * own, per service like everything else, and the list shows a tick.
+     */
+    fun markWatched(kind: Kind, id: String) {
+        if (kind == Kind.LIVE || id.isBlank()) return
+        removePosition(kind, id)
+        val set = watchedSet()
+        if (set.add(favouriteKey(kind, id))) {
+            sp.edit().putString(watchedKey(), set.joinToString("\n")).apply()
+        }
+    }
+
+    fun isWatched(kind: Kind, id: String): Boolean = watchedSet().contains(favouriteKey(kind, id))
+
+    /** Ids of the given kind that were watched to the end. */
+    fun watchedIds(kind: Kind): Set<String> {
+        val prefix = "${kind.name}:"
+        return watchedSet().filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }.toSet()
+    }
+
+    private fun watchedSet(): LinkedHashSet<String> =
+        LinkedHashSet((sp.getString(watchedKey(), "") ?: "").split("\n").filter { it.isNotBlank() })
+
+    private fun watchedKey(): String = perService(KEY_WATCHED)
 
     fun removePosition(kind: Kind, id: String) {
         val map = positionMap()
@@ -744,6 +777,7 @@ class Prefs(context: Context) {
         const val KEY_POSITIONS = "positions"
         const val KEY_CONTINUE = "continue_watching"
         const val KEY_LAST_EPISODE = "last_episode"
+        const val KEY_WATCHED = "watched"
         const val KEY_SEARCHES = "recent_searches"
         const val KEY_LOGINS = "saved_logins"
         const val MAX_LOGINS = 8

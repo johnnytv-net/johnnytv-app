@@ -33,6 +33,8 @@ class SeriesActivity : AppCompatActivity() {
     private lateinit var episodeAdapter: EpisodeAdapter
     private var seasons: Map<Int, List<Episode>> = emptyMap()
     private var selectedSeason: Int = -1
+    /** Opened from Continue Watching: put the remote on the episode last played. */
+    private var landOnLast = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -93,6 +95,7 @@ class SeriesActivity : AppCompatActivity() {
             .forEach { facts.addView(tag(it, R.drawable.bg_fact_chip, light, false, size)) }
         facts.visibility = if (facts.childCount == 0) View.GONE else View.VISIBLE
 
+        landOnLast = intent.getBooleanExtra(EXTRA_LAND_ON_LAST, false)
         episodeAdapter = EpisodeAdapter { episode -> play(episode) }
         episodeList.layoutManager = LinearLayoutManager(this)
         episodeList.adapter = episodeAdapter
@@ -146,8 +149,15 @@ class SeriesActivity : AppCompatActivity() {
                 // Open on the season of the episode last watched, not season
                 // one - otherwise somebody four seasons in starts every visit
                 // with the same walk along the row.
-                val wasOn = prefs.lastEpisode(seriesId)?.season
-                showSeason(loaded.keys.firstOrNull { it == wasOn } ?: loaded.keys.first())
+                val last = prefs.lastEpisode(seriesId)
+                showSeason(loaded.keys.firstOrNull { it == last?.season } ?: loaded.keys.first())
+                // And on the episode itself, when that is what was asked
+                // for - so from Continue Watching the remote arrives already
+                // sitting on the one to carry on with.
+                if (landOnLast && last != null) {
+                    landOnLast = false
+                    focusEpisode(last.episodeId)
+                }
             }.onFailure { error ->
                 statusLabel.text = error.message ?: getString(R.string.no_episodes)
                 statusLabel.visibility = View.VISIBLE
@@ -186,10 +196,31 @@ class SeriesActivity : AppCompatActivity() {
             child.isActivated = child.tag == season
         }
         val episodes = seasons[season].orEmpty()
-        val partWatched = episodes.filter { prefs.position(Kind.SERIES, it.episodeId) > 0 }
-            .map { it.episodeId }
-            .toSet()
-        episodeAdapter.submit(episodes, partWatched)
+        // Three things the list can say about an episode: how far in it was
+        // left, that it was watched to the end, and that it is the one played
+        // most recently. All read fresh, because the player has just written them.
+        val positions = HashMap<String, Long>()
+        for (episode in episodes) {
+            val at = prefs.position(Kind.SERIES, episode.episodeId)
+            if (at > 0) positions[episode.episodeId] = at
+        }
+        episodeAdapter.submit(
+            episodes,
+            positions,
+            prefs.watchedIds(Kind.SERIES),
+            prefs.lastEpisode(seriesId)?.episodeId
+        )
+    }
+
+    /** Scrolls the list to the given episode and puts the remote on it. */
+    private fun focusEpisode(episodeId: String) {
+        val index = seasons[selectedSeason].orEmpty().indexOfFirst { it.episodeId == episodeId }
+        if (index < 0) return
+        (episodeList.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(index, dp(60))
+        episodeList.post {
+            val row = episodeList.findViewHolderForAdapterPosition(index)?.itemView
+            if (row != null) row.requestFocus() else episodeList.requestFocus()
+        }
     }
 
     private fun play(episode: Episode) {
@@ -231,5 +262,6 @@ class SeriesActivity : AppCompatActivity() {
         const val EXTRA_SERIES_ID = "series_id"
         const val EXTRA_TITLE = "series_title"
         const val EXTRA_COVER = "series_cover"
+        const val EXTRA_LAND_ON_LAST = "series_land_on_last"
     }
 }

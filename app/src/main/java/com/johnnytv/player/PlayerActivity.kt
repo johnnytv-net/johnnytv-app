@@ -1158,7 +1158,17 @@ class PlayerActivity : AppCompatActivity() {
                             showStatus(detail)
                             exo.stop()
                         } else {
-                            if (contentId.isNotBlank()) prefs.removePosition(kind, contentId)
+                            // Played through to the end: a film or an episode
+                            // that got past its first minute counts as watched,
+                            // so the series page can tick it off. One that
+                            // ended inside a minute did not play - forget it.
+                            if (contentId.isNotBlank() && !contentId.startsWith("rec:") &&
+                                exo.currentPosition > 60_000L
+                            ) {
+                                prefs.markWatched(kind, contentId)
+                            } else if (contentId.isNotBlank()) {
+                                prefs.removePosition(kind, contentId)
+                            }
                             finish()
                         }
                     }

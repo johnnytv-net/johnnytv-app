@@ -100,6 +100,8 @@
     </plurals>
     <string name="team_game_on_now">ON NOW</string>
     <string name="team_game_next">Next game  ·  %1$s</string>
+    <string name="team_game_today">TODAY</string>
+    <string name="team_game_tomorrow">TOMORROW</string>
     <string name="team_game_started">started %1$s</string>
     <string name="team_game_in_hours">in %1$d h %2$d min</string>
     <string name="team_game_in_minutes">in %1$d min</string>
@@ -137,6 +139,8 @@
     <string name="on_now">ON NOW</string>
     <string name="watch">Watch</string>
     <string name="resume">Resume</string>
+    <string name="watched">Watched</string>
+    <string name="last_played">Last played</string>
     <string name="start_again">Start again</string>
     <string name="cast_heading">Cast</string>
     <string name="directed_by">Directed by %1$s</string>

@@ -279,18 +279,28 @@ class TileAdapter(
     }
 }
 
-/** Episode list inside a series. */
+/**
+ * Episode list inside a series.
+ *
+ * Each row says where it stands: "Resume · 23 min in" for one left partway,
+ * a tick and dimmed text for one watched to the end, and a marker on the one
+ * played most recently so the eye finds its place without reading the lot.
+ */
 class EpisodeAdapter(
     private val onPlay: (Episode) -> Unit
 ) : RecyclerView.Adapter<EpisodeAdapter.VH>() {
 
     private val items = ArrayList<Episode>()
-    private var resumable: Set<String> = emptySet()
+    private var positions: Map<String, Long> = emptyMap()
+    private var watched: Set<String> = emptySet()
+    private var lastPlayed: String? = null
 
-    fun submit(list: List<Episode>, partWatched: Set<String>) {
+    fun submit(list: List<Episode>, positionsMs: Map<String, Long>, watchedIds: Set<String>, lastPlayedId: String?) {
         items.clear()
         items.addAll(list)
-        resumable = partWatched
+        positions = positionsMs
+        watched = watchedIds
+        lastPlayed = lastPlayedId
         notifyDataSetChanged()
     }
 
@@ -305,11 +315,28 @@ class EpisodeAdapter(
 
     override fun onBindViewHolder(holder: VH, position: Int) {
         val item = items[position]
+        val context = holder.itemView.context
         holder.number.text = item.episodeNum.toString()
         holder.title.text = item.title
-        val partWatched = resumable.contains(item.episodeId)
-        holder.note.text = if (partWatched) "Resume" else ""
-        holder.note.visibility = if (partWatched) View.VISIBLE else View.GONE
+        val seen = watched.contains(item.episodeId)
+        val at = positions[item.episodeId] ?: 0L
+        val isLast = item.episodeId == lastPlayed
+        val note = when {
+            at >= 60_000L -> context.getString(R.string.resume) + "  \u00B7  " +
+                context.getString(R.string.resume_minutes_in, (at / 60_000L).toInt())
+            seen -> "\u2713 " + context.getString(R.string.watched)
+            isLast -> context.getString(R.string.last_played)
+            else -> ""
+        }
+        holder.note.text = note
+        holder.note.visibility = if (note.isEmpty()) View.GONE else View.VISIBLE
+        holder.note.setTextColor(
+            context.getColor(if (seen && at < 60_000L) R.color.text_secondary else R.color.brand_accent)
+        )
+        // Watched rows step back so the unwatched ones stand out.
+        val alpha = if (seen && at < 60_000L) 0.55f else 1f
+        holder.number.alpha = alpha
+        holder.title.alpha = alpha
         holder.itemView.setOnClickListener {
             val current = holder.bindingAdapterPosition
             if (current == RecyclerView.NO_POSITION) return@setOnClickListener

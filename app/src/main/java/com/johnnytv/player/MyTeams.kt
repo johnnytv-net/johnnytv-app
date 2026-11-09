@@ -60,6 +60,31 @@ object MyTeams {
      */
     private val PROMOTIONS = mapOf("UFC" to "UFC", "PFL" to "PFL")
 
+    /*
+     * A promotion has no team list to take a logo from, so it was drawn with
+     * the JohnnyTV mark - which on a row of real team crests looked like a
+     * gap. The schedule itself names the promotion's logo, and that is read
+     * off every time the schedule is asked; until it has been asked once, a
+     * known address stands in.
+     */
+    private val PROMOTION_LOGOS = mapOf(
+        "UFC" to "https://a.espncdn.com/i/teamlogos/leagues/500/ufc.png",
+        "PFL" to "https://a.espncdn.com/i/teamlogos/leagues/500/pfl.png"
+    )
+    private const val KEY_LEAGUE_LOGO = "league_logo_"
+
+    private fun promotionLogo(context: Context, league: String): String =
+        store(context).getString(KEY_LEAGUE_LOGO + league, null) ?: PROMOTION_LOGOS[league].orEmpty()
+
+    private fun rememberLeagueLogo(league: String, href: String) {
+        val context = appContext ?: return
+        if (href.isBlank()) return
+        store(context).edit().putString(KEY_LEAGUE_LOGO + league, href.replace("http://", "https://")).apply()
+    }
+
+    /** Set once from the application, so the schedule fetch can keep what it learns. */
+    @Volatile var appContext: Context? = null
+
     private val PATHS = mapOf(
         "NHL" to "hockey/nhl",
         "NFL" to "football/nfl",
@@ -141,7 +166,9 @@ object MyTeams {
     private fun parse(line: String): Team? {
         val parts = line.split("\t")
         if (parts.size < 4 || parts[0].isBlank() || parts[2].isBlank()) return null
-        return Team(parts[0], parts[1], parts[2], parts[3])
+        // A promotion saved before it had a logo picks one up here.
+        val logo = parts[3].ifBlank { if (PROMOTIONS.containsKey(parts[0])) appContext?.let { promotionLogo(it, parts[0]) }.orEmpty() else "" }
+        return Team(parts[0], parts[1], parts[2], logo)
     }
 
     /** Adds the team, or takes it off. True when it is now followed. */
@@ -158,7 +185,7 @@ object MyTeams {
 
     /** Blocking. Call off the main thread. */
     fun teams(context: Context, league: String): List<Team> {
-        PROMOTIONS[league]?.let { return listOf(Team(league, it, it, "")) }
+        PROMOTIONS[league]?.let { return listOf(Team(league, it, it, promotionLogo(context, it))) }
         val file = File(context.filesDir, "teams_$league.json")
         val kept = runCatching { readList(file, league) }.getOrDefault(emptyList())
         val fresh = file.exists() && System.currentTimeMillis() - file.lastModified() < LIST_AGE_MS
@@ -311,7 +338,12 @@ object MyTeams {
             // A refusal is a failure to ask, never "nothing on".
             if (http.responseCode !in 200..299) throw java.io.IOException("HTTP " + http.responseCode)
             val body = http.inputStream.bufferedReader().use { it.readText() }
-            val events = JSONObject(body).optJSONArray("events") ?: return emptyList()
+            val root = JSONObject(body)
+            if (PROMOTIONS.containsKey(league)) {
+                root.optJSONArray("leagues")?.optJSONObject(0)?.optJSONArray("logos")
+                    ?.optJSONObject(0)?.optString("href", "")?.let { rememberLeagueLogo(league, it) }
+            }
+            val events = root.optJSONArray("events") ?: return emptyList()
             val when_ = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm'Z'", java.util.Locale.US)
             when_.timeZone = java.util.TimeZone.getTimeZone("UTC")
             val out = ArrayList<Fixture>(events.length())

@@ -413,9 +413,16 @@ class HomeActivity : AppCompatActivity() {
                         row.visibility = View.GONE
                         return@forEachIndexed
                     }
-                    // Not today: say when. There is nothing to watch yet, so
-                    // pressing it does nothing.
+                    /*
+                     * Not today: say so plainly. Today's and tomorrow's rows
+                     * used to differ by a date in small grey type under the
+                     * name, which took a second look to tell apart. Now a
+                     * row for a later day is quiet - no green edge, faded -
+                     * and the day sits where the eye goes, beside the time.
+                     * There is nothing to watch yet, so pressing it does nothing.
+                     */
                     row.visibility = View.VISIBLE
+                    row.setBackgroundResource(R.drawable.bg_game_later)
                     val badge = row.findViewById<ImageView>(R.id.gameLogo)
                     if (next.team.logo.isBlank()) badge.setImageResource(R.drawable.logo)
                     else badge.load(next.team.logo) { crossfade(true) }
@@ -423,12 +430,29 @@ class HomeActivity : AppCompatActivity() {
                     row.findViewById<TextView>(R.id.gameTitle).text = next.title
                     row.findViewById<TextView>(R.id.gameSub).text =
                         getString(R.string.team_game_next, day.format(Date(next.startsAt)))
+                    val dayLabel = row.findViewById<TextView>(R.id.gameDay)
+                    dayLabel.text = if (isTomorrow(next.startsAt, now)) getString(R.string.team_game_tomorrow)
+                        else day.format(Date(next.startsAt)).uppercase(java.util.Locale.getDefault())
+                    dayLabel.background = null
+                    dayLabel.setTextColor(getColor(R.color.text_secondary))
                     row.findViewById<TextView>(R.id.gameTime).text = clock.format(Date(next.startsAt))
+                    for (id in intArrayOf(R.id.gameLogo, R.id.gameTitle, R.id.gameSub, R.id.gameTime)) {
+                        row.findViewById<View>(id).alpha = 0.6f
+                    }
                     row.setOnClickListener(null)
                     row.setOnLongClickListener(null)
                     return@forEachIndexed
                 }
+                // On today: the green-edged row, TODAY in a green pill, full brightness.
                 row.visibility = View.VISIBLE
+                row.setBackgroundResource(R.drawable.bg_game_today)
+                for (id in intArrayOf(R.id.gameLogo, R.id.gameTitle, R.id.gameSub, R.id.gameTime)) {
+                    row.findViewById<View>(id).alpha = 1f
+                }
+                val todayPill = row.findViewById<TextView>(R.id.gameDay)
+                todayPill.text = getString(R.string.team_game_today)
+                todayPill.setBackgroundResource(R.drawable.bg_game_day_pill)
+                todayPill.setTextColor(0xFF0B1A14.toInt())
                 val logo = row.findViewById<ImageView>(R.id.gameLogo)
                 if (game.team.logo.isBlank()) {
                     logo.setImageResource(R.drawable.logo)
@@ -447,8 +471,11 @@ class HomeActivity : AppCompatActivity() {
                 }
                 row.findViewById<TextView>(R.id.gameSub).text =
                     if (folder.isBlank()) when_ else "$folder  \u00B7  $when_"
-                row.findViewById<TextView>(R.id.gameTime).text =
+                val timeLabel = row.findViewById<TextView>(R.id.gameTime)
+                timeLabel.text =
                     if (started) getString(R.string.team_game_on_now) else clock.format(Date(game.startsAt))
+                // ON NOW in green as well, so a game under way is the brightest thing on the panel.
+                timeLabel.setTextColor(getColor(if (started) R.color.brand_accent else R.color.text_primary))
                 row.setOnClickListener {
                     PlayerActivity.start(
                         this@HomeActivity,
@@ -494,6 +521,16 @@ class HomeActivity : AppCompatActivity() {
         label.visibility = View.VISIBLE
     }
 
+    /** True when the moment falls on the calendar day after now, by the box's clock. */
+    private fun isTomorrow(at: Long, now: Long): Boolean {
+        val cal = java.util.Calendar.getInstance()
+        cal.timeInMillis = now
+        cal.add(java.util.Calendar.DAY_OF_YEAR, 1)
+        val tomorrow = cal.get(java.util.Calendar.YEAR) * 1000 + cal.get(java.util.Calendar.DAY_OF_YEAR)
+        cal.timeInMillis = at
+        return cal.get(java.util.Calendar.YEAR) * 1000 + cal.get(java.util.Calendar.DAY_OF_YEAR) == tomorrow
+    }
+
     /** A phone on its side, rather than a television or a tablet. */
     private fun shortScreen(): Boolean = resources.configuration.screenHeightDp < 430
 
@@ -508,6 +545,7 @@ class HomeActivity : AppCompatActivity() {
         row.findViewById<TextView>(R.id.gameTitle).textSize = 13f
         row.findViewById<TextView>(R.id.gameSub).textSize = 10f
         row.findViewById<TextView>(R.id.gameTime).textSize = 13f
+        row.findViewById<TextView>(R.id.gameDay).textSize = 9f
         val side = (9 * density).toInt()
         val edge = (6 * density).toInt()
         row.setPadding(side, edge, side, edge)

@@ -766,6 +766,9 @@ class BrowseActivity : AppCompatActivity() {
     private fun resumeLine(seriesId: String): String {
         val last = prefs.lastEpisode(seriesId) ?: return ""
         val label = last.label()
+        if (prefs.isWatched(Kind.SERIES, last.episodeId)) {
+            return label + "  \u00B7  " + getString(R.string.watched)
+        }
         val minutes = (last.positionMs / 60_000L).toInt()
         if (minutes < 1) return label
         return label + "  \u00B7  " + getString(R.string.resume_minutes_in, minutes)
@@ -1166,32 +1169,24 @@ class BrowseActivity : AppCompatActivity() {
         when (tile.kind) {
             Kind.SERIES -> {
                 /*
-                 * The row is called Continue Watching, so it continues: the
-                 * episode it names starts again from where it stopped. From
-                 * anywhere else a series still opens its own page, because
-                 * there the poster is a way in rather than a promise.
+                 * From Continue Watching a series used to go straight into
+                 * the episode it remembered - which told nobody which
+                 * episode that was, and left no way to pick another. So it
+                 * opens its own page like everywhere else, on the season you
+                 * were in with the remote sitting on the episode you were
+                 * on: one press carries on, and the rest of the season is
+                 * there to read, ticked where it has been seen.
                  */
-                val last = if (currentCategoryId == CATEGORY_CONTINUE && !searchEverything) {
-                    prefs.lastEpisode(tile.id)
-                } else {
-                    null
-                }
-                if (last != null) {
-                    PlayerActivity.start(
-                        this,
-                        urls = client.episodeUrls(last.episodeId, last.containerExtension),
-                        title = tile.title + " - " + last.label(),
-                        kind = Kind.SERIES,
-                        contentId = last.episodeId
-                    )
-                } else {
-                    startActivity(
-                        Intent(this, SeriesActivity::class.java)
-                            .putExtra(SeriesActivity.EXTRA_SERIES_ID, tile.id)
-                            .putExtra(SeriesActivity.EXTRA_TITLE, tile.title)
-                            .putExtra(SeriesActivity.EXTRA_COVER, tile.image)
-                    )
-                }
+                startActivity(
+                    Intent(this, SeriesActivity::class.java)
+                        .putExtra(SeriesActivity.EXTRA_SERIES_ID, tile.id)
+                        .putExtra(SeriesActivity.EXTRA_TITLE, tile.title)
+                        .putExtra(SeriesActivity.EXTRA_COVER, tile.image)
+                        .putExtra(
+                            SeriesActivity.EXTRA_LAND_ON_LAST,
+                            currentCategoryId == CATEGORY_CONTINUE && !searchEverything
+                        )
+                )
             }
             Kind.LIVE -> {
                 Catalog.playbackQueue = liveQueue()
