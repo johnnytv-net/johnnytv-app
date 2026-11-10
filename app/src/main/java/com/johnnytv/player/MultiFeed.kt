@@ -257,10 +257,12 @@ class TsStitcher(
      * for it this is true.
      */
     private val handOverWhole: Boolean = false,
+    /** The time, in milliseconds. Only ever replaced on a test bench. */
+    private val clock: () -> Long = ::steadyNow,
     private val out: (ByteArray, Int, Int) -> Unit
 ) {
 
-    private enum class Mode { PASS, SEEK, RESYNC }
+    private enum class Mode { PASS, SEEK, AWAIT, RESYNC }
 
     private var mode = Mode.PASS
     private var carry = EMPTY
@@ -297,10 +299,66 @@ class TsStitcher(
     var passedThisTurn = 0L
         private set
 
-    var joins = 0
+    @Volatile var joins = 0
         private set
-    var gaps = 0
+    @Volatile var gaps = 0
         private set
+
+    /*
+     * WHEN THE SERVER COMES BACK ON A DIFFERENT CLOCK.
+     *
+     * Every packet of television carries a timestamp, and everything above
+     * assumes a reconnect carries on counting where the last connection
+     * stopped. Some portals do not: they answer from more than one machine,
+     * each counting from its own zero, and a reconnect may land on another. An
+     * evening's recording met sixty-three such changes.
+     *
+     * Nothing matched after one, because the bytes differ, and the two ways
+     * it then went wrong are the two things a viewer sees. A clock that reads
+     * later than ours looked like "all new" - so the whole lump the portal
+     * resends, ten seconds already watched, was played again. A clock that
+     * reads earlier looked like "all old" - so nothing was ever passed on, and
+     * the spinner sat there until the watchdog started the channel afresh.
+     *
+     * Timestamps cannot say where we were on a clock we have never seen, but
+     * the time of day can. The lump always ends at "now", and we know when our
+     * last packet arrived, so the place to carry on is that long before the
+     * end of the lump. The lump is held until it runs out, playback picks up
+     * at the nearest whole picture to that point, and from there on every
+     * timestamp is shifted so the player sees one clock that never jumped.
+     */
+
+    /** Added to every timestamp passed on once the server has changed clocks. */
+    private var shift = 0L
+
+    @Volatile var clockChanges = 0
+        private set
+
+    /** When the last packet was passed on. */
+    private var lastPassAt = 0L
+
+    /** A moment this clock was known to be level with live, and its reading. */
+    private var liveAt = 0L
+    private var livePts = -1L
+    private var liveThisTurn = false
+
+    /** The moment the television we hold runs up to, and whether that is known or guessed. */
+    private var stoppedAt = 0L
+    private var stopKnown = false
+
+    /** A slow measure of pace: two readings running at real speed means live. */
+    private var paceAt = 0L
+    private var pacePts = -1L
+    private var liveRun = 0
+    private var awaitSince = 0L
+    private var openedAt = 0L
+
+    /**
+     * How much television the portal handed back last time, if anyone has
+     * measured it. A lump well short of that has probably not finished, however
+     * it looks for a moment on a slow or halting connection.
+     */
+    @Volatile var expectedDepthMs = -1L
 
     /** How much the portal resent last time, in milliseconds of television. */
     var overlapMs = -1L
@@ -321,8 +379,97 @@ class TsStitcher(
         burstFirstPts = -1L
         arrivingPts = -1L
         passedThisTurn = 0L
+        // Where we had got to, as a time of day. A connection that was level
+        // with live when it stopped had got to the moment its last packet
+        // came in; one cut short part-way through its lump had only reached
+        // wherever this clock says that packet belongs.
+        val anchored = livePts >= 0L && lastPts >= 0L
+        stopKnown = lastPassAt > 0L && (liveThisTurn || anchored)
+        stoppedAt = when {
+            lastPassAt == 0L -> 0L
+            liveThisTurn || !anchored -> lastPassAt
+            else -> (liveAt + ptsDiff(lastPts, livePts) / 90L)
+                .coerceIn(lastPassAt - LOOK_BACK_MAX_MS, lastPassAt)
+        }
+        liveThisTurn = false
+        openedAt = clock()
+        paceAt = 0L
+        pacePts = -1L
+        liveRun = 0
         // Too little passed on to recognise again: treat it as a first start.
         mode = if (tailLen >= MIN_MATCH_BYTES) Mode.SEEK else Mode.PASS
+    }
+
+    /** Level with live and flowing: note what this clock reads at this moment. */
+    @Synchronized
+    fun markLive() {
+        if (mode != Mode.PASS || arrivingPts < 0L) return
+        liveAt = clock()
+        livePts = arrivingPts
+        liveThisTurn = true
+    }
+
+    /** The lump has slowed to the speed of television. */
+    @Synchronized
+    fun paceSaysLive() {
+        if (mode == Mode.AWAIT && lumpLooksDone(clock())) settleOnNewClock(clock())
+    }
+
+    /**
+     * A quick sign that the lump has ended is only believed once about as
+     * much has arrived as the portal usually sends. The slow, certain sign -
+     * two readings at the speed of television - needs no such check.
+     */
+    private fun lumpLooksDone(now: Long): Boolean {
+        val usual = expectedDepthMs
+        if (usual <= 0L || burstFirstPts < 0L || arrivingPts < 0L) return true
+        val got = ptsDiff(arrivingPts, burstFirstPts) / 90L
+        return got >= usual * 6L / 10L + (now - openedAt)
+    }
+
+    /**
+     * Nothing has arrived for a moment, which is what the end of the lump
+     * looks like.
+     */
+    @Synchronized
+    fun quietSaysLive() {
+        when (mode) {
+            Mode.AWAIT -> if (lumpLooksDone(clock())) settleOnNewClock(clock())
+            Mode.SEEK -> {
+                // Everything so far reads as well before where we stopped:
+                // either a pause part-way through the lump, or a clock that
+                // reads earlier than ours. A pause sorts itself out, and the
+                // other is settled in seek() once the pace is certain. Giving
+                // up here is what left the spinner up for good.
+                if (!handOverWhole && behindUs()) return
+                settleWithoutMatch(true)
+            }
+            else -> Unit
+        }
+    }
+
+    /**
+     * True when the newest thing to arrive still reads as well before the last
+     * thing shown. On one clock that cannot be so once the lump has run out -
+     * television does not un-happen.
+     */
+    private fun behindUs(): Boolean =
+        lastPts >= 0L && arrivingPts >= 0L && ptsDiff(arrivingPts, lastPts) < -CLOCK_SLACK_TICKS
+
+    private fun notePace(now: Long) {
+        val pts = arrivingPts
+        if (pts < 0L) return
+        if (pacePts < 0L) {
+            pacePts = pts
+            paceAt = now
+            return
+        }
+        val waited = now - paceAt
+        if (waited < PACE_EVERY_MS) return
+        val advanced = ptsDiff(pts, pacePts) / 90L
+        liveRun = if (advanced <= waited * 13L / 10L + 200L) liveRun + 1 else 0
+        pacePts = pts
+        paceAt = now
     }
 
     /** Roughly how many bytes make a second of this channel. */
@@ -383,9 +530,12 @@ class TsStitcher(
         val newest = newestPtsIn(data, start, start + whole)
         if (newest >= 0L) arrivingPts = newest
 
+        if (!handOverWhole) notePace(clock())
+
         when (mode) {
             Mode.PASS -> pass(data, start, start + whole)
             Mode.SEEK -> seek(data, start, start + whole)
+            Mode.AWAIT -> await(data, start, start + whole)
             Mode.RESYNC -> resync(data, start, start + whole)
         }
     }
@@ -393,8 +543,17 @@ class TsStitcher(
     private fun pass(data: ByteArray, from: Int, until: Int) {
         val length = until - from
         if (length <= 0) return
-        out(data, from, length)
+        if (shift != 0L) {
+            // A copy, because what is remembered for the next join must be
+            // the portal's own bytes, not ours.
+            val copy = data.copyOfRange(from, until)
+            restamp(copy, shift)
+            out(copy, 0, length)
+        } else {
+            out(data, from, length)
+        }
         passedThisTurn += length
+        lastPassAt = clock()
 
         if (length >= TAIL_BYTES) {
             System.arraycopy(data, until - TAIL_BYTES, tail, 0, TAIL_BYTES)
@@ -451,6 +610,27 @@ class TsStitcher(
         // less enough to catch a match that straddles two reads.
         scanFrom = (holdLen - tailLen + TS_PACKET).coerceAtLeast(0)
 
+        if (!handOverWhole && lastPts >= 0L && burstFirstPts >= 0L && stoppedAt > 0L) {
+            val now = clock()
+            val delta = ptsDiff(burstFirstPts, lastPts)
+            val awayTicks = (now - stoppedAt).coerceAtLeast(0L) * 90L
+            // The lump cannot begin further on than the time we were away,
+            // nor further back than any portal keeps. Either is another clock.
+            val tooFarOn = delta > (if (stopKnown) awayTicks + CLOCK_SLACK_TICKS else ELSEWHERE_TICKS)
+            if (tooFarOn || delta < -ELSEWHERE_TICKS) {
+                mode = Mode.AWAIT
+                awaitSince = now
+                trimHold(now)
+                return
+            }
+            // Running at the speed of television for two readings, and still
+            // not up to where we stopped: a clock that reads earlier than ours.
+            if (liveRun >= 2 && behindUs()) {
+                settleOnNewClock(now)
+                return
+            }
+        }
+
         // Nothing we hold is in this lump at all: it starts after we stopped.
         val startsAhead = lastPts >= 0L && burstFirstPts >= 0L &&
             ptsDiff(burstFirstPts, lastPts) > 0L
@@ -475,6 +655,108 @@ class TsStitcher(
             scanFrom = (scanFrom - drop).coerceAtLeast(0)
             holdWhole = false
         }
+    }
+
+    /** Holding a lump from another clock until it runs out at "now". */
+    private fun await(data: ByteArray, from: Int, until: Int) {
+        val add = until - from
+        if (hold.size < holdLen + add) {
+            hold = hold.copyOf(maxOf(hold.size * 2, holdLen + add, 512 * 1024))
+        }
+        System.arraycopy(data, from, hold, holdLen, add)
+        holdLen += add
+        soughtBytes += add
+        val now = clock()
+        trimHold(now)
+        // Not for ever: a lump that never seems to end is settled as it stands.
+        if (liveRun >= 2 || now - awaitSince > AWAIT_LIMIT_MS || soughtBytes > AWAIT_LIMIT_BYTES) {
+            settleOnNewClock(now)
+        }
+    }
+
+    /** Keeps the recent end of what is held: enough to reach back to where we stopped. */
+    private fun trimHold(now: Long) {
+        val seconds = ((now - stoppedAt).coerceIn(0L, 20_000L) + 4_000L) / 1000L
+        val keep = (bytesPerSecond() * seconds)
+            .coerceIn(HOLD_KEEP_BYTES.toLong(), AWAIT_KEEP_MAX_BYTES.toLong()).toInt()
+        if (holdLen <= keep + 2 * 1024 * 1024) return
+        val drop = ((holdLen - keep) / TS_PACKET) * TS_PACKET
+        System.arraycopy(hold, drop, hold, 0, holdLen - drop)
+        holdLen -= drop
+        scanFrom = (scanFrom - drop).coerceAtLeast(0)
+        holdWhole = false
+    }
+
+    /**
+     * The lump from the other clock has reached "now". Carry on from the
+     * whole picture nearest to where we stopped, and shift every timestamp
+     * from here on so the player sees one clock.
+     */
+    private fun settleOnNewClock(now: Long) {
+        val end = holdLen
+        holdLen = 0
+        val newest = if (arrivingPts >= 0L) arrivingPts else burstFirstPts
+        if (newest < 0L || lastPts < 0L) {
+            // Nothing to measure by. Start at the next whole picture.
+            beginResync()
+            lastPts = -1L
+            if (end > 0) resync(hold, 0, end)
+            return
+        }
+        val away = (now - stoppedAt).coerceIn(0L, LOOK_BACK_MAX_MS)
+        val target = wrap(newest - away * 90L)
+        val outLast = wrap(lastPts + shift)
+        val span = if (firstPts >= 0L) ptsDiff(lastPts, firstPts) else -1L
+
+        // The whole picture nearest the target, before it or after.
+        var before = -1
+        var after = -1
+        var i = 0
+        while (i + TS_PACKET <= end) {
+            if (hold[i] == SYNC_BYTE && (hold[i + 1].toInt() and 0x40) != 0 && isKeyframeStart(hold, i)) {
+                val pts = ptsAt(hold, i)
+                if (pts >= 0L) {
+                    if (ptsDiff(pts, target) >= 0L) {
+                        after = i
+                        break
+                    }
+                    before = i
+                }
+            }
+            i += TS_PACKET
+        }
+        val start = when {
+            after < 0 -> before
+            before < 0 -> after
+            ptsDiff(target, ptsAt(hold, before)) < ptsDiff(ptsAt(hold, after), target) -> before
+            else -> after
+        }
+
+        clockChanges++
+        liveAt = now
+        livePts = newest
+        liveThisTurn = true
+        overlapMs = 0L
+
+        if (start < 0) {
+            // No whole picture held. Wait for the next one, on the new clock.
+            shift = wrap(outLast - target)
+            lastPts = target
+            if (span >= 0L) firstPts = wrap(lastPts - span)
+            mode = Mode.RESYNC
+            resyncBytes = 0L
+            resyncSince = now
+            return
+        }
+        val startPts = ptsAt(hold, start)
+        // The player's clock moves on by what was really missed - never
+        // backwards, and never by more than a moment it will not notice.
+        val lead = ptsDiff(startPts, target).coerceIn(SPLICE_LEAD_MIN_TICKS, SPLICE_LEAD_MAX_TICKS)
+        shift = wrap(outLast + lead - startPts)
+        lastPts = wrap(startPts - 1L)
+        if (span >= 0L) firstPts = wrap(lastPts - span)
+        mode = Mode.PASS
+        pass(hold, start, end)
     }
 
     /**
@@ -517,7 +799,7 @@ class TsStitcher(
         if (end > 0) resync(hold, 0, end)
         // Nothing usable was held and the feed has gone quiet: take whatever
         // comes next rather than waiting on a picture that is not coming.
-        if (atLiveEdge && mode == Mode.RESYNC) resyncSince = steadyNow() - RESYNC_LIMIT_MS
+        if (atLiveEdge && mode == Mode.RESYNC) resyncSince = clock() - RESYNC_LIMIT_MS
     }
 
     private fun beginResync() {
@@ -525,7 +807,7 @@ class TsStitcher(
         gaps++
         overlapMs = 0L
         resyncBytes = 0L
-        resyncSince = steadyNow()
+        resyncSince = clock()
     }
 
     /**
@@ -533,8 +815,26 @@ class TsStitcher(
      * first complete picture after the point we had reached.
      */
     private fun resync(data: ByteArray, from: Int, until: Int) {
+        val now = clock()
+        if (!handOverWhole && liveRun >= 2 && behindUs()) {
+            // Level with live, and every picture still reads as older than the
+            // last one shown. It is not older, it is another clock - and
+            // waiting for it to catch up is waiting for nothing. Take it from
+            // here.
+            val outLast = wrap(lastPts + shift)
+            val span = if (firstPts >= 0L) ptsDiff(lastPts, firstPts) else -1L
+            clockChanges++
+            shift = wrap(outLast + SPLICE_LEAD_MIN_TICKS - arrivingPts)
+            lastPts = wrap(arrivingPts - TS_SECOND_TICKS)
+            if (span >= 0L) firstPts = wrap(lastPts - span)
+            liveAt = now
+            livePts = arrivingPts
+            liveThisTurn = true
+            resyncBytes = 0L
+            resyncSince = now
+        }
         val patient = resyncBytes < RESYNC_LIMIT_BYTES &&
-            steadyNow() - resyncSince < RESYNC_LIMIT_MS
+            now - resyncSince < RESYNC_LIMIT_MS
         var i = from
         while (i + TS_PACKET <= until) {
             if (data[i] == SYNC_BYTE && (data[i + 1].toInt() and 0x40) != 0) {
@@ -595,6 +895,78 @@ class TsStitcher(
         private const val RESYNC_LIMIT_BYTES = 8L * 1024L * 1024L
         private const val RESYNC_LIMIT_MS = 4_000L
         private const val ASSUMED_BYTES_PER_SECOND = 600_000L
+
+        private const val TS_SECOND_TICKS = 90_000L
+        /** How far a lump may sit from where the clock says it should before it is another clock. */
+        private const val CLOCK_SLACK_TICKS = 3L * 90_000L
+        private const val PACE_EVERY_MS = 1_000L
+        private const val AWAIT_LIMIT_MS = 20_000L
+        private const val AWAIT_LIMIT_BYTES = 96L * 1024L * 1024L
+        private const val AWAIT_KEEP_MAX_BYTES = 10 * 1024 * 1024
+        private const val LOOK_BACK_MAX_MS = 180_000L
+        /** How far the player's clock steps over a join on a new clock. */
+        private const val SPLICE_LEAD_MIN_TICKS = 22_500L       // a quarter of a second
+        private const val SPLICE_LEAD_MAX_TICKS = 180_000L      // two seconds
+
+        private fun wrap(pts: Long): Long = ((pts % PTS_WRAP) + PTS_WRAP) % PTS_WRAP
+
+        /** Where the timestamps sit in a packet that starts a picture or a run of sound, or -1. */
+        private fun stampAt(data: ByteArray, packet: Int): Int {
+            if (data[packet] != SYNC_BYTE) return -1
+            if ((data[packet + 1].toInt() and 0x40) == 0) return -1
+            val adaptation = (data[packet + 3].toInt() shr 4) and 0x03
+            var payload = packet + 4
+            if (adaptation == 2 || adaptation == 0) return -1
+            if (adaptation == 3) payload += (data[packet + 4].toInt() and 0xFF) + 1
+            if (payload + 14 > packet + TS_PACKET) return -1
+            if (data[payload].toInt() != 0x00 ||
+                data[payload + 1].toInt() != 0x00 ||
+                data[payload + 2].toInt() != 0x01
+            ) return -1
+            val streamId = data[payload + 3].toInt() and 0xFF
+            if (streamId !in 0xC0..0xEF && streamId != 0xBD) return -1
+            if ((data[payload + 7].toInt() and 0x80) == 0) return -1
+            return payload + 9
+        }
+
+        private fun readStamp(data: ByteArray, p: Int): Long =
+            (((data[p].toLong() and 0x0E) shl 29) or
+                ((data[p + 1].toLong() and 0xFF) shl 22) or
+                ((data[p + 2].toLong() and 0xFE) shl 14) or
+                ((data[p + 3].toLong() and 0xFF) shl 7) or
+                ((data[p + 4].toLong() and 0xFE) shr 1))
+
+        private fun writeStamp(data: ByteArray, p: Int, value: Long) {
+            data[p] = ((data[p].toInt() and 0xF0) or (((value shr 30).toInt() and 0x07) shl 1) or 1).toByte()
+            data[p + 1] = ((value shr 22).toInt() and 0xFF).toByte()
+            data[p + 2] = ((((value shr 15).toInt() and 0x7F) shl 1) or 1).toByte()
+            data[p + 3] = ((value shr 7).toInt() and 0xFF).toByte()
+            data[p + 4] = (((value.toInt() and 0x7F) shl 1) or 1).toByte()
+        }
+
+        /**
+         * Moves every timestamp in whole packets on by [shift].
+         *
+         * Only the stamps on pictures and sound are touched - the ones a
+         * player times itself by. Everything else is left exactly as sent.
+         */
+        fun restamp(data: ByteArray, shift: Long) {
+            var i = 0
+            while (i + TS_PACKET <= data.size) {
+                val p = stampAt(data, i)
+                if (p >= 0) {
+                    val end = i + TS_PACKET
+                    val both = (data[p - 2].toInt() and 0xC0) == 0xC0
+                    // Both stamps or neither: one moved without the other
+                    // would be worse than leaving the packet alone.
+                    if ((data[p].toInt() and 0xF0) != 0 && (!both || p + 10 <= end)) {
+                        writeStamp(data, p, wrap(readStamp(data, p) + shift))
+                        if (both) writeStamp(data, p + 5, wrap(readStamp(data, p + 5) + shift))
+                    }
+                }
+                i += TS_PACKET
+            }
+        }
 
         /** How far [a] is ahead of [b] on a clock that wraps every 26 hours. */
         fun ptsDiff(a: Long, b: Long): Long {
@@ -763,10 +1135,11 @@ class LineFeed(
 
     @Volatile var connects = 0
         private set
-    @Volatile var joins = 0
-        private set
-    @Volatile var gaps = 0
-        private set
+    val joins: Int get() = stitcher.joins
+    val gaps: Int get() = stitcher.gaps
+
+    /** Times the portal came back counting from a different clock. */
+    val clockChanges: Int get() = stitcher.clockChanges
     @Volatile var connected = false
         private set
     @Volatile var everPlayed = false
@@ -841,8 +1214,6 @@ class LineFeed(
             } finally {
                 connected = false
                 cut()
-                joins = stitcher.joins
-                gaps = stitcher.gaps
                 gaveAt = steadyNow()
                 line.give(this)
             }
@@ -897,6 +1268,7 @@ class LineFeed(
         val input = http.inputStream
         stream = input
         connected = true
+        stitcher.expectedDepthMs = depthMs
         stitcher.connectionOpened()
 
         val buffer = ByteArray(64 * 1024)
@@ -942,7 +1314,11 @@ class LineFeed(
         val waited = now - sampleAt
         if (waited < PACE_SAMPLE_MS) return
         val advanced = TsStitcher.ptsDiff(pts, samplePts) / 90L
-        if (stitcher.flowing && advanced <= waited * 2L) reachedLive(now)
+        if (advanced <= waited * 2L) {
+            // A lump being held back from another clock has just run out.
+            if (!stitcher.flowing) stitcher.paceSaysLive()
+            if (stitcher.flowing) reachedLive(now)
+        }
         samplePts = pts
         sampleAt = now
     }
@@ -950,6 +1326,7 @@ class LineFeed(
     private fun reachedLive(now: Long) {
         if (caughtUp) return
         caughtUp = true
+        stitcher.markLive()
         val first = stitcher.burstFirstPts
         val newest = stitcher.arrivingPts
         if (first >= 0L && newest >= 0L) {
@@ -986,8 +1363,8 @@ class LineFeed(
         }
         if (bytesThisTurn > 0L && quiet >= QUIET_MEANS_LIVE_MS) {
             // Level with live and still no sign of where we left off.
-            if (!stitcher.flowing) stitcher.stopSeeking()
-            reachedLive(now)
+            if (!stitcher.flowing) stitcher.quietSaysLive()
+            if (stitcher.flowing) reachedLive(now)
         }
         if (shouldLetGo(now) || (sharing() && pipe.size() >= PIPE_FULL_BYTES && stitcher.flowing)) {
             letGo = true
@@ -1017,6 +1394,7 @@ class LineFeed(
         val depth = if (depthMs > 0L) (depthMs / 1000L).toString() + "s" else "?"
         return "reserve " + (reserveMs() / 1000L) + "s  portal buffer " + depth +
             "  joins " + joins + "  gaps " + gaps + "  connects " + connects +
+            (if (clockChanges > 0) "  clocks " + clockChanges else "") +
             (if (connected) "  ON LINE" else "") +
             (if (lastError.isNotBlank()) "  " + lastError else "")
     }

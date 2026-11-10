@@ -174,7 +174,7 @@ class BrowseActivity : AppCompatActivity() {
             Kind.SERIES -> getString(R.string.series)
         }
 
-        categoryAdapter = CategoryAdapter { category -> showCategory(category.id) }
+        categoryAdapter = CategoryAdapter { category -> pickCategory(category.id) }
         tileAdapter = TileAdapter(
             isFavourite = { tile -> prefs.isFavourite(tile.kind, tile.id) },
             onOpen = { tile -> open(tile) },
@@ -547,6 +547,26 @@ class BrowseActivity : AppCompatActivity() {
     }
 
     // ---------- content ----------
+
+    /**
+     * A FOLDER PRESSED WHILE THERE IS SOMETHING IN THE SEARCH BOX.
+     *
+     * Typing widens the list to the whole library, and while the box had words
+     * in it every folder showed that same list - so pressing one looked like
+     * the sidebar had stopped working until the box was emptied by hand.
+     * Pressing a folder now means "I am done searching, show me this": the box
+     * is emptied and the folder opens. The guide is an action rather than a
+     * folder, so it leaves the search alone.
+     */
+    private fun pickCategory(categoryId: String) {
+        if (categoryId != CATEGORY_GUIDE && !searchEverything && !searchInput.text.isNullOrBlank()) {
+            // Cleared first, so the text watcher sees nothing to undo and does
+            // not draw the previous folder for a frame before this one.
+            searchingLibrary = false
+            searchInput.text.clear()
+        }
+        showCategory(categoryId)
+    }
 
     private fun showCategory(categoryId: String) = showCategory(categoryId, null)
 

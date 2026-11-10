@@ -79,6 +79,12 @@ class PlayerActivity : AppCompatActivity() {
      */
     private var steadyFeed: LineFeed? = null
 
+    /** What the line had done when last looked at, so only changes are written down. */
+    private var lineConnects = 0
+    private var lineJoins = 0
+    private var lineGaps = 0
+    private var lineClocks = 0
+
     /*
      * HOW LONG A CHANNEL TAKES TO START, MEASURED.
      *
@@ -761,10 +767,45 @@ class PlayerActivity : AppCompatActivity() {
      * Twice on the same channel and it is not luck: that channel is noted, and
      * from then on it starts with a much deeper buffer on this line.
      */
+    /**
+     * WHAT THE LINE DID, WRITTEN DOWN.
+     *
+     * The log said when the spinner came and went but nothing about the
+     * connection underneath, which is where a repeat or a jump comes from. Now
+     * every time the line is reopened it says so, and says how the two ends
+     * were joined: at the exact packet, at the next whole picture, or by the
+     * time of day because the server came back counting from a different
+     * clock. "It jumped back ten seconds" can be read off the television as
+     * one of those three.
+     */
+    private fun noteLine(exo: ExoPlayer) {
+        val feed = steadyFeed ?: return
+        val connects = feed.connects
+        val joins = feed.joins
+        val gaps = feed.gaps
+        val clocks = feed.clockChanges
+        if (connects == lineConnects && joins == lineJoins && gaps == lineGaps && clocks == lineClocks) return
+        val ahead = ((exo.bufferedPosition - exo.currentPosition).coerceAtLeast(0L) / 100L) / 10.0
+        if (connects > lineConnects && connects > 1) {
+            liveLog(
+                "line reopened (connection " + connects + "), " + ahead + "s in hand" +
+                    (if (feed.lastError.isNotBlank()) " - " + feed.lastError else "")
+            )
+        }
+        if (clocks > lineClocks) liveLog("server came back on a different clock - carried on by the time of day, " + ahead + "s in hand")
+        if (joins > lineJoins) liveLog("joined at the exact packet - nothing repeated, nothing missed")
+        if (gaps > lineGaps) liveLog("no exact join - carried on at the next whole picture")
+        lineConnects = connects
+        lineJoins = joins
+        lineGaps = gaps
+        lineClocks = clocks
+    }
+
     private val stallWatch = object : Runnable {
         override fun run() {
             val active = player
             if (active != null && !isFinishing) {
+                noteLine(active)
                 val state = active.playbackState
                 val wanted = active.playWhenReady &&
                     state != Player.STATE_IDLE && state != Player.STATE_ENDED
@@ -1253,6 +1294,10 @@ class PlayerActivity : AppCompatActivity() {
                     !RecorderService.isRecording
                 }
                 steadyFeed = feed
+                lineConnects = 0
+                lineJoins = 0
+                lineGaps = 0
+                lineClocks = 0
                 val uri = android.net.Uri.parse(address)
                 exo.setMediaSource(
                     ProgressiveMediaSource.Factory(DataSource.Factory { FeedDataSource(feed, uri) })

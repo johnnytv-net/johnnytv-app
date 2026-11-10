@@ -27,6 +27,8 @@ object PlaybackLog {
 
     private const val FILE = "last_playback.txt"
     private const val LIMIT = 300
+    private const val KEEP_START = 12
+    private const val DROP = 100
 
     private val clock = SimpleDateFormat("HH:mm:ss.SSS", Locale.UK)
     private val lines = ArrayList<String>()
@@ -39,7 +41,13 @@ object PlaybackLog {
 
     @Synchronized
     fun add(context: Context, line: String) {
-        if (lines.size >= LIMIT) return
+        if (lines.size >= LIMIT) {
+            // Full. The start says what was opened and the end says what went
+            // wrong, so it is the middle that makes room - a channel left on
+            // all evening used to stop writing long before the trouble came.
+            lines.subList(KEEP_START, KEEP_START + DROP).clear()
+            lines.add(KEEP_START, "   ... earlier lines dropped ...")
+        }
         lines.add(clock.format(Date()) + "  " + line)
         // Written every time rather than at the end, because there may not be
         // an end: if the app is killed, the file is all that survives.
