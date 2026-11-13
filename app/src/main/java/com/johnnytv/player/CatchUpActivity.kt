@@ -62,10 +62,17 @@ class CatchUpActivity : AppCompatActivity() {
     private fun load() {
         progress.visibility = View.VISIBLE
         val archiveDays = Catalog.live.firstOrNull { it.streamId == streamId }?.archiveDays ?: -1
+        // Written to Settings > Last playback, so an empty list can explain itself.
+        PlaybackLog.start(this, "catch-up list: " + channelName + " (" + archiveDays + " days, id " + streamId + ")")
         lifecycleScope.launch {
             val shows = withContext(Dispatchers.IO) {
-                runCatching { Prefs(this@CatchUpActivity).client().catchUp(streamId, archiveDays) }
+                runCatching {
+                    Prefs(this@CatchUpActivity).client().catchUp(streamId, archiveDays) { line ->
+                        PlaybackLog.add(this@CatchUpActivity, line)
+                    }
+                }
             }
+            shows.exceptionOrNull()?.let { PlaybackLog.add(this@CatchUpActivity, "failed: " + it) }
             if (isFinishing || isDestroyed) return@launch
             progress.visibility = View.GONE
             val found = shows.getOrNull()
