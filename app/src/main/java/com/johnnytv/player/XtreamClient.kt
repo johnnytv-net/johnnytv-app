@@ -361,26 +361,40 @@ class XtreamClient(
      * channel's archive window are offered instead - some panels leave the
      * per-programme mark off.
      */
-    fun catchUp(streamId: String, archiveDays: Int): List<CatchUpShow> {
+    fun catchUp(streamId: String, archiveDays: Int, note: (String) -> Unit = {}): List<CatchUpShow> {
         val body = get("$server/player_api.php?${creds()}&action=get_simple_data_table&stream_id=${enc(streamId)}")
+        note("answer: " + body.length + " characters, starts " + body.trim().take(120).replace('\n', ' '))
         val array: JSONArray = runCatching {
             JSONObject(body.trim()).optJSONArray("epg_listings")
-        }.getOrNull() ?: return emptyList()
+        }.getOrNull() ?: run {
+            note("no epg_listings in the answer")
+            return emptyList()
+        }
         learnPortalOffset(array)
         val now = System.currentTimeMillis()
         val marked = ArrayList<CatchUpShow>()
         val inWindow = ArrayList<CatchUpShow>()
         val windowStart = now - archiveDays.coerceAtLeast(0) * 24L * 60L * 60L * 1000L
+        var past = 0
+        var future = 0
+        var unreadable = 0
+        var earliest = Long.MAX_VALUE
+        var latest = 0L
         for (i in 0 until array.length()) {
             val o = array.optJSONObject(i) ?: continue
+            if (i == 0) note("first listing: " + o.toString().take(300))
             val startText = o.optString("start", "").trim()
             val start = o.optString("start_timestamp", "").trim().toLongOrNull()?.times(1000L)
                 ?: portalTime(startText)
             val end = o.optString("stop_timestamp", "").trim().toLongOrNull()?.times(1000L)
                 ?: portalTime(o.optString("end", ""))
+            if (start <= 0L || end <= start) { unreadable++; continue }
+            if (start < earliest) earliest = start
+            if (start > latest) latest = start
             // Only what has started; something still running can be joined
             // from its beginning, which is half the point.
-            if (start <= 0L || end <= start || start >= now) continue
+            if (start >= now) { future++; continue }
+            past++
             val show = CatchUpShow(
                 title = maybeBase64(o.optString("title", "")).ifBlank { "Untitled" },
                 description = maybeBase64(o.optString("description", "")),
@@ -391,6 +405,12 @@ class XtreamClient(
             if ((o.opt("has_archive")?.toString() ?: "0") == "1") marked.add(show)
             if (archiveDays > 0 && start >= windowStart) inWindow.add(show)
         }
+        val clock = SimpleDateFormat("EEE HH:mm", Locale.US)
+        note(
+            array.length().toString() + " listings: " + past + " past, " + future + " to come, " + unreadable + " unreadable; " +
+                marked.size + " marked has_archive, " + inWindow.size + " inside the " + archiveDays + "-day window" +
+                (if (latest > 0L) "; from " + clock.format(Date(earliest)) + " to " + clock.format(Date(latest)) + ", now " + clock.format(Date(now)) else "")
+        )
         val out = if (marked.isNotEmpty()) marked else inWindow
         out.sortByDescending { it.start }
         return out
