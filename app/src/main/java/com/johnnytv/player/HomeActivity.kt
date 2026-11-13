@@ -141,6 +141,7 @@ class HomeActivity : AppCompatActivity() {
         findViewById<View>(R.id.tileLive).setOnClickListener { open(Kind.LIVE) }
         findViewById<View>(R.id.tileMovies).setOnClickListener { open(Kind.VOD) }
         findViewById<View>(R.id.tileSeries).setOnClickListener { open(Kind.SERIES) }
+        findViewById<View>(R.id.tileCatchUp).setOnClickListener { CatchUpChannelsActivity.open(this) }
 
         findViewById<View>(R.id.homeSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
@@ -160,12 +161,6 @@ class HomeActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.homeMultiview).setOnClickListener {
             MultiViewActivity.open(this)
-        }
-        findViewById<View>(R.id.homeRefresh).setOnClickListener {
-            startActivity(
-                Intent(this, SyncActivity::class.java).putExtra(SyncActivity.EXTRA_FORCE, true)
-            )
-            finish()
         }
         findViewById<View>(R.id.featuredPanel).setOnClickListener { openFeatured() }
 
@@ -506,6 +501,10 @@ class HomeActivity : AppCompatActivity() {
         showCount(R.id.homeLiveCount, R.string.home_count_channels, Catalog.live.size)
         showCount(R.id.homeSeriesCount, R.string.home_count_series, Catalog.series.size)
         showCount(R.id.homeMoviesCount, R.string.home_count_movies, Catalog.vod.size)
+        // The row is only there on a service that keeps any channel.
+        val catchUp = CatchUpChannelsActivity.channels()
+        findViewById<View>(R.id.tileCatchUp).visibility = if (catchUp.isEmpty()) View.GONE else View.VISIBLE
+        showCount(R.id.homeCatchUpCount, R.string.home_count_catch_up, catchUp.size)
 
         loadFeatured()
     }
@@ -559,10 +558,10 @@ class HomeActivity : AppCompatActivity() {
     private fun fitToScreen() {
         if (!shortScreen()) return
         val density = resources.displayMetrics.density
-        for (id in intArrayOf(R.id.tileLiveLabel, R.id.tileSeriesLabel, R.id.tileMoviesLabel)) {
+        for (id in intArrayOf(R.id.tileLiveLabel, R.id.tileSeriesLabel, R.id.tileMoviesLabel, R.id.tileCatchUpLabel)) {
             findViewById<TextView>(id).textSize = 17f
         }
-        for (id in intArrayOf(R.id.liveChip, R.id.seriesChip, R.id.moviesChip)) {
+        for (id in intArrayOf(R.id.liveChip, R.id.seriesChip, R.id.moviesChip, R.id.catchUpChip)) {
             val chip = findViewById<View>(id)
             val params = chip.layoutParams
             params.width = (34 * density).toInt()
@@ -573,7 +572,7 @@ class HomeActivity : AppCompatActivity() {
         }
         for (id in intArrayOf(
             R.id.homeEpgLabel, R.id.homeMultiviewLabel, R.id.homeRecordingsLabel,
-            R.id.homeSearchLabel, R.id.homeRefreshLabel, R.id.homeSettingsLabel
+            R.id.homeSearchLabel, R.id.homeSettingsLabel
         )) {
             findViewById<TextView>(id).textSize = 12f
         }

@@ -112,6 +112,18 @@
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode" />
 
         <activity
+            android:name=".CatchUpChannelsActivity"
+            android:screenOrientation="sensorLandscape"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode" />
+
+        <activity
+            android:name=".CatchUpActivity"
+            android:screenOrientation="sensorLandscape"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode" />
+
+        <activity
             android:name=".MultiViewActivity"
             android:screenOrientation="sensorLandscape"
             android:exported="false"

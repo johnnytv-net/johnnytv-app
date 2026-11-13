@@ -20,9 +20,15 @@ data class StreamItem(
     val containerExtension: String,
     val categoryId: String,
     val added: Long,
-    val kind: Kind
+    val kind: Kind,
+    /**
+     * How many days of this channel the portal keeps for catch-up. 0 means
+     * none; -1 means a list saved before the app asked, so nobody knows yet.
+     */
+    val archiveDays: Int = -1
 ) {
     fun toJson(): JSONObject = JSONObject()
+        .put("ar", archiveDays)
         .put("i", streamId)
         .put("n", num)
         .put("t", name)
@@ -41,7 +47,8 @@ data class StreamItem(
             containerExtension = o.optString("e", "mp4"),
             categoryId = o.optString("c", ""),
             added = o.optLong("a", 0L),
-            kind = runCatching { Kind.valueOf(o.optString("k", "LIVE")) }.getOrDefault(Kind.LIVE)
+            kind = runCatching { Kind.valueOf(o.optString("k", "LIVE")) }.getOrDefault(Kind.LIVE),
+            archiveDays = o.optInt("ar", -1)
         )
     }
 }
@@ -232,4 +239,20 @@ data class Programme(
     val start: Long,
     val end: Long,
     val nowPlaying: Boolean
+)
+
+/**
+ * A programme that has already been on and that the portal still holds.
+ *
+ * [startText] is the start exactly as the portal wrote it, in the portal's own
+ * timezone. The catch-up address wants the time in that zone, so the written
+ * form is kept and handed straight back rather than being worked out again
+ * from the timestamp and getting the zone wrong.
+ */
+data class CatchUpShow(
+    val title: String,
+    val description: String,
+    val start: Long,
+    val end: Long,
+    val startText: String
 )

@@ -345,4 +345,17 @@
     <string name="multiview_hide_numbers">Hide the buffer numbers</string>
     <string name="multiview_already_on">That channel is already on the other screen.</string>
     <string name="multiview_recording">A recording is using the line, so multiview has to wait until it finishes.</string>
+    <string name="catch_up">Catch up</string>
+    <string name="catch_up_title">Catch up  ·  %s</string>
+    <string name="catch_up_about">Shows that have already been on. Pick one to watch it from the start.</string>
+    <string name="catch_up_none">Nothing to catch up on for this channel.</string>
+    <string name="catch_up_failed">Could not load the list. Go back and try again.</string>
+    <string name="catch_up_today">Today</string>
+    <string name="catch_up_yesterday">Yesterday</string>
+    <string name="catch_up_on_now">On now</string>
+    <string name="catch_up_minutes">%d min</string>
+    <string name="catch_up_channels_about">Channels that keep the last few days. Pick one to see what has been on.</string>
+    <string name="catch_up_days">%d days</string>
+    <string name="catch_up_one_day">1 day</string>
+    <string name="home_count_catch_up">%s channels</string>
 </resources>
