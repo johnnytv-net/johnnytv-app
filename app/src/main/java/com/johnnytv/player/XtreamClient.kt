@@ -350,6 +350,87 @@ class XtreamClient(
         0L
     }
 
+    // ---------- catch-up ----------
+
+    /**
+     * What has already been on this channel and can still be watched, newest
+     * first. Empty where the portal keeps nothing. Throws if it cannot be asked.
+     *
+     * The portal marks each listing it still holds. Where it marks none at all
+     * but the channel itself is flagged as archived, the listings inside the
+     * channel's archive window are offered instead - some panels leave the
+     * per-programme mark off.
+     */
+    fun catchUp(streamId: String, archiveDays: Int): List<CatchUpShow> {
+        val body = get("$server/player_api.php?${creds()}&action=get_simple_data_table&stream_id=${enc(streamId)}")
+        val array: JSONArray = runCatching {
+            JSONObject(body.trim()).optJSONArray("epg_listings")
+        }.getOrNull() ?: return emptyList()
+        learnPortalOffset(array)
+        val now = System.currentTimeMillis()
+        val marked = ArrayList<CatchUpShow>()
+        val inWindow = ArrayList<CatchUpShow>()
+        val windowStart = now - archiveDays.coerceAtLeast(0) * 24L * 60L * 60L * 1000L
+        for (i in 0 until array.length()) {
+            val o = array.optJSONObject(i) ?: continue
+            val startText = o.optString("start", "").trim()
+            val start = o.optString("start_timestamp", "").trim().toLongOrNull()?.times(1000L)
+                ?: portalTime(startText)
+            val end = o.optString("stop_timestamp", "").trim().toLongOrNull()?.times(1000L)
+                ?: portalTime(o.optString("end", ""))
+            // Only what has started; something still running can be joined
+            // from its beginning, which is half the point.
+            if (start <= 0L || end <= start || start >= now) continue
+            val show = CatchUpShow(
+                title = maybeBase64(o.optString("title", "")).ifBlank { "Untitled" },
+                description = maybeBase64(o.optString("description", "")),
+                start = start,
+                end = end,
+                startText = startText
+            )
+            if ((o.opt("has_archive")?.toString() ?: "0") == "1") marked.add(show)
+            if (archiveDays > 0 && start >= windowStart) inWindow.add(show)
+        }
+        val out = if (marked.isNotEmpty()) marked else inWindow
+        out.sortByDescending { it.start }
+        return out
+    }
+
+    /**
+     * The addresses a past programme can be asked for at, most likely first.
+     *
+     * Panels agree on what catch-up needs - the channel, when it started in
+     * the portal's own time, and how many minutes - and disagree on how the
+     * address is written. The player already moves on to the next address
+     * when one will not open, so all the usual spellings are offered.
+     */
+    fun catchUpUrls(streamId: String, show: CatchUpShow): List<String> {
+        val start = catchUpStart(show)
+        if (start.isBlank()) return emptyList()
+        // A few minutes over, because programmes run late more than early.
+        val minutes = ((show.end - show.start) / 60_000L).coerceAtLeast(1L) + 5L
+        return listOf(
+            "$server/timeshift/$username/$password/$minutes/$start/$streamId.ts",
+            "$server/streaming/timeshift.php?${creds()}&stream=${enc(streamId)}&start=$start&duration=$minutes",
+            "$server/timeshift/$username/$password/$minutes/$start/$streamId.m3u8"
+        )
+    }
+
+    /** "2026-11-12:19-00", in the portal's timezone. */
+    private fun catchUpStart(show: CatchUpShow): String {
+        val written = Regex("""(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})""").find(show.startText)
+        if (written != null) {
+            val (day, hour, minute) = written.destructured
+            return "$day:$hour-$minute"
+        }
+        // No written time on this listing: turn the timestamp back into the
+        // portal's clock using the gap learned from the listings that had both.
+        val offset = portalOffsetMs ?: return ""
+        val format = SimpleDateFormat("yyyy-MM-dd:HH-mm", Locale.US)
+        format.timeZone = TimeZone.getTimeZone("UTC")
+        return format.format(Date(show.start - offset))
+    }
+
     // ---------- playback ----------
 
     fun liveUrls(streamId: String): List<String> =
@@ -413,7 +494,10 @@ class XtreamClient(
                     containerExtension = o.optString("container_extension", "").ifBlank { "mp4" },
                     categoryId = o.opt("category_id")?.toString() ?: "",
                     added = o.optString("added", "").toLongOrNull() ?: 0L,
-                    kind = kind
+                    kind = kind,
+                    archiveDays = if (kind != Kind.LIVE) 0
+                        else if ((o.opt("tv_archive")?.toString() ?: "0") != "1") 0
+                        else (o.opt("tv_archive_duration")?.toString()?.toIntOrNull() ?: 1).coerceAtLeast(1)
                 )
             )
         }
