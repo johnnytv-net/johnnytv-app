@@ -78,7 +78,11 @@ class SyncActivity : AppCompatActivity() {
             if (!forced && !Lineups.rulesChanged) {
                 val cached = withContext(Dispatchers.IO) { Catalog.load(this@SyncActivity) }
                 val age = System.currentTimeMillis() - prefs.lastSync
-                if (cached && age < CACHE_MAX_AGE_MS) {
+                // A list saved by an older version never asked which channels
+                // keep catch-up, so it is fetched once more rather than making
+                // every customer find Refresh by hand after the update.
+                val knowsCatchUp = Catalog.live.none { it.archiveDays < 0 }
+                if (cached && age < CACHE_MAX_AGE_MS && knowsCatchUp) {
                     goTo(HomeActivity::class.java)
                     return@launch
                 }
