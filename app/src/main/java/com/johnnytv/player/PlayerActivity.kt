@@ -279,6 +279,9 @@ class PlayerActivity : AppCompatActivity() {
     private fun rememberPosition() {
         val active = player ?: return
         if (kind == Kind.LIVE || contentId.isBlank()) return
+        // Catch-up is gone from the portal in a few days; a place kept in it
+        // would sit in Continue Watching pointing at nothing.
+        if (contentId.startsWith(CatchUpActivity.CONTENT_PREFIX)) return
         val position = active.currentPosition
         val duration = if (active.duration > 0) active.duration else 0L
         prefs.savePosition(kind, contentId, position, duration)
@@ -1265,6 +1268,18 @@ class PlayerActivity : AppCompatActivity() {
             }
         } else {
             val address = urls[urlIndex]
+            if (contentId.startsWith(CatchUpActivity.CONTENT_PREFIX)) {
+                // Which spelling of the address the portal answers to is the
+                // one thing that cannot be known in advance, so it is written
+                // down. The login is left out of what is kept.
+                if (urlIndex == 0 && tuneAttempts == 1) PlaybackLog.start(this, "catch-up: " + title)
+                val form = when {
+                    address.contains("timeshift.php") -> "timeshift.php"
+                    address.endsWith(".m3u8") -> "timeshift .m3u8"
+                    else -> "timeshift .ts"
+                }
+                PlaybackLog.add(this, "opening " + form + " (" + (urlIndex + 1) + " of " + urls.size + ")")
+            }
             /*
              * A DROP THE VIEWER NEVER SEES.
              *
@@ -1431,7 +1446,8 @@ class PlayerActivity : AppCompatActivity() {
      * seconds in hand at each - read from Settings, Last playback.
      */
     private fun liveLog(line: String) {
-        if (kind != Kind.LIVE || playlist) return
+        val catchUp = contentId.startsWith(CatchUpActivity.CONTENT_PREFIX)
+        if ((kind != Kind.LIVE && !catchUp) || playlist) return
         PlaybackLog.add(this, line)
     }
 
