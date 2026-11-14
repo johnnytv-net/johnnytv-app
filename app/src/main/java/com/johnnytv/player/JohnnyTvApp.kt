@@ -10,6 +10,8 @@ class JohnnyTvApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        // Before anything reads the time: boxes that missed BC's change of rule.
+        BcClock.install(this)
         CrashReporter.install(this)
         MyTeams.appContext = applicationContext
         // Whatever logo overrides were downloaded last time, ready before any screen draws.
