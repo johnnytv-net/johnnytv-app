@@ -600,7 +600,9 @@ class SettingsActivity : AppCompatActivity() {
         return when {
             host.contains("dino") ||
                 host.contains("bq-lines") ||
+                host.contains("bq-relay") ||
                 host.contains("joy8k") -> "DN"
+            host.contains("bq-stream") || host.contains("business-cloud-8") -> "8K"
             host.contains("edge.sb") -> "SB"
             host.contains("edge.bz") -> "JTV"
             at >= 0 -> ('A' + at).toString()
