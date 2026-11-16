@@ -66,9 +66,12 @@ class JohnnyTvApp : Application(), ImageLoaderFactory {
             runCatching {
                 val prefs = Prefs(applicationContext)
                 val name = prefs.friendlyName
-                if (name.isBlank()) return@runCatching
-
-                val real = FriendlyLogin.lookUp(name, Config.CUSTOMER_PASSWORD) ?: return@runCatching
+                // By name when the box has one; otherwise - or when the name
+                // finds nothing - by the line it is signed in with, so a box
+                // set up with the raw panel code still follows a move.
+                val real = (if (name.isNotBlank()) FriendlyLogin.lookUp(name, Config.CUSTOMER_PASSWORD) else null)
+                    ?: FriendlyLogin.lookUpOldLine(prefs.username, prefs.password)
+                    ?: return@runCatching
                 if (real.username.isBlank() || real.password.isBlank()) return@runCatching
 
                 val moved = real.username != prefs.username || real.password != prefs.password

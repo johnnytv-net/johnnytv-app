@@ -44,7 +44,13 @@ object FriendlyLogin {
         "http://johnnytv.net/jtv-line.php"
     )
 
-    data class RealLine(val server: String, val username: String, val password: String)
+    /** byName: the site knew the typed name (false when found by an old line). */
+    data class RealLine(
+        val server: String,
+        val username: String,
+        val password: String,
+        val byName: Boolean = true
+    )
 
     /**
      * Asks the site who this is. Returns null for "no idea", which is not an
@@ -55,14 +61,36 @@ object FriendlyLogin {
         // A real Xtream username is a long code; a friendly name is a person's
         // name. Asking the site about obvious codes would only waste a second
         // on every sign-in.
-        if (name.length > 24) return null
+        if (name.length <= 24) {
+            val query = "?u=" + URLEncoder.encode(name.trim().lowercase(), "UTF-8") +
+                "&p=" + URLEncoder.encode(password, "UTF-8")
+            for (address in LOOKUPS) {
+                val answer = ask(address + query) ?: continue
+                return answer
+            }
+        }
+        // Not a name the site knows - perhaps a real line that has since been
+        // replaced. A customer moved to another service is found by the line
+        // they used to have (v6.57).
+        return lookUpOldLine(name, password)
+    }
 
-        val query = "?u=" + URLEncoder.encode(name.trim().lowercase(), "UTF-8") +
-            "&p=" + URLEncoder.encode(password, "UTF-8")
-
+    /*
+     * FOLLOWING A MOVE FROM THE OLD LINE.
+     *
+     * A box signed in with the raw panel code - never the friendly name - had
+     * nothing to ask the site with, so when the customer was moved to another
+     * service it carried on signing in to the old line and reported it expired.
+     * The site keeps each customer's previous lines, and answers
+     * ?line=<old username>&lp=<old password> with the line they are on now.
+     */
+    fun lookUpOldLine(username: String, password: String): RealLine? {
+        if (username.isBlank() || password.isBlank()) return null
+        val query = "?line=" + URLEncoder.encode(username.trim(), "UTF-8") +
+            "&lp=" + URLEncoder.encode(password.trim(), "UTF-8")
         for (address in LOOKUPS) {
             val answer = ask(address + query) ?: continue
-            return answer
+            return answer.copy(byName = false)
         }
         return null
     }

@@ -350,6 +350,7 @@ class LoginActivity : AppCompatActivity() {
             var user = username
             var pass = password
             var serverList = servers
+            var foundByName = false
 
             // Where this login worked last time goes first.
             val preferred = XtreamClient.normalizeServer(
@@ -361,6 +362,7 @@ class LoginActivity : AppCompatActivity() {
 
             withContext(Dispatchers.IO) {
                 val real = FriendlyLogin.lookUp(username, password)
+                foundByName = real?.byName == true
                 if (real != null) {
                     user = real.username
                     pass = real.password
@@ -489,7 +491,7 @@ class LoginActivity : AppCompatActivity() {
                     // screen signs in with - and the friendly name beside it, so
                     // the site can be asked again at each start.
                     prefs.saveCredentials(client.server, user, pass)
-                    prefs.friendlyName = if (user != username) username else ""
+                    prefs.friendlyName = if (foundByName) username else ""
                     // Remembered for next time, so signing out costs nothing.
                     prefs.rememberLogin(client.server, user, pass)
                     statusLabel.text = worked.second
