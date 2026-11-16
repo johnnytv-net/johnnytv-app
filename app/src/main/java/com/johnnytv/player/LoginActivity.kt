@@ -150,10 +150,18 @@ class LoginActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             val remote = withContext(Dispatchers.IO) {
-                val loaded = RemoteConfigLoader.fetch(Config.CONFIG_URL)
-                // Refresh the channel-logo overrides on the same trip.
-                runCatching { LogoPack.refresh(applicationContext, loaded) }
+                // Signed in already: do not keep the customer waiting on this
+                // file. See RemoteConfigLoader.fetch.
+                val hurry = prefs.isLoggedIn
+                val loaded = RemoteConfigLoader.fetch(Config.CONFIG_URL, if (hurry) 3_000L else 0L)
+                // Refresh the channel-logo overrides on the same trip - unless
+                // the trip just failed in a hurry, when a second call to the
+                // same place would only spend the time that was being saved.
+                if (loaded != null || !hurry) {
+                    runCatching { LogoPack.refresh(applicationContext, loaded) }
+                }
                 runCatching { Lineups.remember(applicationContext, loaded) }
+                if (loaded != null && loaded.servers.isNotEmpty()) prefs.knownServers = loaded.servers
                 loaded
             }
 
@@ -245,7 +253,8 @@ class LoginActivity : AppCompatActivity() {
          * first, and the usual list still follows behind it.
          */
         if (prefs.manualServer.isNotBlank()) add(prefs.manualServer)
-        remote?.servers?.forEach { add(it) }
+        // config.json as it reads now; failing that, as it read last time.
+        (remote?.servers ?: prefs.knownServers).forEach { add(it) }
         Config.SERVERS.forEach { add(it) }
         if (Config.DEFAULT_SERVER.isNotBlank()) add(Config.DEFAULT_SERVER)
 

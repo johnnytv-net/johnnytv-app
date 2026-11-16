@@ -1,7 +1,6 @@
 package com.johnnytv.player
 
 import android.content.Context
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
@@ -198,12 +197,12 @@ object Catalog {
         playbackQueue = emptyList()      // belongs to whatever was on screen before
         return try {
             liveOrderFixed = File(context.filesDir, FILE_ORDER_FIXED).exists()
-            liveCategories = readCategories(context, FILE_LIVE_CATS)
-            vodCategories = readCategories(context, FILE_VOD_CATS)
-            seriesCategories = readCategories(context, FILE_SERIES_CATS)
-            live = readStreams(context, FILE_LIVE)
-            vod = readStreams(context, FILE_VOD)
-            series = readSeries(context, FILE_SERIES)
+            liveCategories = readList(context, FILE_LIVE_CATS) { Category(it.optString("i", ""), it.optString("t", "")) }
+            vodCategories = readList(context, FILE_VOD_CATS) { Category(it.optString("i", ""), it.optString("t", "")) }
+            seriesCategories = readList(context, FILE_SERIES_CATS) { Category(it.optString("i", ""), it.optString("t", "")) }
+            live = readList(context, FILE_LIVE) { StreamItem.fromJson(it) }
+            vod = readList(context, FILE_VOD) { StreamItem.fromJson(it) }
+            series = readList(context, FILE_SERIES) { SeriesItem.fromJson(it) }
             applyCounts()
             isLoaded
         } catch (e: Exception) {
@@ -216,12 +215,13 @@ object Catalog {
             val flag = File(context.filesDir, FILE_ORDER_FIXED)
             if (liveOrderFixed) flag.writeText("1") else flag.delete()
         }
-        writeCategories(context, FILE_LIVE_CATS, liveCategories)
-        writeCategories(context, FILE_VOD_CATS, vodCategories)
-        writeCategories(context, FILE_SERIES_CATS, seriesCategories)
-        write(context, FILE_LIVE, Json.arrayOf(live.map { it.toJson() }))
-        write(context, FILE_VOD, Json.arrayOf(vod.map { it.toJson() }))
-        write(context, FILE_SERIES, Json.arrayOf(series.map { it.toJson() }))
+        val category: (Category) -> JSONObject = { JSONObject().put("i", it.id).put("t", it.name) }
+        writeList(context, FILE_LIVE_CATS, liveCategories, category)
+        writeList(context, FILE_VOD_CATS, vodCategories, category)
+        writeList(context, FILE_SERIES_CATS, seriesCategories, category)
+        writeList(context, FILE_LIVE, live) { it.toJson() }
+        writeList(context, FILE_VOD, vod) { it.toJson() }
+        writeList(context, FILE_SERIES, series) { it.toJson() }
     }
 
     fun clear(context: Context) {
@@ -244,50 +244,51 @@ object Catalog {
         playbackQueue = emptyList()
     }
 
-    private fun write(context: Context, name: String, array: JSONArray) {
-        runCatching { File(context.filesDir, name).writeText(array.toString()) }
+    /*
+     * THE SAVED COPY, ONE ITEM AT A TIME.
+     *
+     * The catalogue kept on the box is read on every start, and it used to be
+     * read whole - the file as text, then the text as a tree - which on a film
+     * list is the largest thing the app ever asks memory for, asked for before
+     * the home screen has even appeared. Written and read an item at a time it
+     * costs one item. See JsonStream.
+     *
+     * It is also written to one side and swapped in when complete, so a box
+     * switched off part-way through a Refresh keeps the list it had rather
+     * than half of the new one.
+     */
+    private fun <T> writeList(context: Context, name: String, items: List<T>, toJson: (T) -> JSONObject) {
+        runCatching {
+            val file = File(context.filesDir, name)
+            val beside = File(context.filesDir, "$name.tmp")
+            beside.bufferedWriter().use { out ->
+                out.write("[")
+                var first = true
+                for (item in items) {
+                    if (!first) out.write(",")
+                    first = false
+                    out.write(toJson(item).toString())
+                }
+                out.write("]")
+            }
+            if (!beside.renameTo(file)) {
+                file.delete()
+                beside.renameTo(file)
+            }
+        }
     }
 
-    private fun read(context: Context, name: String): JSONArray {
+    /** Empty when the file is missing or cannot be read through to its end. */
+    private fun <T> readList(context: Context, name: String, make: (JSONObject) -> T): List<T> {
         val file = File(context.filesDir, name)
-        if (!file.exists()) return JSONArray()
-        return runCatching { Json.parse(file.readText()) }.getOrDefault(JSONArray())
-    }
-
-    private fun writeCategories(context: Context, name: String, categories: List<Category>) {
-        write(context, name, Json.arrayOf(categories.map {
-            JSONObject().put("i", it.id).put("t", it.name)
-        }))
-    }
-
-    private fun readCategories(context: Context, name: String): List<Category> {
-        val array = read(context, name)
-        val out = ArrayList<Category>(array.length())
-        for (i in 0 until array.length()) {
-            val o = array.optJSONObject(i) ?: continue
-            out.add(Category(o.optString("i", ""), o.optString("t", "")))
+        if (!file.exists()) return emptyList()
+        val out = ArrayList<T>()
+        return try {
+            file.bufferedReader().use { text -> JsonStream.eachObject(text) { out.add(make(it)) } }
+            out
+        } catch (e: Exception) {
+            emptyList()
         }
-        return out
-    }
-
-    private fun readStreams(context: Context, name: String): List<StreamItem> {
-        val array = read(context, name)
-        val out = ArrayList<StreamItem>(array.length())
-        for (i in 0 until array.length()) {
-            val o = array.optJSONObject(i) ?: continue
-            out.add(StreamItem.fromJson(o))
-        }
-        return out
-    }
-
-    private fun readSeries(context: Context, name: String): List<SeriesItem> {
-        val array = read(context, name)
-        val out = ArrayList<SeriesItem>(array.length())
-        for (i in 0 until array.length()) {
-            val o = array.optJSONObject(i) ?: continue
-            out.add(SeriesItem.fromJson(o))
-        }
-        return out
     }
 
     /**

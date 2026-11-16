@@ -44,11 +44,24 @@ object Config {
      * to one service, a box that cannot reach config.json can only offer that
      * one - and everybody else is told their password is wrong.
      */
+    /*
+     * The same nine, in the same order, as config.json held on the day this
+     * was built (v6.59). It had fallen four behind - no new Dino address and
+     * no 8K at all - so on a morning when config.json could not be reached, a
+     * customer on either was told their password was wrong. A box also keeps
+     * the last list config.json gave it now (Prefs.knownServers), so this one
+     * is only ever the answer on a box that has never once read the file.
+     */
     val SERVERS: List<String> = listOf(
-        "aHR0cDovL2VkZ2UuYno6ODA4MA==",      // edge.bz:8080
-        "aHR0cDovL2xpbmUuYnEtbGluZXMub3Jn",  // line.bq-lines.org
-        "aHR0cDovL2VkZ2Uuc2I=",              // edge.sb
-        "aHR0cDovL3Zwbi5qb3k4ay50b3A="       // vpn.joy8k.top
+        "aHR0cDovL2VkZ2UuYno6ODA4MA==",         // edge.bz:8080
+        "aHR0cDovL3Zwbi5icS1saW5lcy5vcmc=",     // vpn.bq-lines.org
+        "aHR0cDovL2xpbmUuYnEtbGluZXMub3Jn",     // line.bq-lines.org
+        "aHR0cDovL3Zwbi5icS1yZWxheS5vcmc=",     // vpn.bq-relay.org
+        "aHR0cDovL2xpbmUuYnEtcmVsYXkub3Jn",     // line.bq-relay.org
+        "aHR0cDovL2VkZ2Uuc2I=",                 // edge.sb
+        "aHR0cDovL3Zwbi5qb3k4ay50b3A=",         // vpn.joy8k.top
+        "aHR0cDovL2JxLXN0cmVhbS5vcmc=",         // bq-stream.org
+        "aHR0cDovL2NmLmJxLXN0cmVhbS5vcmc="      // cf.bq-stream.org
     )
 
     /** Kept for older builds; SERVERS is the list that matters now. */
@@ -184,5 +197,5 @@ object Config {
     /** Last wherever it is found, so nobody lands on it by scrolling. */
     val CATEGORY_LAST: List<String> = listOf("ADULT", "XXX", "18+", "FOR ADULTS")
 
-    const val USER_AGENT: String = "JohnnyTV/6.58 (Android)"
+    const val USER_AGENT: String = "JohnnyTV/6.59 (Android)"
 }
