@@ -250,10 +250,12 @@ class PlayerActivity : AppCompatActivity() {
         if (kind == Kind.LIVE && !playlist) playerView.postDelayed(stallWatch, STALL_CHECK_MS)
         playerView.postDelayed(teamWatch, TEAM_CHECK_MS)
         if (kind == Kind.LIVE && !playlist) playerView.postDelayed(recordingWatch, RECORDING_CHECK_MS)
+        if (kind != Kind.LIVE) playerView.postDelayed(positionWatch, POSITION_SAVE_MS)
     }
 
     override fun onStop() {
         super.onStop()
+        playerView.removeCallbacks(positionWatch)
         rememberPosition()
         cancelPendingRetry()
         // The picture watchdog has nothing to watch once the screen has gone.
@@ -274,6 +276,26 @@ class PlayerActivity : AppCompatActivity() {
         castAsk = null
         releasePlayer()
         tuneStartedAt = 0L
+    }
+
+    /*
+     * THE PLACE IN A FILM, KEPT WHILE IT PLAYS.
+     *
+     * The place used to be written down once, as this screen closed. That is
+     * the one moment a great many boxes never reach: a stick powered from the
+     * back of the television loses its power the instant the set is switched
+     * off, and a box short of memory is simply stopped. Either way the film
+     * started from the beginning the next evening, and it looked as though
+     * the app had forgotten.
+     *
+     * So it is written down every half minute while the picture is moving.
+     * The most that can now be lost is half a minute.
+     */
+    private val positionWatch = object : Runnable {
+        override fun run() {
+            if (player?.isPlaying == true) rememberPosition()
+            playerView.postDelayed(this, POSITION_SAVE_MS)
+        }
     }
 
     private fun rememberPosition() {
@@ -1532,6 +1554,9 @@ class PlayerActivity : AppCompatActivity() {
 
         /** How often to look for a followed team's game about to start. */
         private const val TEAM_CHECK_MS = 30_000L
+
+        /** How often the place in a film or episode is written down while it plays. */
+        private const val POSITION_SAVE_MS = 30_000L
 
         private const val EXTRA_URLS = "extra_urls"
         private const val EXTRA_PLAYLIST = "extra_playlist"

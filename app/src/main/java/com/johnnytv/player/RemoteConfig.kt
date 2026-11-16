@@ -54,8 +54,20 @@ object RemoteConfigLoader {
         .build()
 
     /** Blocking. Returns null on any failure - the caller falls back to the cached server. */
-    fun fetch(url: String): RemoteConfig? {
+    /*
+     * [hurryMs], when set, is the longest the whole fetch may take. A box
+     * that is already signed in needs nothing from this file to open - it is
+     * read again from the home screen a moment later - so it is given three
+     * seconds rather than the twenty a slow morning at the other end could
+     * otherwise cost every single start.
+     */
+    fun fetch(url: String, hurryMs: Long = 0L): RemoteConfig? {
         if (url.isBlank()) return null
+        val http = if (hurryMs > 0L) {
+            this.http.newBuilder().callTimeout(hurryMs, TimeUnit.MILLISECONDS).build()
+        } else {
+            this.http
+        }
         return try {
             /*
              * ASKING FOR THE FILE THAT EXISTS NOW.

@@ -118,11 +118,9 @@ class XtreamClient(
     fun allVodStreams(): List<StreamItem> = streams("get_vod_streams", Kind.VOD)
 
     fun allSeries(): List<SeriesItem> {
-        val array = asArray(get("$server/player_api.php?${creds()}&action=get_series"))
-        val out = ArrayList<SeriesItem>(array.length())
-        for (i in 0 until array.length()) {
-            val o = array.optJSONObject(i) ?: continue
-            val id = o.opt("series_id")?.toString() ?: continue
+        val out = ArrayList<SeriesItem>()
+        eachIn("$server/player_api.php?${creds()}&action=get_series") { o ->
+            val id = o.opt("series_id")?.toString() ?: return@eachIn
             out.add(
                 SeriesItem(
                     seriesId = id,
@@ -469,22 +467,20 @@ class XtreamClient(
     }
 
     private fun categories(action: String): List<Category> {
-        val array = asArray(get("$server/player_api.php?${creds()}&action=$action"))
-        val out = ArrayList<Category>(array.length())
-        for (i in 0 until array.length()) {
-            val o = array.optJSONObject(i) ?: continue
-            val id = o.opt("category_id")?.toString() ?: continue
+        val out = ArrayList<Category>()
+        eachIn("$server/player_api.php?${creds()}&action=$action") { o ->
+            val id = o.opt("category_id")?.toString() ?: return@eachIn
             out.add(Category(id, o.optString("category_name", "").ifBlank { "Category $id" }))
         }
         return out
     }
 
     private fun streams(action: String, kind: Kind): List<StreamItem> {
-        val array = asArray(get("$server/player_api.php?${creds()}&action=$action"))
-        val out = ArrayList<StreamItem>(array.length())
-        for (i in 0 until array.length()) {
-            val o = array.optJSONObject(i) ?: continue
-            val id = o.opt("stream_id")?.toString() ?: continue
+        val out = ArrayList<StreamItem>()
+        var i = -1
+        eachIn("$server/player_api.php?${creds()}&action=$action") { o ->
+            i++
+            val id = o.opt("stream_id")?.toString() ?: return@eachIn
             out.add(
                 StreamItem(
                     streamId = id,
@@ -504,16 +500,51 @@ class XtreamClient(
         return out
     }
 
-    private fun asArray(body: String): JSONArray {
-        val trimmed = body.trim()
-        return when {
-            trimmed.startsWith("[") -> try {
-                JSONArray(trimmed)
-            } catch (e: Exception) {
-                throw XtreamException("The server sent a list this app could not read.")
+    /*
+     * A LIST FROM THE PORTAL, ONE ITEM AT A TIME.
+     *
+     * These lists used to be fetched whole, as text, and then built whole, as
+     * a tree, before a single channel was kept - the film list three times
+     * over in memory at its worst, which is a great deal to ask of a box with
+     * a couple of hundred megabytes to spare. Read as it arrives, there is
+     * only ever the one item in hand. See JsonStream.
+     *
+     * The answers mean what they always did: a single object where a list was
+     * expected is "nothing here", anything that is not a list is an
+     * unexpected response, and a list that breaks off part-way is an error
+     * rather than a short list - so a cut-off download can never pass for a
+     * portal that has lost half its channels.
+     */
+    private fun eachIn(url: String, each: (JSONObject) -> Unit) {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", Config.USER_AGENT)
+            .build()
+        try {
+            http.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw XtreamException("Server returned HTTP ${response.code}.")
+                }
+                val body = response.body
+                    ?: throw XtreamException("The server sent an empty response.")
+                body.charStream().use { text -> JsonStream.eachObject(text, each) }
             }
-            trimmed.startsWith("{") -> JSONArray()
-            else -> throw XtreamException("Unexpected response from the server.")
+        } catch (e: XtreamException) {
+            throw e
+        } catch (e: JsonStream.NotAList) {
+            throw XtreamException("Unexpected response from the server.")
+        } catch (e: android.util.MalformedJsonException) {
+            throw XtreamException("The server sent a list this app could not read.")
+        } catch (e: java.io.EOFException) {
+            throw XtreamException("The server sent a list this app could not read.")
+        } catch (e: IllegalStateException) {
+            throw XtreamException("The server sent a list this app could not read.")
+        } catch (e: NumberFormatException) {
+            throw XtreamException("The server sent a list this app could not read.")
+        } catch (e: org.json.JSONException) {
+            throw XtreamException("The server sent a list this app could not read.")
+        } catch (e: Exception) {
+            throw XtreamException("Could not reach the server. ${e.message ?: ""}".trim())
         }
     }
 

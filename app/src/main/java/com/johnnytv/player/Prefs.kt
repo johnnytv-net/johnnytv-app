@@ -27,6 +27,19 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_MANUAL, "") ?: ""
         set(value) = sp.edit().putString(KEY_MANUAL, value).apply()
 
+    /**
+     * The services config.json listed the last time it was read.
+     *
+     * Kept so a sign-in on a day the file cannot be reached still offers
+     * every current service, rather than only the ones this build was born
+     * knowing. Replaced whole each time the file is read, so an address taken
+     * out of config.json is forgotten here too.
+     */
+    var knownServers: List<String>
+        get() = (sp.getString("config_servers", "") ?: "")
+            .split('\n').map { it.trim() }.filter { it.isNotBlank() }
+        set(value) = sp.edit().putString("config_servers", value.joinToString("\n")).apply()
+
     val isLoggedIn: Boolean
         get() = server.isNotBlank() && username.isNotBlank()
 
