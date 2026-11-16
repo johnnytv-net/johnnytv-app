@@ -140,7 +140,7 @@ object MyTeams {
         return when {
             host.isEmpty() -> ""
             // Every door into the same panel shares one list.
-            host.contains("dino") || host.contains("bq-lines") || host.contains("joy8k") -> "dn"
+            host.contains("dino") || host.contains("bq-lines") || host.contains("bq-relay") || host.contains("joy8k") -> "dn"
             else -> host
         }
     }
