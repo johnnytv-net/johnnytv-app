@@ -262,7 +262,7 @@ class TsStitcher(
     private val out: (ByteArray, Int, Int) -> Unit
 ) {
 
-    private enum class Mode { PASS, SEEK, AWAIT, RESYNC }
+    private enum class Mode { PASS, SEEK, AWAIT, RESYNC, REPEAT }
 
     private var mode = Mode.PASS
     private var carry = EMPTY
@@ -334,6 +334,43 @@ class TsStitcher(
     @Volatile var clockChanges = 0
         private set
 
+    /*
+     * WHEN THE SERVER REPEATS ITSELF WITHOUT HANGING UP.
+     *
+     * Everything above deals with what comes back on a new connection. Some
+     * portals - Dino's among them - do the same thing on a connection that
+     * never dropped: their own feed from upstream blips, they pick it up
+     * again, and send the last several seconds a second time down the same
+     * socket. Nothing here was watching for that, so the repeat went straight
+     * to the player. The player then plays the same bit twice, finds the
+     * picture's clock and the sound's clock no longer agree, sits with the
+     * spinner while they sort themselves out, and lands ahead - which is
+     * exactly what was seen on Dino.
+     *
+     * Each stream inside the feed (picture, sound) is watched on its own. One
+     * that goes backwards by more than a couple of seconds - far more than
+     * the reordering a picture stream does as a matter of course - is the
+     * portal repeating itself. Everything from there is dropped until the
+     * feed is past the last thing shown, and playback carries on from the
+     * next whole picture after it: nothing twice, nothing skipped. The
+     * recorder is not touched; it has its own way of trimming repeats.
+     */
+
+    /** The newest timestamp passed on for each stream in the feed, since the last change of clock. */
+    private val streamPts = HashMap<Int, Long>()
+
+    /** Times the server sent something a second time on the same connection. */
+    @Volatile var repeats = 0
+        private set
+
+    /** True while a repeat is being dropped, and since when. */
+    private var skippingRepeat = false
+    private var repeatSince = 0L
+
+    /** How far the stream just stepped back, and the timestamp it stepped back to. */
+    private var stepBack = 0L
+    private var stepBackPts = -1L
+
     /** When the last packet was passed on. */
     private var lastPassAt = 0L
 
@@ -370,6 +407,8 @@ class TsStitcher(
     @Synchronized
     fun connectionOpened() {
         carry = EMPTY
+        streamPts.clear()
+        skippingRepeat = false
         synced = false
         holdLen = 0
         scanFrom = 0
@@ -537,10 +576,140 @@ class TsStitcher(
             Mode.SEEK -> seek(data, start, start + whole)
             Mode.AWAIT -> await(data, start, start + whole)
             Mode.RESYNC -> resync(data, start, start + whole)
+            Mode.REPEAT -> skipRepeat(data, start, start + whole)
         }
     }
 
     private fun pass(data: ByteArray, from: Int, until: Int) {
+        if (until <= from) return
+        if (handOverWhole) {
+            passOn(data, from, until)
+            return
+        }
+        skippingRepeat = false
+        val back = repeatStartsAt(data, from, until)
+        if (back < 0) {
+            passOn(data, from, until)
+            return
+        }
+        if (back > from) passOn(data, from, back)
+        if (stepBack > REPEAT_MAX_TICKS) {
+            // Too far back to be a repeat: the server has switched to another
+            // clock without hanging up. Nothing to drop - just shift the new
+            // clock onto ours so the player never sees the step.
+            val outLast = wrap(lastPts + shift)
+            val span = if (firstPts >= 0L) ptsDiff(lastPts, firstPts) else -1L
+            clockChanges++
+            shift = wrap(outLast + SPLICE_LEAD_MIN_TICKS - stepBackPts)
+            lastPts = wrap(stepBackPts - 1L)
+            if (span >= 0L) firstPts = wrap(lastPts - span)
+            liveAt = clock()
+            livePts = stepBackPts
+            liveThisTurn = true
+            streamPts.clear()
+            pass(data, back, until)
+            return
+        }
+        // The portal has started again from a moment already shown. Drop it
+        // until the feed is past where we were.
+        repeats++
+        streamPts.clear()
+        overlapMs = 0L
+        skippingRepeat = true
+        repeatSince = clock()
+        if (tailLen < MIN_MATCH_BYTES) {
+            toResync(data.copyOfRange(back, until))
+            return
+        }
+        mode = Mode.REPEAT
+        hold = data.copyOfRange(back, until)
+        holdLen = hold.size
+        scanFrom = 0
+        lookForRepeatEnd()
+    }
+
+    /**
+     * Dropping a repeat. A repeat is usually the portal's own bytes over
+     * again, so the last packets shown turn up in it exactly - and carrying on
+     * straight after them loses nothing at all.
+     */
+    private fun skipRepeat(data: ByteArray, from: Int, until: Int) {
+        val add = until - from
+        if (hold.size < holdLen + add) {
+            hold = hold.copyOf(maxOf(hold.size * 2, holdLen + add, 512 * 1024))
+        }
+        System.arraycopy(data, from, hold, holdLen, add)
+        holdLen += add
+        lookForRepeatEnd()
+    }
+
+    private fun lookForRepeatEnd() {
+        val at = findTail(hold, scanFrom, holdLen)
+        if (at >= 0) {
+            val rest = at + tailLen
+            val end = holdLen
+            holdLen = 0
+            mode = Mode.PASS
+            skippingRepeat = false
+            if (rest < end) pass(hold, rest, end)
+            return
+        }
+        scanFrom = (holdLen - tailLen + TS_PACKET).coerceAtLeast(0)
+        // Run on past where we were without the bytes matching, or waited too
+        // long: carry on at the next whole picture after the last one shown.
+        val ranPast = lastPts >= 0L && arrivingPts >= 0L &&
+            ptsDiff(arrivingPts, lastPts) > PAST_MARGIN_TICKS
+        if (ranPast || clock() - repeatSince > REPEAT_WAIT_MS) {
+            val piece = hold.copyOf(holdLen)
+            holdLen = 0
+            toResync(piece)
+            return
+        }
+        if (holdLen > HOLD_MAX_BYTES) {
+            val drop = ((holdLen - HOLD_KEEP_BYTES) / TS_PACKET) * TS_PACKET
+            System.arraycopy(hold, drop, hold, 0, holdLen - drop)
+            holdLen -= drop
+            scanFrom = (scanFrom - drop).coerceAtLeast(0)
+        }
+    }
+
+    private fun toResync(piece: ByteArray) {
+        mode = Mode.RESYNC
+        resyncBytes = 0L
+        resyncSince = clock()
+        if (piece.isNotEmpty()) resync(piece, 0, piece.size)
+    }
+
+    /**
+     * The first packet in which a stream goes back on itself by more than
+     * [REPEAT_BACK_TICKS], or -1. Notes each stream's newest timestamp as it
+     * goes, so call it only on what is about to be passed on.
+     */
+    private fun repeatStartsAt(data: ByteArray, from: Int, until: Int): Int {
+        var i = from
+        while (i + TS_PACKET <= until) {
+            val pts = ptsAt(data, i)
+            if (pts >= 0L) {
+                val pid = ((data[i + 1].toInt() and 0x1F) shl 8) or (data[i + 2].toInt() and 0xFF)
+                val before = streamPts[pid]
+                if (before != null) {
+                    val d = ptsDiff(pts, before)
+                    if (d < -REPEAT_BACK_TICKS) {
+                        stepBack = -d
+                        stepBackPts = pts
+                        return i
+                    }
+                    if (d > 0L) streamPts[pid] = pts
+                } else {
+                    streamPts[pid] = pts
+                }
+            }
+            i += TS_PACKET
+        }
+        return -1
+    }
+
+    private fun passOn(data: ByteArray, from: Int, until: Int) {
         val length = until - from
         if (length <= 0) return
         if (shift != 0L) {
@@ -695,6 +864,8 @@ class TsStitcher(
     private fun settleOnNewClock(now: Long) {
         val end = holdLen
         holdLen = 0
+        streamPts.clear()
+        skippingRepeat = false
         val newest = if (arrivingPts >= 0L) arrivingPts else burstFirstPts
         if (newest < 0L || lastPts < 0L) {
             // Nothing to measure by. Start at the next whole picture.
@@ -805,6 +976,8 @@ class TsStitcher(
     private fun beginResync() {
         mode = Mode.RESYNC
         gaps++
+        streamPts.clear()
+        skippingRepeat = false
         overlapMs = 0L
         resyncBytes = 0L
         resyncSince = clock()
@@ -816,7 +989,14 @@ class TsStitcher(
      */
     private fun resync(data: ByteArray, from: Int, until: Int) {
         val now = clock()
-        if (!handOverWhole && liveRun >= 2 && behindUs()) {
+        // A repeat on a live connection runs at the speed of television too,
+        // so on its own that is no sign of another clock. Only a fall too far
+        // back to be a repeat, or one that never comes back round, is.
+        val waitingOutRepeat = skippingRepeat && now - repeatSince < REPEAT_WAIT_MS &&
+            lastPts >= 0L && arrivingPts >= 0L && ptsDiff(lastPts, arrivingPts) <= REPEAT_MAX_TICKS
+        if (!handOverWhole && !waitingOutRepeat && liveRun >= 2 && behindUs()) {
+            skippingRepeat = false
+            streamPts.clear()
             // Level with live, and every picture still reads as older than the
             // last one shown. It is not older, it is another clock - and
             // waiting for it to catch up is waiting for nothing. Take it from
@@ -907,6 +1087,13 @@ class TsStitcher(
         /** How far the player's clock steps over a join on a new clock. */
         private const val SPLICE_LEAD_MIN_TICKS = 22_500L       // a quarter of a second
         private const val SPLICE_LEAD_MAX_TICKS = 180_000L      // two seconds
+
+        /** How far one stream may step back before it is the portal repeating itself. */
+        private const val REPEAT_BACK_TICKS = 2L * 90_000L
+        /** The furthest back a repeat is believed to reach; beyond that it is another clock. */
+        private const val REPEAT_MAX_TICKS = 90L * 90_000L
+        /** How long a repeat is waited out before it is taken as another clock after all. */
+        private const val REPEAT_WAIT_MS = 12_000L
 
         private fun wrap(pts: Long): Long = ((pts % PTS_WRAP) + PTS_WRAP) % PTS_WRAP
 
@@ -1140,6 +1327,9 @@ class LineFeed(
 
     /** Times the portal came back counting from a different clock. */
     val clockChanges: Int get() = stitcher.clockChanges
+
+    /** Times the portal sent something a second time without hanging up. */
+    val repeats: Int get() = stitcher.repeats
     @Volatile var connected = false
         private set
     @Volatile var everPlayed = false
@@ -1395,6 +1585,7 @@ class LineFeed(
         return "reserve " + (reserveMs() / 1000L) + "s  portal buffer " + depth +
             "  joins " + joins + "  gaps " + gaps + "  connects " + connects +
             (if (clockChanges > 0) "  clocks " + clockChanges else "") +
+            (if (repeats > 0) "  repeats " + repeats else "") +
             (if (connected) "  ON LINE" else "") +
             (if (lastError.isNotBlank()) "  " + lastError else "")
     }

@@ -197,5 +197,5 @@ object Config {
     /** Last wherever it is found, so nobody lands on it by scrolling. */
     val CATEGORY_LAST: List<String> = listOf("ADULT", "XXX", "18+", "FOR ADULTS")
 
-    const val USER_AGENT: String = "JohnnyTV/6.59 (Android)"
+    const val USER_AGENT: String = "JohnnyTV/6.60 (Android)"
 }

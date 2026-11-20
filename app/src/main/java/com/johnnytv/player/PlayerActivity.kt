@@ -84,6 +84,7 @@ class PlayerActivity : AppCompatActivity() {
     private var lineJoins = 0
     private var lineGaps = 0
     private var lineClocks = 0
+    private var lineRepeats = 0
 
     /*
      * HOW LONG A CHANNEL TAKES TO START, MEASURED.
@@ -809,7 +810,10 @@ class PlayerActivity : AppCompatActivity() {
         val joins = feed.joins
         val gaps = feed.gaps
         val clocks = feed.clockChanges
-        if (connects == lineConnects && joins == lineJoins && gaps == lineGaps && clocks == lineClocks) return
+        val repeats = feed.repeats
+        if (connects == lineConnects && joins == lineJoins && gaps == lineGaps && clocks == lineClocks &&
+            repeats == lineRepeats
+        ) return
         val ahead = ((exo.bufferedPosition - exo.currentPosition).coerceAtLeast(0L) / 100L) / 10.0
         if (connects > lineConnects && connects > 1) {
             liveLog(
@@ -820,10 +824,12 @@ class PlayerActivity : AppCompatActivity() {
         if (clocks > lineClocks) liveLog("server came back on a different clock - carried on by the time of day, " + ahead + "s in hand")
         if (joins > lineJoins) liveLog("joined at the exact packet - nothing repeated, nothing missed")
         if (gaps > lineGaps) liveLog("no exact join - carried on at the next whole picture")
+        if (repeats > lineRepeats) liveLog("server sent a stretch a second time without hanging up - dropped the repeat, " + ahead + "s in hand")
         lineConnects = connects
         lineJoins = joins
         lineGaps = gaps
         lineClocks = clocks
+        lineRepeats = repeats
     }
 
     private val stallWatch = object : Runnable {
@@ -1335,6 +1341,7 @@ class PlayerActivity : AppCompatActivity() {
                 lineJoins = 0
                 lineGaps = 0
                 lineClocks = 0
+                lineRepeats = 0
                 val uri = android.net.Uri.parse(address)
                 exo.setMediaSource(
                     ProgressiveMediaSource.Factory(DataSource.Factory { FeedDataSource(feed, uri) })
