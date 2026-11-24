@@ -104,6 +104,9 @@ class PlayerActivity : AppCompatActivity() {
     /** A recording being played back: a list of chunk files, not a live stream. */
     private var playlist = false
 
+    /** Recordings go to the television's own decoder first once software has failed on this box. */
+    private var hardwareFirst = false
+
     /** When the picture last stopped moving, so a stall can be caught early. */
     private var stalledSince = 0L
 
@@ -148,6 +151,7 @@ class PlayerActivity : AppCompatActivity() {
 
         urls = intent.getStringArrayListExtra(EXTRA_URLS) ?: emptyList()
         playlist = intent.getBooleanExtra(EXTRA_PLAYLIST, false)
+        hardwareFirst = prefs.softwareDecoderFailed
         title = intent.getStringExtra(EXTRA_TITLE) ?: ""
         contentId = intent.getStringExtra(EXTRA_CONTENT_ID) ?: ""
         kind = runCatching { Kind.valueOf(intent.getStringExtra(EXTRA_KIND) ?: Kind.LIVE.name) }
@@ -307,7 +311,7 @@ class PlayerActivity : AppCompatActivity() {
         if (contentId.startsWith(CatchUpActivity.CONTENT_PREFIX)) return
         val position = active.currentPosition
         val duration = if (active.duration > 0) active.duration else 0L
-        prefs.savePosition(kind, contentId, position, duration)
+        prefs.savePosition(kind, contentId, position, duration, listed = kind != Kind.SERIES)
     }
 
     // ---------- changing channel from the phone ----------
@@ -1006,9 +1010,12 @@ class PlayerActivity : AppCompatActivity() {
                             mimeType, requiresSecureDecoder, requiresTunnelingDecoder
                         )
                         val software = all.filter { !it.hardwareAccelerated }
+                        val hardware = all.filter { it.hardwareAccelerated }
                         // Software first where there is one, then everything
-                        // else - so this can only ever add an option.
-                        software + all.filter { it.hardwareAccelerated }
+                        // else - so this can only ever add an option. Unless
+                        // software has already failed here: then the other
+                        // way round.
+                        if (hardwareFirst) hardware + software else software + hardware
                     }
                 }
             }
@@ -1037,6 +1044,35 @@ class PlayerActivity : AppCompatActivity() {
                         "ERROR " + error.errorCodeName + ": " + (error.message ?: "no detail") +
                             " (" + (error.cause?.message ?: "") + ")"
                     )
+                }
+                /*
+                 * WHEN THE FORGIVING DECODER IS NOT UP TO IT.
+                 *
+                 * Software decoding was chosen for recordings on a Shield,
+                 * where it costs nothing. A Google TV has a fraction of the
+                 * processor and memory: handed full 1080p it buffers, and
+                 * then the system takes the decoder away altogether - "could
+                 * not play", DECODING_RESOURCES_RECLAIMED - on a recording
+                 * with nothing wrong with it.
+                 *
+                 * So a decoder failure on the software path is not the end:
+                 * the recording is opened again where it was, on the
+                 * television's own decoder, and the box remembers so the next
+                 * recording starts there. A strong box never gets here.
+                 */
+                if (playlist && !hardwareFirst &&
+                    error.errorCode >= PlaybackException.ERROR_CODE_DECODER_INIT_FAILED &&
+                    error.errorCode < PlaybackException.ERROR_CODE_DECODER_INIT_FAILED + 1000
+                ) {
+                    hardwareFirst = true
+                    prefs.softwareDecoderFailed = true
+                    PlaybackLog.add(
+                        this@PlayerActivity,
+                        "software decoder gave up - opening again on the television's own decoder"
+                    )
+                    releasePlayer()
+                    startPlayback()
+                    return
                 }
                 if (chasing && chaseRestarts < 5) {
                     // Still being recorded: a bad read of a playlist that is

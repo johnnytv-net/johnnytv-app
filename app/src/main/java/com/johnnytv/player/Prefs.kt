@@ -330,6 +330,15 @@ class Prefs(context: Context) {
      * So the address can be written down instead - a Tailscale address, which
      * is the same wherever either end happens to be.
      */
+    /**
+     * Set once the forgiving decoder has given up on a recording on this box.
+     * From then on recordings go to the television's own decoder first, so
+     * nobody sits through the same failure before every one.
+     */
+    var softwareDecoderFailed: Boolean
+        get() = sp.getBoolean(KEY_SOFT_DECODER_FAILED, false)
+        set(value) = sp.edit().putBoolean(KEY_SOFT_DECODER_FAILED, value).apply()
+
     var awayBox: String
         get() = sp.getString(KEY_AWAY_BOX, "") ?: ""
         set(value) = sp.edit().putString(KEY_AWAY_BOX, value.trim()).apply()
@@ -597,7 +606,7 @@ class Prefs(context: Context) {
     // ---------- continue watching ----------
 
     /** Playback position in milliseconds, keyed by kind + id. Live is never stored. */
-    fun savePosition(kind: Kind, id: String, positionMs: Long, durationMs: Long) {
+    fun savePosition(kind: Kind, id: String, positionMs: Long, durationMs: Long, listed: Boolean = true) {
         if (kind == Kind.LIVE || positionMs < 60_000L) return
         // Finished (or nearly) - drop it rather than offering to resume the
         // credits, and remember that it was seen through to the end.
@@ -608,7 +617,11 @@ class Prefs(context: Context) {
         val map = positionMap()
         map.put(favouriteKey(kind, id), positionMs)
         sp.edit().putString(positionsKey(), map.toString()).apply()
-        pushRecent(continueKey(), favouriteKey(kind, id), 30)
+        // An episode keeps its place but is not listed: Continue Watching
+        // shows the series, which SeriesActivity files under its own id.
+        // Listed as well, episodes filled the thirty places with entries
+        // nothing could draw and pushed real ones off the end.
+        if (listed) pushRecent(continueKey(), favouriteKey(kind, id), 30)
     }
 
     fun position(kind: Kind, id: String): Long = positionMap().optLong(favouriteKey(kind, id), 0L)
@@ -799,6 +812,7 @@ class Prefs(context: Context) {
         const val KEY_ACCOUNTS = "known_accounts"
         const val KEY_SHARE = "share_recordings"
         const val KEY_AWAY_BOX = "away_box"
+        const val KEY_SOFT_DECODER_FAILED = "soft_decoder_failed"
 
         /** More lines than anyone has; a list that can never grow for ever. */
         const val MAX_ACCOUNTS = 6

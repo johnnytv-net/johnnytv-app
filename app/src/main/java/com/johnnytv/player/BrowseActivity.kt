@@ -424,7 +424,15 @@ class BrowseActivity : AppCompatActivity() {
         if (kind == Kind.LIVE) specials.add(Category(CATEGORY_GUIDE, getString(R.string.tv_guide)))
         if (kind != Kind.LIVE) {
             specials.add(Category(CATEGORY_RECENT, getString(R.string.recently_added)))
-            specials.add(Category(CATEGORY_CONTINUE, getString(R.string.continue_watching), prefs.continueWatching(kind).size))
+            /*
+             * THE SAME RULE AS FAVOURITES: COUNT WHAT IS DRAWN.
+             *
+             * This counted the stored list, and the stored list held more
+             * than the screen could show: every episode played was filed in
+             * it beside its series, and a film the portal has since dropped
+             * stayed in it too. "Continue watching 11" over seven posters.
+             */
+            specials.add(Category(CATEGORY_CONTINUE, getString(R.string.continue_watching), tilesFor(CATEGORY_CONTINUE).size))
         }
         /*
          * All is gone from every list now.
